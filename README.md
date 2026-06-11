@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/dddinmx/bzmh-downloader"><img alt="Release" src="https://img.shields.io/badge/crawler-bule"></a>
   <a href="https://github.com/dddinmx/bzmh-downloader"><img alt="Release" src="https://img.shields.io/badge/python-3.8%2B-8A2BE2"></a>
-  <a href="https://github.com/dddinmx/bzmh-downloader"><img alt="Release" src="https://img.shields.io/badge/Version-1.5-yellow"></a>
+  <a href="https://github.com/dddinmx/bzmh-downloader"><img alt="Release" src="https://img.shields.io/badge/Version-1.2-yellow"></a>
   <a href="https://github.com/dddinmx/hxs-downloader/"><img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/dddinmx/bzmh-downloader?color=gree"></a>
 </p>
 
@@ -36,7 +36,7 @@
 ```docker
 services:
   mangadock:
-    image: dddinmx/mangadock:v1.0
+    image: dddinmx/mangadock:v1.2
     container_name: MangaDock
     restart: unless-stopped
     ports:
@@ -69,8 +69,9 @@ touch ./data/comic.json
 
 #### 3.运行
 ```
-docker compose up -d  （默认账号：admin/123456）
+docker compose up -d  （首次启动生成默认密码）
 ```
+<img width="311" height="`180" alt="image" src="https://github.com/user-attachments/assets/e210a0b8-f4d0-4f2c-9676-8a9e97c29c6d" />
 
 ### 📝 iOS 客户端
 ```
