@@ -29,13 +29,15 @@ comic.json
 static/cover/*
 !static/cover/.gitkeep
 
-# OS / editor
+# OS / editor / macOS AppleDouble (do not commit)
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 *.swp
 *.swo
+._*
+**/._*
 
 # Logs & locks
 *.log
@@ -45,3 +47,9 @@ Thumbs.db
 # Optional local caches
 .cache/
 api_page_cache/
+
+# Local-only / binary artifacts (do not commit)
+*.apk
+package.aix
+app.monolith.py
+4b595f3df6e2a66d6c4bb7b33f22f1c8.jpg

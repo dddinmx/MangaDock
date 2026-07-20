@@ -267,7 +267,26 @@ def logout():
 
 def _build_home_spotlight(user_id):
     """Pick continue-reading comic for homepage hero."""
+    current_user = get_current_user()
     comics = get_available_comics() or []
+    # Apply membership groups + per-user group permissions (bookshelf already does this).
+    comics, _, _, _ = filter_grouped_comics_for_user(comics, current_user)
+
+    # Homepage always hides admin-hidden comics/groups (no show_hidden toggle here).
+    hidden_comics, hidden_groups = get_admin_hidden_targets(current_user)
+    comics = [
+        comic for comic in comics
+        if not is_comic_hidden_for_admin(comic, hidden_comics, hidden_groups)
+    ]
+    comics, group_names, _group_counts, grouped_lookup = filter_grouped_comics_for_user(
+        comics, current_user
+    )
+    if current_user and current_user.is_admin and hidden_groups:
+        group_names = [name for name in group_names if name not in hidden_groups]
+        for name in list(grouped_lookup.keys()):
+            if name in hidden_groups:
+                grouped_lookup.pop(name, None)
+
     comic_lookup = {c.get('comic_name'): c for c in comics if c.get('comic_name')}
     progresses = get_all_reading_progress(user_id) or []
 
@@ -340,15 +359,11 @@ def _build_home_spotlight(user_id):
     recent_names = {item.get('comic_name') for item in recent}
     latest = [c for c in comics if c.get('comic_name') not in recent_names][:12]
 
-    groups_map = {}
-    for comic in comics:
-        gname = comic.get('group') or '默认分组'
-        groups_map.setdefault(gname, []).append(comic)
-
+    # Prefer ComicGroup order so rails match bookshelf grouping.
     group_rails = [
-        {'name': name, 'comics': items[:10]}
-        for name, items in groups_map.items()
-        if items
+        {'name': name, 'comics': (grouped_lookup.get(name) or [])[:10]}
+        for name in group_names
+        if grouped_lookup.get(name)
     ][:6]
 
     return spotlight, recent, latest, group_rails
@@ -373,13 +388,8 @@ def index():
 @app.route('/search')
 @login_required
 def search_page():
-    query = (request.args.get('q') or '').strip()
-    comics = get_available_comics() or []
-    comics, _group_names, _counts, _lookup = filter_grouped_comics_for_user(comics, get_current_user())
-    if query:
-        lowered = query.lower()
-        comics = [c for c in comics if lowered in (c.get('comic_name') or '').lower()]
-    return render_template('search.html', query=query, comics=comics)
+    # 独立搜索页已下线；保留路由以免旧链接 404，统一回到书架（书架内联搜索仍可用）
+    return redirect(url_for('comics_list'))
 
 
 @app.route('/history')
@@ -703,8 +713,12 @@ def comics_list():
     current_user_id = session.get('user_id')
     can_show_hidden_library = bool(current_user and current_user.is_admin)
     show_hidden_library = can_show_hidden_library and request.args.get('show_hidden') == '1'
+    search_query = (request.args.get('q') or '').strip()
     requested_group = request.args.get('group')
-    if requested_group is None:
+    if search_query and requested_group is None:
+        # 顶栏搜索默认在全部分组中过滤
+        group_filter = '全部'
+    elif requested_group is None:
         group_filter = get_saved_group_filter(current_user_id)
     else:
         group_filter = normalize_group_name(requested_group) or '全部'

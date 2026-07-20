@@ -143,6 +143,24 @@
                 currentColumnsText.textContent = '3列';
             }
         }
+
+        // 顶栏搜索框提交 ?q= 后，在书架内联过滤
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const query = (params.get('q') || '').trim();
+            if (query) {
+                const input = document.getElementById('library-search-input');
+                if (input) {
+                    input.value = query;
+                    if (document.getElementById('library-search-panel')) {
+                        toggleLibrarySearch();
+                    }
+                    filterLibraryComics();
+                }
+            }
+        } catch (error) {
+            // ignore search bootstrap failures
+        }
     });
 
     // 点击页面其他地方关闭下拉菜单
@@ -170,7 +188,8 @@
             position: relative;
             display: inline-flex;
             align-items: center;
-            gap: 0.55rem;
+            gap: 0.5rem;
+            min-height: 2.25rem;
         }
 
         .library-search-toggle {
@@ -279,9 +298,34 @@
         }
 
         .group-section-title {
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 0.55rem;
+            min-width: 0;
+            min-height: 2.25rem;
+        }
+
+        /* 分组名与数量徽章垂直居中对齐 */
+        .group-section-title .md-section-title {
+            margin: 0 !important;
+            padding: 0;
+            line-height: 1.2;
+            font-size: 1.05rem;
+            display: inline-flex;
+            align-items: center;
+            min-height: 1.5rem;
+        }
+
+        .group-section-title .md-lib-badge,
+        .library-toolbar .md-lib-badge {
+            flex-shrink: 0;
+            align-self: center;
+        }
+
+        .library-toolbar .md-lib-select {
+            height: 2.25rem;
+            line-height: 1.2;
+            box-sizing: border-box;
         }
 
         .group-section-actions {
@@ -289,6 +333,7 @@
             align-items: center;
             gap: 0.75rem;
             flex-wrap: wrap;
+            min-height: 2.25rem;
         }
 
         .group-view-all-btn {
@@ -537,18 +582,28 @@
         @media (max-width: 768px) {
             .group-section-header {
                 margin-bottom: 0.85rem;
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: nowrap;
+                gap: 0.5rem;
             }
 
             .group-section-actions {
-                gap: 0.5rem;
+                gap: 0.35rem;
+                width: auto;
+                flex: 0 0 auto;
+                justify-content: flex-end;
+                flex-wrap: nowrap;
             }
 
             .group-view-all-btn {
                 font-size: 0.78rem;
             }
 
-            .group-rail-nav {
-                display: none;
+            .group-rail-nav,
+            .md-lib-rail-nav {
+                display: none !important;
             }
 
             .group-rail {
@@ -556,14 +611,69 @@
             }
 
             .group-section-title {
-                gap: 0.55rem;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.45rem;
+                width: auto;
+                max-width: calc(100% - 5.5rem);
+                min-width: 0;
+                flex: 0 1 auto;
             }
 
+            .library-toolbar {
+                display: inline-flex;
+                align-items: center;
+                flex: 0 1 auto;
+                width: auto;
+                min-width: 0;
+                max-width: 100%;
+                gap: 0.4rem;
+            }
+
+            .md-lib-select,
             .group-quick-select {
-                min-width: 6.4rem;
-                max-width: 9rem;
+                flex: 0 1 auto;
+                width: auto;
+                min-width: 5.25rem;
+                max-width: 8.5rem;
+                height: 2.1rem;
                 font-size: 0.88rem;
-                padding: 0.48rem 1.9rem 0.48rem 0.72rem;
+                padding: 0 1.75rem 0 0.7rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                box-sizing: border-box;
+            }
+
+            .group-section-title .md-section-title {
+                margin: 0 !important;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                line-height: 1.2;
+                display: inline-flex;
+                align-items: center;
+            }
+
+            .md-lib-badge {
+                flex-shrink: 0;
+                align-self: center;
+            }
+
+            .group-section-title,
+            .library-toolbar {
+                align-items: center;
+                min-height: 2.1rem;
+            }
+
+            .group-section-actions .md-lib-link span {
+                display: none;
+            }
+
+            .group-section-actions .md-lib-link {
+                gap: 0;
+                padding: 0.15rem 0.2rem;
             }
 
             .recent-reading-card {
@@ -704,44 +814,6 @@
 
     <div class="page-shell-content">
 <div class="container mx-auto px-0 py-2 md:px-4 md:py-20 md:max-w-6xl relative">
-        {% if recent_comic and recent_progress %}
-        {% set recent_total = recent_progress.total_chapters if recent_progress.total_chapters and recent_progress.total_chapters > 0 else (recent_comic.available_chapters if recent_comic.available_chapters > 0 else 1) %}
-        {% set recent_completed = recent_progress.last_chapter + 1 %}
-        {% set recent_percent = ((recent_completed / recent_total) * 100) if recent_total > 0 else 0 %}
-        <section class="md-lib-recent">
-            <a href="{{ url_for('comic_detail', task_id=recent_comic.comic_name) }}" data-app-loader="true" class="md-lib-recent-cover action-press">
-                <img src="{{ cover_image_url(recent_comic.comic_name) }}"
-                     alt="{{ recent_comic.comic_name }}封面"
-                     loading="lazy"
-                     decoding="async"
-                     onerror="this.src='{{ asset_url('cover/cover.png') }}'">
-            </a>
-            <div class="md-lib-recent-body">
-                <div class="md-lib-recent-kicker">
-                    <i class="fa fa-history"></i>
-                    最近阅读
-                </div>
-                <div class="md-lib-recent-title">{{ recent_comic.comic_name }}</div>
-                <div class="md-lib-recent-meta">
-                    <span class="md-chip">{{ recent_comic.group or '默认分组' }}</span>
-                    <span>读到第 {{ recent_completed }} 章</span>
-                    <span>{{ recent_comic.available_chapters }} 章可读</span>
-                </div>
-                <div class="md-lib-progress"><span style="width: {{ recent_percent }}%;"></span></div>
-                <div class="md-lib-recent-actions">
-                    <a href="{{ url_for('comic_reader', task_id=recent_comic.comic_name) }}" class="md-lib-link action-press" style="color:var(--md-brand-soft)">
-                        <i class="fa fa-play-circle-o"></i>
-                        继续阅读
-                    </a>
-                    <a href="{{ url_for('comic_detail', task_id=recent_comic.comic_name) }}" data-app-loader="true" class="md-lib-link action-press">
-                        查看详情
-                        <i class="fa fa-angle-right"></i>
-                    </a>
-                </div>
-            </div>
-        </section>
-        {% endif %}
-
         {% with messages = get_flashed_messages() %}
         {% if messages %}
         <div class="space-y-2 mb-4">
@@ -755,7 +827,7 @@
         {% endwith %}
 
         {% if can_manage_library and (hidden_library_count > 0 or show_hidden_library) %}
-        <div class="flex justify-end mb-4">
+        <div class="flex justify-start mb-4">
             <a
                 href="{% if show_hidden_library %}{{ url_for('comics_list', group=selected_group) }}{% else %}{{ url_for('comics_list', group=selected_group, show_hidden='1') }}{% endif %}"
                 data-app-loader="true"
@@ -880,12 +952,19 @@
             <div class="group-rail-shell">
                 <div data-group-rail="{{ loop.index0 }}" class="group-rail">
                 {% for task in group_block.tasks %}
+                {% set progress = progresses.get(task.comic_name) if progresses else none %}
+                {% set available = task.available_chapters or 0 %}
+                {% set read_count = (progress.last_chapter + 1) if progress and progress.last_chapter is not none else 0 %}
+                {% set unread_count = available - read_count if available > read_count else 0 %}
                 <div class="group-rail-card w-full" data-comic-search-item data-comic-title="{{ task.comic_name }}">
                     <a href="{{ url_for('comic_detail', task_id=task.comic_name) }}" data-app-loader="true" class="md-cover-card">
                         <div class="md-book">
                             <div class="md-book__spine" aria-hidden="true"></div>
                             <div class="md-book__pages" aria-hidden="true"></div>
                             <div class="md-book__cover">
+                                {% if unread_count > 0 %}
+                                <span class="md-cover-unread" title="剩余未读 {{ unread_count }} 章" aria-label="剩余未读 {{ unread_count }} 章">{{ unread_count }}</span>
+                                {% endif %}
                                 <img src="{{ cover_image_url(task.comic_name) }}"
                                      alt="{{ task.comic_name }}封面"
                                      loading="lazy"
@@ -906,12 +985,19 @@
             {% else %}
             <div data-comics-grid="true" class="md-cover-grid">
                 {% for task in group_block.tasks %}
+                {% set progress = progresses.get(task.comic_name) if progresses else none %}
+                {% set available = task.available_chapters or 0 %}
+                {% set read_count = (progress.last_chapter + 1) if progress and progress.last_chapter is not none else 0 %}
+                {% set unread_count = available - read_count if available > read_count else 0 %}
                 <div data-comic-search-item data-comic-title="{{ task.comic_name }}">
                     <a href="{{ url_for('comic_detail', task_id=task.comic_name) }}" data-app-loader="true" class="md-cover-card">
                         <div class="md-book">
                             <div class="md-book__spine" aria-hidden="true"></div>
                             <div class="md-book__pages" aria-hidden="true"></div>
                             <div class="md-book__cover">
+                                {% if unread_count > 0 %}
+                                <span class="md-cover-unread" title="剩余未读 {{ unread_count }} 章" aria-label="剩余未读 {{ unread_count }} 章">{{ unread_count }}</span>
+                                {% endif %}
                                 <img src="{{ cover_image_url(task.comic_name) }}"
                                      alt="{{ task.comic_name }}封面"
                                      loading="lazy"

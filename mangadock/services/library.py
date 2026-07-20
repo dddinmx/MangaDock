@@ -720,6 +720,10 @@ def is_existing_local_chapter(chapter, local_match_bases):
 
 def build_available_comics_snapshot():
     with app.app_context():
+        # Membership table is the source of truth; DownloadTask.group can lag behind.
+        from mangadock.services.groups import get_comic_group_map
+
+        comic_group_map = get_comic_group_map()
         query = DownloadTask.query.filter(
             DownloadTask.status.in_(['completed', 'running', 'error', 'cancelled'])
         )
@@ -753,7 +757,7 @@ def build_available_comics_snapshot():
                         'completed_chapters': task.completed_chapters,
                         'available_chapters': available_chapters,
                         'created_at': task.created_at,
-                        'group': task.group or '默认分组'
+                        'group': comic_group_map.get(task.comic_name) or task.group or '默认分组'
                     }
 
         for comic_name, _comic_path in iter_local_comic_directories():
@@ -772,7 +776,7 @@ def build_available_comics_snapshot():
                             'completed_chapters': available_chapters,
                             'available_chapters': available_chapters,
                             'created_at': None,
-                            'group': '默认分组'
+                            'group': comic_group_map.get(comic_name) or '默认分组'
                         }
                 except Exception:
                     continue

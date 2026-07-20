@@ -783,15 +783,20 @@
                 <a href="{{ url_for('settings') }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'users', 'change_password', 'statistics', 'download', 'update', 'tasks'] %} is-active{% endif %}">我的</a>
             </nav>
 
-            <form class="md-search hidden sm:flex" method="get" action="{{ url_for('search_page') }}" role="search">
+            {# 保留顶栏搜索框；结果在书架页过滤。已取消第二个搜索按钮及独立搜索页 #}
+            <form class="md-search" method="get" action="{{ url_for('comics_list') }}" role="search">
+                <input type="hidden" name="group" value="全部">
                 <i class="fa fa-search text-ink-400"></i>
-                <input type="search" name="q" value="{{ request.args.get('q', '') }}" placeholder="搜索漫画..." aria-label="搜索漫画">
+                <input
+                    type="search"
+                    name="q"
+                    value="{{ request.args.get('q', '') if request.endpoint == 'comics_list' else '' }}"
+                    placeholder="搜索漫画..."
+                    aria-label="搜索漫画"
+                >
             </form>
 
             <div class="ml-auto flex items-center gap-2">
-                <a href="{{ url_for('search_page') }}" class="md-nav-link sm:hidden" data-app-loader="true" aria-label="搜索">
-                    <i class="fa fa-search"></i>
-                </a>
                 <div class="md-user-menu" id="user-menu">
                     <button type="button" class="md-user-btn action-press" id="user-menu-toggle" aria-expanded="false" aria-haspopup="true">
                         <i class="fa fa-user-circle"></i>
@@ -835,10 +840,6 @@
                 <a href="{{ url_for('comics_list') }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == 'comics_list' %} is-active{% endif %}">书架</a>
                 <a href="{{ url_for('history_page') }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == 'history_page' %} is-active{% endif %}">历史</a>
                 <a href="{{ url_for('settings') }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == 'settings' %} is-active{% endif %}">我的</a>
-                <form class="md-search mt-2" method="get" action="{{ url_for('search_page') }}" role="search">
-                    <i class="fa fa-search text-ink-400"></i>
-                    <input type="search" name="q" value="{{ request.args.get('q', '') }}" placeholder="搜索漫画...">
-                </form>
                 {% if show_group_menu and groups is defined %}
                 <div class="mt-3 border-t border-white/10 pt-3">
                     <div class="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-400">分组</div>

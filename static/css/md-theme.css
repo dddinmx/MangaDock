@@ -94,6 +94,7 @@ body.md-body {
   color: #fff;
 }
 
+/* 顶栏搜索框（唯一全局搜索入口，结果落到书架页） */
 .md-search {
   display: flex;
   min-width: 0;
@@ -106,6 +107,28 @@ body.md-body {
   padding: 0.5rem 0.85rem;
   font-size: 0.875rem;
   color: #d1d1db;
+}
+
+@media (max-width: 639px) {
+  .md-topnav .md-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.8125rem;
+  }
+
+  .md-topnav-inner {
+    gap: 0.5rem;
+  }
+
+  /* 小屏压缩品牌文字，给搜索框留空间 */
+  .md-logo span:not(.md-logo-mark) {
+    max-width: 5.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .md-search input {
@@ -561,6 +584,40 @@ body.md-body {
   height: 100%;
   object-fit: cover;
   border-radius: inherit;
+}
+
+/* 书架封面：剩余未读章节（左上角绿色） */
+.md-cover-unread {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.95);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  box-shadow: 0 4px 10px rgba(6, 78, 59, 0.45);
+  pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .md-cover-unread {
+    top: 0.3rem;
+    left: 0.3rem;
+    min-width: 1.2rem;
+    height: 1.2rem;
+    padding: 0 0.28rem;
+    font-size: 0.62rem;
+  }
 }
 
 /* 书口（右侧纸张厚度） */
@@ -1396,6 +1453,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 .md-lib-select {
   min-width: 7rem;
   max-width: 12rem;
+  height: 2.25rem;
   appearance: none;
   -webkit-appearance: none;
   border: 1px solid var(--md-border);
@@ -1407,13 +1465,17 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   color: #fff;
   font-size: 0.95rem;
   font-weight: 700;
-  padding: 0.55rem 1.9rem 0.55rem 0.85rem;
+  line-height: 1.2;
+  padding: 0 1.9rem 0 0.85rem;
+  box-sizing: border-box;
+  vertical-align: middle;
 }
 
 .md-lib-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   min-width: 1.5rem;
   height: 1.5rem;
   padding: 0 0.4rem;
@@ -1422,6 +1484,41 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   color: var(--md-brand-soft);
   font-size: 0.72rem;
   font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+/* 分组标题行：分组名与数量徽章水平一排、垂直居中 */
+.group-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.group-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  min-height: 2.25rem;
+}
+
+.group-section-title .md-section-title {
+  margin: 0 !important;
+  padding: 0;
+  line-height: 1.2;
+  font-size: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+}
+
+.library-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
 }
 
 .md-lib-rail-nav {
@@ -1440,6 +1537,88 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 .md-lib-rail-nav:hover {
   color: #fff;
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* 手机端：隐藏左右箭头；选择器保持紧凑，数量徽章贴在旁边，不拉满整行 */
+@media (max-width: 768px) {
+  .md-lib-rail-nav {
+    display: none !important;
+  }
+
+  .group-section-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+
+  .group-section-title {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+    width: auto;
+    max-width: calc(100% - 5.5rem);
+    gap: 0.45rem;
+  }
+
+  .group-section-actions {
+    flex: 0 0 auto;
+    width: auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 0.35rem;
+  }
+
+  .library-toolbar {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    gap: 0.4rem;
+  }
+
+  .md-lib-select {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 5.25rem;
+    max-width: 8.5rem;
+    height: 2.1rem;
+    font-size: 0.88rem;
+    padding: 0 1.75rem 0 0.7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .group-section-title .md-section-title {
+    margin: 0 !important;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.2;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .md-lib-badge {
+    flex-shrink: 0;
+    align-self: center;
+  }
+
+  /* 右侧操作过窄时只保留图标，避免把左侧选择器挤长/挤乱 */
+  .group-section-actions .md-lib-link span {
+    display: none;
+  }
+
+  .group-section-actions .md-lib-link {
+    gap: 0;
+    padding: 0.15rem 0.2rem;
+  }
 }
 
 .md-lib-link {

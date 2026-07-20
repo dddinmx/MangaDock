@@ -91,31 +91,6 @@
     {% endif %}
 
     <div class="md-main !pt-4">
-        {% if recent_comics %}
-        <section class="md-section !py-8">
-            <div class="mb-5 flex items-end justify-between gap-3">
-                <h2 class="md-section-title !mb-0">继续阅读</h2>
-                <a href="{{ url_for('history_page') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部历史</a>
-            </div>
-            <div class="md-cover-grid">
-                {% for comic in recent_comics[:10] %}
-                <a href="{{ url_for('comic_detail', task_id=comic.comic_name) }}" class="md-cover-card" data-app-loader="true">
-                    <div class="md-book">
-                        <div class="md-book__spine" aria-hidden="true"></div>
-                        <div class="md-book__pages" aria-hidden="true"></div>
-                        <div class="md-book__cover">
-                            <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
-                                 onerror="this.src='{{ asset_url('cover/cover.png') }}'">
-                        </div>
-                    </div>
-                    <div class="md-cover-card__title">{{ comic.comic_name }}</div>
-                    <div class="md-cover-card__meta">第 {{ (comic.last_chapter or 0) + 1 }} 话</div>
-                </a>
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
-
         {% if latest_comics %}
         <section class="md-section !py-8">
             <div class="mb-5 flex items-end justify-between gap-3">
