@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}MangaDock - 首页{% endblock %}
+
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block main_wrapper %}
+<div class="md-main--flush app-main-content">
+    {% block content %}
+    {% if spotlight and spotlight.comic_name %}
+    <section class="md-hero">
+        {# 方案 C：底图强模糊只做氛围；清晰主封面用原图 contain，避免小图硬拉满屏 #}
+        <div class="md-hero-media" aria-hidden="true">
+            <img
+                class="md-hero-media-img is-soft"
+                src="{{ cover_image_url(spotlight.comic_name) }}"
+                alt=""
+                onerror="this.onerror=null;this.src='{{ asset_url('cover/cover.png') }}';"
+            >
+        </div>
+        <div class="md-hero-shade"></div>
+        <div class="md-hero-inner">
+            <div class="md-hero-copy">
+                <div class="md-hero-tags">
+                    {{ spotlight.group or '默认分组' }}
+                    {% if spotlight.comic_format == 1 %} · PDF{% elif spotlight.comic_format == 2 %} · CBZ{% endif %}
+                    {% if spotlight.available_chapters %} · {{ spotlight.available_chapters }} 话{% endif %}
+                </div>
+                <h1 class="md-hero-title">{{ spotlight.comic_name }}</h1>
+                <p class="md-hero-desc">
+                    {% if spotlight.description %}
+                        {{ spotlight.description }}
+                    {% elif spotlight.has_progress %}
+                        上次读到第 {{ (spotlight.last_chapter or 0) + 1 }} 话
+                        {% if spotlight.last_page %} · 第 {{ spotlight.last_page + 1 }} 页{% endif %}
+                        。点击继续，马上回到你离开的位置。
+                    {% else %}
+                        本地书库精选。一键开始阅读，进度会自动保存在当前账号下。
+                    {% endif %}
+                </p>
+                {% if spotlight.description and spotlight.has_progress %}
+                <p class="md-hero-progress-hint">
+                    上次读到第 {{ (spotlight.last_chapter or 0) + 1 }} 话
+                    {% if spotlight.last_page %} · 第 {{ (spotlight.last_page or 0) + 1 }} 页{% endif %}
+                </p>
+                {% endif %}
+                <div class="md-hero-actions">
+                    <a href="{{ url_for('comic_reader', task_id=spotlight.comic_name) }}" class="md-btn-primary action-press">
+                        {% if spotlight.has_progress %}继续阅读{% else %}开始阅读{% endif %}
+                    </a>
+                    <a href="{{ url_for('comic_detail', task_id=spotlight.comic_name) }}" class="md-btn-ghost action-press" data-app-loader="true">
+                        详情
+                    </a>
+                    <span class="md-chapter-pill">
+                        <i class="fa fa-bookmark"></i>
+                        {% if spotlight.has_progress %}
+                        第 {{ (spotlight.last_chapter or 0) + 1 }} 话
+                        {% else %}
+                        共 {{ spotlight.available_chapters or 0 }} 话
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            {# 清晰主视觉：原图 + object-fit:contain，不拉伸填满 #}
+            <div class="md-hero-art">
+                <img src="{{ cover_image_url(spotlight.comic_name) }}"
+                     alt="{{ spotlight.comic_name }}"
+                     loading="eager"
+                     decoding="async"
+                     onerror="this.onerror=null;this.src='{{ asset_url('cover/cover.png') }}';">
+            </div>
+        </div>
+    </section>
+    {% else %}
+    <section class="md-hero">
+        <div class="md-hero-shade"></div>
+        <div class="md-hero-inner">
+            <div class="md-hero-copy">
+                <div class="md-hero-tags">MANGADOCK LIBRARY</div>
+                <h1 class="md-hero-title">你的漫画库还是空的</h1>
+                <p class="md-hero-desc">下载第一本漫画，或配置扫盘路径后，这里会展示继续阅读焦点位。</p>
+                <div class="md-hero-actions">
+                    {% if can_manage_library %}
+                    <a href="{{ url_for('download') }}" class="md-btn-primary action-press" data-app-loader="true">去下载</a>
+                    {% endif %}
+                    <a href="{{ url_for('comics_list') }}" class="md-btn-ghost action-press" data-app-loader="true">打开书架</a>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <div class="md-main !pt-4">
+        {% if recent_comics %}
+        <section class="md-section !py-8">
+            <div class="mb-5 flex items-end justify-between gap-3">
+                <h2 class="md-section-title !mb-0">继续阅读</h2>
+                <a href="{{ url_for('history_page') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部历史</a>
+            </div>
+            <div class="md-cover-grid">
+                {% for comic in recent_comics[:10] %}
+                <a href="{{ url_for('comic_detail', task_id=comic.comic_name) }}" class="md-cover-card" data-app-loader="true">
+                    <div class="md-book">
+                        <div class="md-book__spine" aria-hidden="true"></div>
+                        <div class="md-book__pages" aria-hidden="true"></div>
+                        <div class="md-book__cover">
+                            <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
+                                 onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                        </div>
+                    </div>
+                    <div class="md-cover-card__title">{{ comic.comic_name }}</div>
+                    <div class="md-cover-card__meta">第 {{ (comic.last_chapter or 0) + 1 }} 话</div>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        {% if latest_comics %}
+        <section class="md-section !py-8">
+            <div class="mb-5 flex items-end justify-between gap-3">
+                <h2 class="md-section-title !mb-0">最近入库</h2>
+                <a href="{{ url_for('comics_list') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部书架</a>
+            </div>
+            <div class="md-cover-grid">
+                {% for comic in latest_comics[:10] %}
+                <a href="{{ url_for('comic_detail', task_id=comic.comic_name) }}" class="md-cover-card" data-app-loader="true">
+                    <div class="md-book">
+                        <div class="md-book__spine" aria-hidden="true"></div>
+                        <div class="md-book__pages" aria-hidden="true"></div>
+                        <div class="md-book__cover">
+                            <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
+                                 onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                        </div>
+                    </div>
+                    <div class="md-cover-card__title">{{ comic.comic_name }}</div>
+                    <div class="md-cover-card__meta">{{ comic.group or '默认分组' }}</div>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        {% for rail in group_rails %}
+        <section class="md-section !py-8">
+            <div class="mb-5 flex items-end justify-between gap-3">
+                <h2 class="md-section-title !mb-0">{{ rail.name }}</h2>
+                <a href="{{ url_for('comics_list', group=rail.name) }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">查看全部</a>
+            </div>
+            <div class="md-cover-grid">
+                {% for comic in rail.comics %}
+                <a href="{{ url_for('comic_detail', task_id=comic.comic_name) }}" class="md-cover-card" data-app-loader="true">
+                    <div class="md-book">
+                        <div class="md-book__spine" aria-hidden="true"></div>
+                        <div class="md-book__pages" aria-hidden="true"></div>
+                        <div class="md-book__cover">
+                            <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
+                                 onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                        </div>
+                    </div>
+                    <div class="md-cover-card__title">{{ comic.comic_name }}</div>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+
+        {% if can_manage_library %}
+        <section class="md-section !py-6">
+            <div class="flex flex-wrap gap-3">
+                <a href="{{ url_for('download') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-download mr-2"></i>下载漫画</a>
+                <a href="{{ url_for('update') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-refresh mr-2"></i>检查更新</a>
+                <a href="{{ url_for('tasks') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-list mr-2"></i>任务列表</a>
+            </div>
+        </section>
+        {% endif %}
+    </div>
+    {% endblock %}
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node (Tailwind build, if present)
+node_modules/
+npm-debug.log*
+
+# Local runtime / secrets (do not commit)
+instance/
+*.secret
+.env
+.env.*
+!.env.example
+
+# Local library data
+comic/
+comic.json
+static/cover/*
+!static/cover/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs & locks
+*.log
+*.lock
+!package-lock.json
+
+# Optional local caches
+.cache/
+api_page_cache/

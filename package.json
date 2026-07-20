@@ -1,0 +1,16 @@
+{
+  "name": "mangadock",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build:css": "tailwind -c ./tailwind.config.js -i ./static/css/app.css -o ./static/css/app.generated.css --minify",
+    "watch:css": "tailwind -c ./tailwind.config.js -i ./static/css/app.css -o ./static/css/app.generated.css --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "MangaDock",
+  "short_name": "MangaDock",
+  "description": "MangaDock 漫画下载与阅读应用",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#667eea",
+  "icons": [
+    {
+      "src": "/static/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

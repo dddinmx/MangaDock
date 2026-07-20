@@ -1,0 +1,1955 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="shortcut icon" href="{{ asset_url('favicon.ico') }}" type="image/x-icon">
+    <title>{{ task.comic_name }} - 阅读</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#E11D48',
+                        secondary: '#2DD4A8',
+                        dark: '#0B0B0F',
+                        brand: '#E11D48',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0b0b0f;
+            overflow-x: hidden;
+            touch-action: pan-y;
+            color-scheme: dark;
+        }
+        
+        .reader-container {
+            width: 100%;
+            min-height: 100vh;
+            background-color: #0b0b0f;
+            position: relative;
+            padding-top: 56px; /* 为顶部标题栏留空间 */
+            padding-bottom: 96px; /* 为紧凑底部工具栏留空间 */
+        }
+        
+        /* 漫画图片样式 */
+        .comic-page {
+            width: 100%;
+            max-width: 100vw;
+            height: auto;
+            display: block;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+        }
+
+        .pdf-page {
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+        }
+        
+        /* 页面容器 */
+        .page-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            margin: 0 !important;
+            padding: 0 !important;
+            max-width: 80%;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            transition: max-width 0.3s ease-in-out;
+            background: transparent !important;
+        }
+        
+        .page-container.margin-0 { max-width: 100%; }
+        .page-container.margin-10 { max-width: 90%; }
+        .page-container.margin-20 { max-width: 80%; }
+        .page-container.margin-30 { max-width: 70%; }
+        .page-container.margin-40 { max-width: 60%; }
+        .page-container.margin-50 { max-width: 50%; }
+        .page-container.margin-60 { max-width: 40%; }
+        .page-container.margin-70 { max-width: 30%; }
+        
+        /* 加载遮罩 */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        /* 底部加载指示器 */
+        .bottom-loading {
+            width: 100%;
+            padding: 40px 0;
+            text-align: center;
+            color: rgba(255,255,255,0.6);
+            font-size: 14px;
+            background-color: #111;
+        }
+
+        .bottom-loading i {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        /* 顶部标题栏 */
+        .mobile-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(7, 7, 10, 0.92);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 101;
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+        }
+        
+        .mobile-header.hidden {
+            transform: translateY(-100%);
+            opacity: 0;
+        }
+        
+        .mobile-header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .mobile-header-title {
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .mobile-header-chapter {
+            color: rgba(255,255,255,0.7);
+            font-size: 14px;
+        }
+        
+        /* 底部工具栏（移动端） */
+        .floating-controls {
+            position: fixed;
+            bottom: max(10px, env(safe-area-inset-bottom, 0px));
+            left: 12px;
+            right: 12px;
+            background: rgba(12, 12, 18, 0.96);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 10px 12px 12px;
+            z-index: 100;
+            display: flex;
+            gap: 8px 10px;
+            justify-content: center;
+            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            flex-wrap: wrap;
+        }
+
+        .floating-controls::before {
+            display: none;
+        }
+        
+        .floating-controls.hidden {
+            transform: translateY(calc(100% + 16px));
+            opacity: 0;
+        }
+
+        /* 阅读进度条 */
+        .reading-progress-host {
+            width: 100%;
+            flex: 0 0 100%;
+        }
+
+        .reading-progress {
+            position: static;
+            width: 100%;
+            flex: 0 0 100%;
+            z-index: 104;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            padding: 0;
+            box-shadow: none;
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+        }
+
+        .reading-progress.hidden {
+            transform: translateY(16px);
+            opacity: 0;
+        }
+
+        .reading-progress-layout {
+            display: grid;
+            grid-template-columns: 28px minmax(24px, max-content) minmax(0, 1fr) minmax(24px, max-content) 28px;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .progress-nav-btn {
+            appearance: none;
+            border: none;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.74);
+            width: 28px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .progress-nav-btn:disabled {
+            opacity: 0.22;
+        }
+
+        .reading-progress-chapter-side {
+            min-width: 24px;
+            color: rgba(255, 255, 255, 0.96);
+            font-size: 12px;
+            font-weight: 500;
+            text-align: center;
+            line-height: 1;
+        }
+
+        .reading-progress-main {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+        }
+
+        .reading-progress-header {
+            display: none;
+        }
+
+        .reading-progress-label {
+            display: none;
+        }
+
+        .reading-progress-value {
+            font-weight: 400;
+            min-width: 0;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.46);
+        }
+
+        .reading-progress-slider {
+            width: 100%;
+            height: 5px;
+            border-radius: 999px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+            background: linear-gradient(
+                90deg,
+                #9aa7d9 0%,
+                #94a3d9 var(--progress-fill, 0%),
+                rgba(255, 255, 255, 0.14) var(--progress-fill, 0%),
+                rgba(255, 255, 255, 0.14) 100%
+            );
+            box-shadow: none;
+        }
+
+        .reading-progress-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #a5b4e2;
+            border: none;
+            box-shadow: 0 0 0 6px rgba(165, 180, 226, 0.08);
+            cursor: pointer;
+        }
+
+        .reading-progress-slider::-moz-range-thumb {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #a5b4e2;
+            border: none;
+            box-shadow: 0 0 0 6px rgba(165, 180, 226, 0.08);
+            cursor: pointer;
+        }
+        
+        /* 工具栏按钮 */
+        .control-btn {
+            background: transparent;
+            color: white;
+            border: none;
+            border-radius: 0;
+            padding: 0;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+            min-width: 50px;
+            min-height: 28px;
+            justify-content: center;
+            flex: 0 0 auto;
+            max-width: none;
+            box-shadow: none;
+        }
+        
+        .control-btn i {
+            width: auto;
+            height: auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 23px;
+            margin: 0;
+            border-radius: 0;
+            background: none;
+            box-shadow: none;
+            color: rgba(255, 255, 255, 0.82);
+        }
+
+        .control-btn span {
+            display: none;
+        }
+        
+        .control-btn:active {
+            transform: scale(0.94);
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.28;
+            cursor: not-allowed;
+        }
+        
+        .control-btn.margin-active {
+            opacity: 1;
+        }
+
+        .control-btn.margin-active i {
+            color: #a5b4e2;
+        }
+
+        /* 宽度调节滑块 */
+        .width-slider-container {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            position: fixed;
+            left: 18px;
+            right: 18px;
+            bottom: 102px;
+            padding: 14px 16px;
+            background: rgba(0, 0, 0, 0.96);
+            border-top: 1px solid rgba(107, 114, 128, 0.45);
+            border-radius: 20px;
+            width: auto;
+            margin-top: 0;
+            box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.3);
+            z-index: 103;
+        }
+
+        .width-slider-container.active {
+            display: flex;
+        }
+
+        .auto-scroll-speed-container {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            position: fixed;
+            left: 18px;
+            right: 18px;
+            bottom: 102px;
+            padding: 14px 16px;
+            background: rgba(0, 0, 0, 0.96);
+            border-top: 1px solid rgba(107, 114, 128, 0.45);
+            border-radius: 20px;
+            width: auto;
+            box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.3);
+            z-index: 103;
+        }
+
+        .auto-scroll-speed-container.active {
+            display: flex;
+        }
+
+        .auto-scroll-speed-label {
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .auto-scroll-speed-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.14);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .auto-scroll-speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #d4d4d8;
+            cursor: pointer;
+            border: none;
+            box-shadow: none;
+        }
+
+        .auto-scroll-speed-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #d4d4d8;
+            cursor: pointer;
+            border: none;
+            box-shadow: none;
+        }
+
+        .width-slider-label {
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .width-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.14);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .width-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #d4d4d8;
+            cursor: pointer;
+            border: none;
+            box-shadow: none;
+        }
+
+        .width-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #d4d4d8;
+            cursor: pointer;
+            border: none;
+            box-shadow: none;
+        }
+        
+        /* 章节选择器（移动端优化） */
+        .chapter-selector {
+            position: fixed;
+            left: 16px;
+            right: 16px;
+            bottom: 98px;
+            transform: none;
+            background:
+                linear-gradient(180deg, rgba(30, 41, 59, 0.94), rgba(2, 6, 23, 0.98)),
+                rgba(0,0,0,0.92);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 20px;
+            padding: 18px;
+            z-index: 102;
+            color: white;
+            min-width: 0;
+            box-shadow: 0 24px 48px rgba(0,0,0,0.42);
+        }
+
+        .chapter-selector::before {
+            content: '';
+            width: 44px;
+            height: 4px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.24);
+            display: block;
+            margin: 0 auto 14px;
+        }
+        
+        .chapter-selector select {
+            background:
+                linear-gradient(180deg, rgba(59, 130, 246, 0.26), rgba(37, 99, 235, 0.18)),
+                rgba(15, 23, 42, 0.9);
+            color: white;
+            border: 1px solid rgba(96, 165, 250, 0.18);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-top: 10px;
+            width: 100%;
+            font-size: 14px;
+            outline: none;
+        }
+        
+        /* 返回按钮 */
+        .back-btn {
+            background-color: transparent;
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-radius: 50%;
+        }
+        
+        .back-btn:active {
+            background-color: rgba(255,255,255,0.1);
+            transform: scale(0.95);
+        }
+        
+        /* 屏幕点击区域 */
+        .screen-click-trigger {
+            position: fixed;
+            top: 56px;
+            left: 0;
+            right: 0;
+            bottom: 72px;
+            z-index: 50;
+            background: transparent;
+        }
+        
+
+        
+        /* 桌面端样式 */
+        @media (min-width: 769px) {
+            .reader-container {
+                padding-top: 0;
+                padding-bottom: 0;
+            }
+
+            .mobile-header {
+                display: none;
+            }
+
+            .floating-controls {
+                top: auto;
+                right: auto;
+                bottom: 18px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.95);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(107, 114, 128, 0.5);
+                border-radius: 24px;
+                padding: 10px 14px 12px;
+                width: min(680px, calc(100vw - 48px));
+                flex-wrap: wrap;
+                max-width: none;
+                box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+            }
+
+            .floating-controls::before {
+                display: none;
+            }
+
+            .floating-controls.hidden {
+                transform: translate(-50%, 120%);
+            }
+
+            .reading-progress-main {
+                min-width: 0;
+            }
+
+            .control-btn {
+                flex-direction: column;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                padding: 0;
+                min-width: 50px;
+                min-height: 28px;
+                flex: 0 0 auto;
+                gap: 0;
+                box-shadow: none;
+            }
+
+            .control-btn i {
+                width: auto;
+                height: auto;
+                display: inline-flex;
+                font-size: 23px;
+                background: none;
+                box-shadow: none;
+            }
+
+            .control-btn span {
+                display: none;
+            }
+
+            .reading-progress {
+                position: static;
+                left: auto;
+                right: auto;
+                bottom: auto;
+                width: 100%;
+                background: transparent;
+                backdrop-filter: none;
+                border-radius: 0;
+                padding: 0;
+                box-shadow: none;
+            }
+
+            .reading-progress.hidden {
+                transform: translateY(16px);
+            }
+
+            .width-slider-container {
+                left: 50%;
+                right: auto;
+                transform: translateX(-50%);
+                bottom: 112px;
+                min-width: 0;
+                width: min(680px, calc(100vw - 48px));
+                background: rgba(0, 0, 0, 0.96);
+                border: 1px solid rgba(107, 114, 128, 0.45);
+                border-radius: 20px;
+                box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+                margin-top: 0;
+                padding: 14px 16px;
+                z-index: 103;
+            }
+
+            .auto-scroll-speed-container {
+                left: 50%;
+                right: auto;
+                transform: translateX(-50%);
+                bottom: 112px;
+                min-width: 0;
+                width: min(680px, calc(100vw - 48px));
+                background: rgba(0, 0, 0, 0.96);
+                border: 1px solid rgba(107, 114, 128, 0.45);
+                border-radius: 20px;
+                box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+                padding: 14px 16px;
+                z-index: 103;
+            }
+
+            .chapter-selector {
+                top: auto;
+                left: 50%;
+                right: auto;
+                bottom: 112px;
+                transform: translateX(-50%);
+                background-color: rgba(0,0,0,0.95);
+                border: 1px solid rgba(107, 114, 128, 0.45);
+                border-radius: 20px;
+                padding: 16px;
+                box-shadow: 0 16px 34px rgba(0,0,0,0.34);
+                min-width: 0;
+                width: min(680px, calc(100vw - 48px));
+            }
+
+            .chapter-selector::before {
+                display: none;
+            }
+
+            .back-btn {
+                position: fixed;
+                top: 20px;
+                left: 20px;
+                z-index: 103;
+            }
+
+            .screen-click-trigger {
+                top: 15%;
+                left: 15%;
+                right: 15%;
+                bottom: 15%;
+            }
+        }
+        
+        /* 隐藏滚动条 */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+        
+        /* 章节导航按钮 */
+        .chapter-nav-buttons {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 36px;
+            padding: 26px 0 30px;
+            background-color: #111;
+            margin: 0 !important;
+            position: relative;
+            z-index: 60;
+        }
+
+        .chapter-nav-btn {
+            background: transparent;
+            color: rgba(255, 255, 255, 0.86);
+            border: none;
+            border-radius: 0;
+            width: 42px;
+            height: 42px;
+            padding: 0;
+            cursor: pointer;
+            font-size: 26px;
+            font-weight: 300;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .chapter-nav-btn:active {
+            transform: scale(0.92);
+        }
+        
+        .chapter-nav-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.22;
+        }
+
+    </style>
+</head>
+<body>
+    <!-- 加载遮罩 -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="text-center text-white">
+            <i class="fa fa-spinner fa-spin text-4xl mb-4"></i>
+            <p>加载中...</p>
+        </div>
+    </div>
+    
+    <!-- 移动端顶部标题栏 -->
+    <div class="mobile-header" id="mobile-header">
+        <div class="mobile-header-left">
+            <a href="{{ url_for('comic_detail', task_id=task.id) }}" class="back-btn">
+                <i class="fa fa-arrow-left"></i>
+            </a>
+            <div>
+                <div class="mobile-header-title">{{ task.comic_name }}</div>
+                <div class="mobile-header-chapter" id="header-chapter">第 1 章</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 桌面端返回按钮 -->
+    <a href="{{ url_for('comic_detail', task_id=task.id) }}" class="back-btn" style="display: none;" id="desktop-back-btn">
+        <i class="fa fa-arrow-left"></i>
+    </a>
+
+    <div class="reading-progress" id="reading-progress">
+        <div class="reading-progress-layout">
+            <button type="button" class="progress-nav-btn" id="progress-prev-btn" aria-label="上一章">
+                <i class="fa fa-step-backward"></i>
+            </button>
+            <span class="reading-progress-chapter-side" id="reading-progress-current-chapter">1</span>
+            <div class="reading-progress-main">
+                <input
+                    type="range"
+                    min="0"
+                    max="1000"
+                    step="1"
+                    value="0"
+                    class="reading-progress-slider"
+                    id="reading-progress-slider"
+                    aria-label="阅读进度"
+                >
+                <div class="reading-progress-header">
+                    <span class="reading-progress-label">阅读进度</span>
+                    <span class="reading-progress-value" id="reading-progress-value">0%</span>
+                </div>
+            </div>
+            <span class="reading-progress-chapter-side" id="reading-progress-next-chapter">2</span>
+            <button type="button" class="progress-nav-btn" id="progress-next-btn" aria-label="下一章">
+                <i class="fa fa-step-forward"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 底部工具栏 -->
+    <div class="floating-controls" id="floating-controls">
+        <div class="reading-progress-host" id="reading-progress-mobile-slot"></div>
+        <button id="chapter-selector-btn" class="control-btn" aria-label="章节列表">
+            <i class="fa fa-bookmark-o"></i>
+            <span>章节</span>
+        </button>
+        <button id="auto-scroll-btn" class="control-btn" aria-label="自动滚动">
+            <i class="fa fa-arrow-down"></i>
+            <span>滚动</span>
+        </button>
+        <button id="width-adjust-btn" class="control-btn" aria-label="阅读设置">
+            <i class="fa fa-cog"></i>
+            <span>宽度</span>
+        </button>
+        <div class="auto-scroll-speed-container" id="auto-scroll-speed-container">
+            <div class="auto-scroll-speed-label">
+                <span>滚动速度</span>
+                <span id="auto-scroll-speed-value">50</span>
+            </div>
+            <input type="range" min="10" max="120" step="5" value="50" class="auto-scroll-speed-slider" id="auto-scroll-speed-slider">
+        </div>
+        <div class="width-slider-container" id="width-slider-container">
+            <div class="width-slider-label">
+                <span>页面宽度</span>
+                <span id="width-value">100%</span>
+            </div>
+            <input type="range" min="0" max="70" step="10" value="0" class="width-slider" id="width-slider">
+        </div>
+    </div>
+    
+    <!-- 章节选择器 -->
+    <div id="chapter-selector" class="chapter-selector" style="display: none;">
+        <label style="font-weight: 600; font-size: 14px;">选择章节</label>
+        <select id="chapter-select"></select>
+    </div>
+
+    <!-- 阅读容器 -->
+    <div class="reader-container" id="reader-container">
+        <div class="page-content" id="page-content"></div>
+        <div class="chapter-nav-buttons" id="chapter-nav-buttons"></div>
+    </div>
+
+    <!-- 屏幕点击唤醒区域 -->
+    <div class="screen-click-trigger" id="screenClickTrigger"></div>
+
+    <script>
+        // 全局变量
+        const comicName = "{{ task.comic_name }}";
+        const taskId = "{{ task.id }}";
+        const startChapter = parseInt("{{ start_chapter if start_chapter is defined else 0 }}");
+        const csrfToken = "{{ csrf_token() }}";
+        let currentChapter = startChapter;
+        let chapters = [];
+        let currentChapterData = null;
+        let isAutoScrolling = false;
+        let autoScrollRafId = null;
+        let autoScrollLastFrameTime = null;
+        let autoScrollSpeed = 50;
+        let autoScrollQueuedChapterChange = false;
+        let autoScrollChapterTransitionLocked = false;
+        let autoScrollQueueResumeAt = 0;
+        let currentMargin = 0;
+        let currentChapterFormat = null;
+        let savedScrollPosition = 0; // 保存的滚动位置
+        let scrollSaveTimer = null; // 滚动保存定时器
+        let progressIntervalId = null;
+        let isDraggingProgressSlider = false;
+        let progressUiFrameId = null;
+        let activeChapterLoadToken = 0;
+        const chapterCache = new Map();
+        const MAX_CHAPTER_CACHE_SIZE = 2;
+        const readingSessionId = `${taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        let visibleReadingStartedAt = null;
+        let accumulatedReadingMs = 0;
+        let reportedReadingSeconds = 0;
+        
+        // DOM元素
+        const pageContent = document.getElementById('page-content');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const readingProgress = document.getElementById('reading-progress');
+        const readingProgressSlider = document.getElementById('reading-progress-slider');
+        const readingProgressValue = document.getElementById('reading-progress-value');
+        const progressPrevBtn = document.getElementById('progress-prev-btn');
+        const progressNextBtn = document.getElementById('progress-next-btn');
+        const readingProgressCurrentChapter = document.getElementById('reading-progress-current-chapter');
+        const readingProgressNextChapter = document.getElementById('reading-progress-next-chapter');
+        const chapterSelector = document.getElementById('chapter-selector');
+        const chapterSelect = document.getElementById('chapter-select');
+        const chapterSelectorBtn = document.getElementById('chapter-selector-btn');
+        const autoScrollBtn = document.getElementById('auto-scroll-btn');
+        const chapterNavButtons = document.getElementById('chapter-nav-buttons');
+        const widthAdjustBtn = document.getElementById('width-adjust-btn');
+        const autoScrollSpeedContainer = document.getElementById('auto-scroll-speed-container');
+        const autoScrollSpeedSlider = document.getElementById('auto-scroll-speed-slider');
+        const autoScrollSpeedValue = document.getElementById('auto-scroll-speed-value');
+        const widthSliderContainer = document.getElementById('width-slider-container');
+        const widthSlider = document.getElementById('width-slider');
+        const widthValue = document.getElementById('width-value');
+        const screenClickTrigger = document.getElementById('screenClickTrigger');
+        const floatingControls = document.getElementById('floating-controls');
+        const readingProgressMobileSlot = document.getElementById('reading-progress-mobile-slot');
+        const mobileHeader = document.getElementById('mobile-header');
+        const headerChapter = document.getElementById('header-chapter');
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            syncReadingProgressPlacement();
+            currentMargin = getDefaultMarginForViewport();
+            setComicMargin(currentMargin);
+            loadChapters();
+            bindAllEvents();
+            if (!progressIntervalId) {
+                progressIntervalId = window.setInterval(() => saveProgress(), 30000);
+            }
+            detectDevice();
+
+            // 监听滚动事件，延迟保存滚动位置
+            window.addEventListener('scroll', () => {
+                queueProgressUiSync();
+                if (scrollSaveTimer) {
+                    clearTimeout(scrollSaveTimer);
+                }
+                scrollSaveTimer = setTimeout(() => {
+                    saveProgress();
+                }, 1000); // 停止滚动1秒后保存
+            });
+        });
+        
+        // 检测设备类型
+        function detectDevice() {
+            const isDesktop = isDesktopViewport();
+            if (isDesktop) {
+                document.getElementById('desktop-back-btn').style.display = 'flex';
+            } else {
+                document.getElementById('desktop-back-btn').style.display = 'none';
+            }
+        }
+
+        function isDesktopViewport() {
+            return window.innerWidth > 768;
+        }
+
+        function getDefaultMarginForViewport() {
+            return isDesktopViewport() ? 70 : 0;
+        }
+
+        function syncReadingProgressPlacement() {
+            if (readingProgress.parentElement !== readingProgressMobileSlot) {
+                readingProgressMobileSlot.appendChild(readingProgress);
+            }
+        }
+
+        function getChapterCacheKey(chapter) {
+            return chapter ? `${chapter.format}:${chapter.filename}` : '';
+        }
+
+        function scheduleIdleTask(callback) {
+            if ('requestIdleCallback' in window) {
+                return window.requestIdleCallback(callback, { timeout: 1200 });
+            }
+            return window.setTimeout(callback, 180);
+        }
+
+        function pruneChapterCache(retainedKeys = []) {
+            const keepKeys = new Set((retainedKeys || []).filter(Boolean));
+            for (const cacheKey of Array.from(chapterCache.keys())) {
+                if (!keepKeys.has(cacheKey)) {
+                    chapterCache.delete(cacheKey);
+                }
+            }
+
+            while (chapterCache.size > MAX_CHAPTER_CACHE_SIZE) {
+                const oldestKey = chapterCache.keys().next().value;
+                if (!oldestKey) {
+                    break;
+                }
+                chapterCache.delete(oldestKey);
+            }
+        }
+
+        async function getCbzImageBlob(cacheEntry, imagePath) {
+            if (!cacheEntry || !imagePath) {
+                return null;
+            }
+
+            const cachedBlob = cacheEntry.blobCache.get(imagePath);
+            if (cachedBlob) {
+                return cachedBlob;
+            }
+
+            const zipEntry = cacheEntry.zip.file(imagePath);
+            if (!zipEntry) {
+                return null;
+            }
+
+            const blob = await zipEntry.async('blob');
+            cacheEntry.blobCache.set(imagePath, blob);
+            return blob;
+        }
+
+        async function ensureCbzChapterCache(chapter) {
+            const cacheKey = getChapterCacheKey(chapter);
+            if (!cacheKey) {
+                throw new Error('无效的章节缓存键');
+            }
+
+            const existingCache = chapterCache.get(cacheKey);
+            if (existingCache?.promise) {
+                return existingCache.promise;
+            }
+            if (existingCache?.ready) {
+                chapterCache.delete(cacheKey);
+                chapterCache.set(cacheKey, existingCache);
+                return existingCache;
+            }
+
+            const loadPromise = (async () => {
+                const cbzUrl = `/static/comic/${encodeURIComponent(comicName)}/${encodeURIComponent(chapter.filename)}`;
+                const response = await fetch(cbzUrl);
+                if (!response.ok) {
+                    throw new Error(`章节文件加载失败 (${response.status})`);
+                }
+
+                const buffer = await response.arrayBuffer();
+                const zip = await JSZip.loadAsync(buffer);
+                const imageFiles = [];
+
+                zip.forEach((relativePath, zipEntry) => {
+                    if (!zipEntry.dir && /\.(jpg|jpeg|png|gif|webp)$/i.test(relativePath)) {
+                        imageFiles.push(relativePath);
+                    }
+                });
+
+                imageFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+                const cacheEntry = {
+                    ready: true,
+                    zip,
+                    images: imageFiles,
+                    blobCache: new Map(),
+                };
+
+                if (imageFiles.length > 0) {
+                    const firstBlob = await getCbzImageBlob(cacheEntry, imageFiles[0]);
+                    if (firstBlob) {
+                        cacheEntry.firstImagePath = imageFiles[0];
+                    }
+                }
+
+                chapterCache.set(cacheKey, cacheEntry);
+                return cacheEntry;
+            })().catch((error) => {
+                chapterCache.delete(cacheKey);
+                throw error;
+            });
+
+            chapterCache.set(cacheKey, { promise: loadPromise });
+            return loadPromise;
+        }
+
+        function prefetchNextCbzChapter(chapterIndex) {
+            const nextChapterIndex = chapterIndex + 1;
+            if (nextChapterIndex >= chapters.length) {
+                pruneChapterCache([getChapterCacheKey(chapters[chapterIndex])]);
+                return;
+            }
+
+            const currentChapterMeta = chapters[chapterIndex];
+            const nextChapterMeta = chapters[nextChapterIndex];
+            const retainKeys = [getChapterCacheKey(currentChapterMeta)];
+
+            if (!nextChapterMeta || nextChapterMeta.format !== 'cbz') {
+                pruneChapterCache(retainKeys);
+                return;
+            }
+
+            const nextCacheKey = getChapterCacheKey(nextChapterMeta);
+            retainKeys.push(nextCacheKey);
+            pruneChapterCache(retainKeys);
+
+            const nextCache = chapterCache.get(nextCacheKey);
+            if (nextCache?.ready || nextCache?.promise) {
+                return;
+            }
+
+            scheduleIdleTask(() => {
+                ensureCbzChapterCache(nextChapterMeta)
+                    .then(() => pruneChapterCache(retainKeys))
+                    .catch((error) => console.error('预取下一章失败:', error));
+            });
+        }
+        
+        // 绑定所有事件
+        function bindAllEvents() {
+            // 为返回按钮添加阅读时间保存事件
+            const backButtons = document.querySelectorAll('.back-btn');
+            backButtons.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault(); // 先阻止默认跳转
+                    const targetUrl = btn.getAttribute('href');
+
+                    flushVisibleReadingTime();
+                    submitProgressSnapshot({ keepalive: true, includeReadingTime: true });
+                    window.location.href = targetUrl;
+                });
+            });
+            chapterSelectorBtn.addEventListener('click', toggleChapterSelector);
+            autoScrollBtn.addEventListener('click', toggleAutoScroll);
+            autoScrollSpeedSlider.addEventListener('input', handleAutoScrollSpeedChange);
+            progressPrevBtn.addEventListener('click', goToPrevChapter);
+            progressNextBtn.addEventListener('click', goToNextChapter);
+            chapterSelect.addEventListener('change', handleChapterChange);
+            widthAdjustBtn.addEventListener('click', toggleWidthSlider);
+            widthSlider.addEventListener('input', handleWidthChange);
+            readingProgressSlider.addEventListener('pointerdown', startProgressSliderDrag);
+            readingProgressSlider.addEventListener('pointerup', stopProgressSliderDrag);
+            readingProgressSlider.addEventListener('pointercancel', stopProgressSliderDrag);
+            readingProgressSlider.addEventListener('input', handleProgressSliderInput);
+            readingProgressSlider.addEventListener('change', finishProgressSliderDrag);
+
+            // 键盘导航
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowUp') goToPrevChapter();
+                if (e.key === 'ArrowDown') goToNextChapter();
+                if (e.key === ' ') {
+                    e.preventDefault();
+                    toggleAutoScroll();
+                }
+                if (e.key === 'Escape') {
+                    hideChapterSelector();
+                }
+            });
+
+            // 点击切换工具栏
+            screenClickTrigger.addEventListener('click', (e) => {
+                if (chapterSelector.style.display === 'none') {
+                    toggleToolbars();
+                }
+            });
+
+            // 窗口大小变化
+            window.addEventListener('resize', () => {
+                detectDevice();
+                syncReadingProgressPlacement();
+                queueProgressUiSync();
+            });
+        }
+        
+        // 切换工具栏显示/隐藏
+        function toggleToolbars() {
+            const isHidden = floatingControls.classList.contains('hidden');
+            if (isHidden) {
+                showToolbars();
+            } else {
+                floatingControls.classList.add('hidden');
+                mobileHeader.classList.add('hidden');
+                readingProgress.classList.add('hidden');
+            }
+        }
+
+        // 显示工具栏
+        function showToolbars() {
+            floatingControls.classList.remove('hidden');
+            mobileHeader.classList.remove('hidden');
+            readingProgress.classList.remove('hidden');
+        }
+        
+        // 切换宽度滑块显示
+        function toggleWidthSlider() {
+            const isActive = widthSliderContainer.classList.contains('active');
+            if (isActive) {
+                widthSliderContainer.classList.remove('active');
+                widthAdjustBtn.classList.remove('margin-active');
+            } else {
+                widthSliderContainer.classList.add('active');
+                widthAdjustBtn.classList.add('margin-active');
+            }
+        }
+
+        function syncAutoScrollSpeedUi() {
+            autoScrollSpeedSlider.value = String(autoScrollSpeed);
+            autoScrollSpeedValue.textContent = String(autoScrollSpeed);
+        }
+
+        function showAutoScrollSpeedControl() {
+            autoScrollSpeedContainer.classList.add('active');
+        }
+
+        function hideAutoScrollSpeedControl() {
+            autoScrollSpeedContainer.classList.remove('active');
+        }
+
+        function handleAutoScrollSpeedChange(e) {
+            autoScrollSpeed = parseInt(e.target.value, 10) || 50;
+            syncAutoScrollSpeedUi();
+        }
+
+        // 处理宽度变化
+        function handleWidthChange(e) {
+            const marginValue = parseInt(e.target.value);
+            setComicMargin(marginValue);
+        }
+
+        // 设置漫画边距
+        function setComicMargin(marginValue) {
+            if (![0, 10, 20, 30, 40, 50, 60, 70].includes(marginValue)) return;
+
+            currentMargin = marginValue;
+
+            const pageContainers = document.querySelectorAll('.page-container');
+            pageContainers.forEach(container => {
+                container.classList.remove('margin-0', 'margin-10', 'margin-20', 'margin-30', 'margin-40', 'margin-50', 'margin-60', 'margin-70');
+                container.classList.add(`margin-${marginValue}`);
+            });
+
+            // 更新显示的宽度值
+            const widthPercent = 100 - marginValue;
+            widthValue.textContent = `${widthPercent}%`;
+            widthSlider.value = marginValue;
+            queueProgressUiSync();
+        }
+        
+        // 加载章节列表
+        async function loadChapters() {
+            try {
+                const response = await fetch(`/api/chapters/${taskId}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                chapters = data.chapters;
+
+                if (chapters.length > 0) {
+                    // 明确处理起始章节
+                    if (startChapter >= 0 && startChapter < chapters.length) {
+                        console.log('使用指定的起始章节:', startChapter);
+                        currentChapter = startChapter;
+                        // 尝试获取该章节的阅读进度，恢复滚动位置
+                        try {
+                            const progressResponse = await fetch(`/get_progress/${encodeURIComponent(comicName)}`);
+                            const progressData = await progressResponse.json();
+
+                            if (progressData.status === 'success' && progressData.chapter === currentChapter) {
+                                console.log('恢复该章节的阅读进度:', progressData);
+                                savedScrollPosition = progressData.scroll_position || 0;
+                            } else {
+                                savedScrollPosition = 0; // 新章节从顶部开始
+                            }
+                        } catch (err) {
+                            console.error('获取阅读进度失败:', err);
+                            savedScrollPosition = 0;
+                        }
+                    } else {
+                        console.log('使用阅读进度');
+                        // 只有在没有指定起始章节时才获取阅读进度
+                        try {
+                            const progressResponse = await fetch(`/get_progress/${encodeURIComponent(comicName)}`);
+                            const progressData = await progressResponse.json();
+
+                            if (progressData.status === 'success' && progressData.chapter !== undefined) {
+                                console.log('阅读进度:', progressData);
+                                currentChapter = Math.max(0, Math.min(progressData.chapter, chapters.length - 1));
+                                savedScrollPosition = progressData.scroll_position || 0;
+                            } else {
+                                currentChapter = 0;
+                                savedScrollPosition = 0;
+                            }
+                        } catch (err) {
+                            console.error('获取阅读进度失败:', err);
+                            currentChapter = 0;
+                            savedScrollPosition = 0;
+                        }
+                    }
+
+                    loadChapter(currentChapter, true);
+                    populateChapterSelector();
+                } else {
+                    hideLoading();
+                    pageContent.innerHTML = '<div class="flex items-center justify-center h-screen text-white"><p>暂无章节内容</p></div>';
+                }
+            } catch (error) {
+                console.error('加载章节列表失败:', error);
+                hideLoading();
+                pageContent.innerHTML = '<div class="flex items-center justify-center h-screen text-white"><p>加载失败: ' + error.message + '</p></div>';
+            }
+        }
+        
+        // 加载指定章节
+        async function loadChapter(chapterIndex, restoreScroll = true) {
+            if (chapterIndex < 0 || chapterIndex >= chapters.length) {
+                return;
+            }
+
+            const chapterLoadToken = ++activeChapterLoadToken;
+            autoScrollChapterTransitionLocked = true;
+            showLoading();
+            pageContent.innerHTML = '';
+            chapterNavButtons.innerHTML = '';
+
+            currentChapter = chapterIndex;
+            const chapter = chapters[chapterIndex];
+            currentChapterFormat = chapter.format;
+
+            try {
+                if (chapter.format === 'pdf') {
+                    await loadPdfChapter(chapter);
+                } else if (chapter.format === 'cbz') {
+                    await loadCbzChapter(chapter, chapterLoadToken);
+                }
+
+                if (chapterLoadToken !== activeChapterLoadToken) {
+                    return;
+                }
+
+                updateChapterInfo();
+                updateChapterSelector();
+                renderChapterNavButtons();
+                syncReaderMode();
+                setComicMargin(currentMargin);
+                queueProgressUiSync();
+                prefetchNextCbzChapter(currentChapter);
+
+                if (restoreScroll && savedScrollPosition > 0) {
+                    restoreSavedScrollPosition();
+                } else {
+                    window.scrollTo(0, 0);
+                    queueProgressUiSync();
+                }
+
+                if (isAutoScrolling) {
+                    autoScrollLastFrameTime = null;
+                    autoScrollQueueResumeAt = performance.now() + 1500;
+                }
+                autoScrollQueuedChapterChange = false;
+                autoScrollChapterTransitionLocked = false;
+            } catch (error) {
+                autoScrollQueuedChapterChange = false;
+                autoScrollChapterTransitionLocked = false;
+                console.error('加载章节失败:', error);
+                hideLoading();
+                pageContent.innerHTML = '<div class="flex items-center justify-center h-screen text-white"><p>加载章节失败: ' + error.message + '</p></div>';
+            }
+        }
+
+        function createBottomLoadingIndicator(message) {
+            const bottomLoading = document.createElement('div');
+            bottomLoading.className = 'bottom-loading';
+            bottomLoading.id = 'bottom-loading';
+            bottomLoading.innerHTML = `<i class="fa fa-spinner fa-spin"></i><div>${message}</div>`;
+            return bottomLoading;
+        }
+
+        async function buildCbzPageContainer(cacheEntry, imagePath) {
+            const blob = await getCbzImageBlob(cacheEntry, imagePath);
+            if (!blob) {
+                return null;
+            }
+
+            return new Promise((resolve) => {
+                const objectUrl = URL.createObjectURL(blob);
+                const img = new Image();
+                img.className = 'comic-page';
+
+                img.onload = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    const pageContainer = document.createElement('div');
+                    pageContainer.className = `page-container margin-${currentMargin}`;
+                    pageContainer.appendChild(img);
+                    resolve(pageContainer);
+                };
+
+                img.onerror = () => {
+                    console.error(`图片加载失败: ${imagePath}`);
+                    URL.revokeObjectURL(objectUrl);
+                    resolve(null);
+                };
+
+                img.src = objectUrl;
+            });
+        }
+
+        function queueRemainingCbzImages(cacheEntry, imageFiles, startIndex, chapterLoadToken, bottomLoading) {
+            window.setTimeout(async () => {
+                try {
+                    for (let index = startIndex; index < imageFiles.length; index++) {
+                        if (chapterLoadToken !== activeChapterLoadToken) {
+                            break;
+                        }
+
+                        const pageContainer = await buildCbzPageContainer(cacheEntry, imageFiles[index]);
+                        if (chapterLoadToken !== activeChapterLoadToken) {
+                            break;
+                        }
+
+                        if (pageContainer) {
+                            pageContent.appendChild(pageContainer);
+                            queueProgressUiSync();
+                        }
+
+                        if ((index - startIndex + 1) % 2 === 0) {
+                            await new Promise((resolve) => window.setTimeout(resolve, 0));
+                        }
+                    }
+                } catch (error) {
+                    console.error('后台加载剩余 CBZ 图片失败:', error);
+                } finally {
+                    if (chapterLoadToken === activeChapterLoadToken && bottomLoading.isConnected) {
+                        bottomLoading.remove();
+                    }
+                }
+            }, 0);
+        }
+        
+        // 加载PDF章节
+        async function loadPdfChapter(chapter) {
+            const pdfUrl = `/static/comic/${encodeURIComponent(comicName)}/${encodeURIComponent(chapter.filename)}`;
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+            try {
+                const pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
+                currentChapterData = pdfDoc;
+
+                const bottomLoading = document.createElement('div');
+                bottomLoading.className = 'bottom-loading';
+                bottomLoading.id = 'bottom-loading';
+                bottomLoading.innerHTML = '<i class="fa fa-spinner fa-spin"></i><div>正在加载剩余页面...</div>';
+
+                const isDesktop = isDesktopViewport();
+                const widthRatio = (100 - currentMargin) / 100;
+                const targetCssWidth = Math.max(
+                    320,
+                    Math.floor(window.innerWidth * widthRatio * (isDesktop ? 0.8 : 1))
+                );
+                const pixelRatio = window.devicePixelRatio || 1;
+                const qualityBoost = isDesktop ? 1.5 : 1.25;
+
+                for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+                    const page = await pdfDoc.getPage(pageNum);
+                    const baseViewport = page.getViewport({ scale: 1 });
+                    const cssScale = targetCssWidth / baseViewport.width;
+                    const cssViewport = page.getViewport({ scale: cssScale });
+                    const targetRenderWidth = Math.min(
+                        Math.round(cssViewport.width * pixelRatio * qualityBoost),
+                        2400
+                    );
+                    const renderScale = targetRenderWidth / baseViewport.width;
+                    const renderViewport = page.getViewport({ scale: renderScale });
+
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = renderViewport.height;
+                    canvas.width = renderViewport.width;
+                    canvas.style.width = `${cssViewport.width}px`;
+                    canvas.style.height = 'auto';
+                    canvas.className = 'pdf-page';
+
+                    await page.render({
+                        canvasContext: context,
+                        viewport: renderViewport
+                    }).promise;
+
+                    const pageContainer = document.createElement('div');
+                    pageContainer.className = `page-container margin-${currentMargin}`;
+                    pageContainer.appendChild(canvas);
+                    pageContent.appendChild(pageContainer);
+                    queueProgressUiSync();
+
+                    if (pageNum === 1) {
+                        hideLoading();
+                        if (pdfDoc.numPages > 1) {
+                            pageContent.appendChild(bottomLoading);
+                        }
+                    }
+                }
+
+                const loadingIndicator = document.getElementById('bottom-loading');
+                if (loadingIndicator) {
+                    loadingIndicator.remove();
+                }
+            } catch (error) {
+                console.error('PDF加载失败:', error);
+                throw error;
+            }
+        }
+        
+        // 加载CBZ章节
+        async function loadCbzChapter(chapter, chapterLoadToken) {
+            const cacheEntry = await ensureCbzChapterCache(chapter);
+            const imageFiles = cacheEntry.images;
+
+            currentChapterData = {
+                zip: cacheEntry.zip,
+                images: imageFiles
+            };
+
+            if (imageFiles.length === 0) {
+                hideLoading();
+                return;
+            }
+
+            const bottomLoading = createBottomLoadingIndicator('正在后台加载剩余图片...');
+            const firstPageContainer = await buildCbzPageContainer(cacheEntry, imageFiles[0]);
+
+            if (chapterLoadToken !== activeChapterLoadToken) {
+                return;
+            }
+
+            if (firstPageContainer) {
+                pageContent.appendChild(firstPageContainer);
+                queueProgressUiSync();
+            }
+
+            await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+            hideLoading();
+
+            if (imageFiles.length > 1) {
+                pageContent.appendChild(bottomLoading);
+                queueRemainingCbzImages(cacheEntry, imageFiles, 1, chapterLoadToken, bottomLoading);
+            }
+        }
+        
+        // 渲染章节导航按钮
+        function renderChapterNavButtons() {
+            chapterNavButtons.innerHTML = '';
+            
+            const prevBtn = document.createElement('button');
+            prevBtn.className = 'chapter-nav-btn';
+            prevBtn.innerHTML = '&lsaquo;';
+            prevBtn.setAttribute('aria-label', '上一章');
+            prevBtn.title = '上一章';
+            if (currentChapter === 0) {
+                prevBtn.disabled = true;
+            } else {
+                prevBtn.addEventListener('click', goToPrevChapter);
+            }
+
+            const nextBtn = document.createElement('button');
+            nextBtn.className = 'chapter-nav-btn';
+            nextBtn.innerHTML = '&rsaquo;';
+            nextBtn.setAttribute('aria-label', '下一章');
+            nextBtn.title = '下一章';
+            if (currentChapter === chapters.length - 1) {
+                nextBtn.disabled = true;
+            } else {
+                nextBtn.addEventListener('click', goToNextChapter);
+            }
+
+            chapterNavButtons.appendChild(prevBtn);
+            chapterNavButtons.appendChild(nextBtn);
+        }
+        
+        // 上一章
+        function goToPrevChapter() {
+            if (currentChapter > 0) {
+                savedScrollPosition = 0; // 切换章节时不恢复滚动位置
+                loadChapter(currentChapter - 1, false);
+            }
+        }
+
+        // 下一章
+        function goToNextChapter() {
+            if (currentChapter < chapters.length - 1) {
+                savedScrollPosition = 0; // 切换章节时不恢复滚动位置
+                loadChapter(currentChapter + 1, false);
+            }
+        }
+        
+        // 更新章节信息
+        function updateChapterInfo() {
+            const chapter = chapters[currentChapter];
+            headerChapter.textContent = chapter ? chapter.title : `第 ${currentChapter + 1} 章`;
+            readingProgressCurrentChapter.textContent = String(Math.max(currentChapter + 1, 1));
+            readingProgressNextChapter.textContent = String(
+                Math.min(currentChapter + 2, Math.max(chapters.length, 1))
+            );
+            progressPrevBtn.disabled = currentChapter <= 0;
+            progressNextBtn.disabled = currentChapter >= chapters.length - 1;
+        }
+        
+        // 填充章节选择器
+        function populateChapterSelector() {
+            chapterSelect.innerHTML = '';
+            chapters.forEach((chapter, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = chapter.title;
+                if (index === currentChapter) {
+                    option.selected = true;
+                }
+                chapterSelect.appendChild(option);
+            });
+        }
+        
+        // 更新章节选择器
+        function updateChapterSelector() {
+            chapterSelect.value = currentChapter;
+        }
+        
+        // 切换章节选择器
+        function toggleChapterSelector() {
+            chapterSelector.style.display = chapterSelector.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        // 隐藏章节选择器
+        function hideChapterSelector() {
+            chapterSelector.style.display = 'none';
+        }
+        
+        // 处理章节选择变更
+        function handleChapterChange() {
+            const selectedChapter = parseInt(chapterSelect.value);
+            if (selectedChapter !== currentChapter && !isNaN(selectedChapter)) {
+                savedScrollPosition = 0; // 手动选择章节时不恢复滚动位置
+                loadChapter(selectedChapter, false);
+                hideChapterSelector();
+            }
+        }
+        
+        // 切换自动滚动
+        function toggleAutoScroll() {
+            if (isAutoScrolling) {
+                stopAutoScroll();
+            } else {
+                startAutoScroll();
+            }
+        }
+
+        function getAutoScrollPixelsPerSecond() {
+            return autoScrollSpeed * 3.125;
+        }
+
+        function autoScrollStep(timestamp) {
+            if (!isAutoScrolling) {
+                autoScrollRafId = null;
+                autoScrollLastFrameTime = null;
+                return;
+            }
+
+            if (autoScrollLastFrameTime === null) {
+                autoScrollLastFrameTime = timestamp;
+            }
+
+            const deltaMs = Math.min(Math.max(timestamp - autoScrollLastFrameTime, 0), 40);
+            autoScrollLastFrameTime = timestamp;
+            const scrollAmount = autoScrollChapterTransitionLocked ? 0 : (getAutoScrollPixelsPerSecond() * (deltaMs / 1000));
+
+            if (scrollAmount > 0) {
+                window.scrollBy(0, scrollAmount);
+            }
+
+            if (!autoScrollChapterTransitionLocked && timestamp >= autoScrollQueueResumeAt && window.innerHeight + window.scrollY >= document.body.offsetHeight - 10) {
+                if (currentChapter < chapters.length - 1) {
+                    if (!autoScrollQueuedChapterChange) {
+                        autoScrollQueuedChapterChange = true;
+                        autoScrollChapterTransitionLocked = true;
+                        setTimeout(() => {
+                            if (!isAutoScrolling) {
+                                autoScrollQueuedChapterChange = false;
+                                autoScrollChapterTransitionLocked = false;
+                                return;
+                            }
+                            goToNextChapter();
+                        }, 1000);
+                    }
+                } else {
+                    stopAutoScroll();
+                    return;
+                }
+            }
+
+            autoScrollRafId = window.requestAnimationFrame(autoScrollStep);
+        }
+        
+        // 开始自动滚动
+        function startAutoScroll() {
+            isAutoScrolling = true;
+            autoScrollQueuedChapterChange = false;
+            autoScrollLastFrameTime = null;
+            autoScrollBtn.innerHTML = '<i class="fa fa-pause"></i><span>暂停</span>';
+            showAutoScrollSpeedControl();
+
+            if (autoScrollRafId) {
+                window.cancelAnimationFrame(autoScrollRafId);
+            }
+            autoScrollRafId = window.requestAnimationFrame(autoScrollStep);
+        }
+        
+        // 停止自动滚动
+        function stopAutoScroll() {
+            isAutoScrolling = false;
+            autoScrollQueuedChapterChange = false;
+            autoScrollLastFrameTime = null;
+            autoScrollBtn.innerHTML = '<i class="fa fa-arrow-down"></i><span>滚动</span>';
+            hideAutoScrollSpeedControl();
+            
+            if (autoScrollRafId) {
+                window.cancelAnimationFrame(autoScrollRafId);
+                autoScrollRafId = null;
+            }
+        }
+
+        function syncReaderMode() {
+            const isPdf = currentChapterFormat === 'pdf';
+
+            if (isPdf) {
+                stopAutoScroll();
+                autoScrollBtn.disabled = true;
+                widthAdjustBtn.disabled = false;
+                screenClickTrigger.style.display = 'none';
+                showToolbars();
+                return;
+            }
+
+            autoScrollBtn.disabled = false;
+            screenClickTrigger.style.display = 'block';
+        }
+
+        function getMaxScrollTop() {
+            const documentHeight = Math.max(
+                document.body.scrollHeight,
+                document.documentElement.scrollHeight
+            );
+
+            return Math.max(documentHeight - window.innerHeight, 0);
+        }
+
+        function getProgressPercent(scrollTop = window.scrollY) {
+            const maxScrollTop = getMaxScrollTop();
+            if (maxScrollTop <= 0) {
+                return 0;
+            }
+
+            return Math.min(Math.max((scrollTop / maxScrollTop) * 100, 0), 100);
+        }
+
+        function updateProgressSliderTrack(percent) {
+            readingProgressSlider.style.setProperty('--progress-fill', `${percent}%`);
+        }
+
+        function syncProgressUi(percent = getProgressPercent()) {
+            const safePercent = Number.isFinite(percent) ? percent : 0;
+
+            if (!isDraggingProgressSlider) {
+                readingProgressSlider.value = String(Math.round((safePercent / 100) * 1000));
+            }
+
+            readingProgressValue.textContent = `${Math.round(safePercent)}%`;
+            updateProgressSliderTrack(safePercent);
+        }
+
+        function queueProgressUiSync() {
+            if (progressUiFrameId) {
+                return;
+            }
+
+            progressUiFrameId = window.requestAnimationFrame(() => {
+                progressUiFrameId = null;
+                syncProgressUi();
+            });
+        }
+
+        function scrollToProgressValue(value) {
+            const sliderValue = Number(value);
+            const percent = Math.min(Math.max(sliderValue / 10, 0), 100);
+            const targetScrollTop = Math.round((percent / 100) * getMaxScrollTop());
+            window.scrollTo(0, targetScrollTop);
+            syncProgressUi(percent);
+        }
+
+        function handleProgressSliderInput(event) {
+            isDraggingProgressSlider = true;
+            scrollToProgressValue(event.target.value);
+        }
+
+        function startProgressSliderDrag() {
+            isDraggingProgressSlider = true;
+        }
+
+        function stopProgressSliderDrag() {
+            isDraggingProgressSlider = false;
+            queueProgressUiSync();
+        }
+
+        function finishProgressSliderDrag() {
+            stopProgressSliderDrag();
+            scrollToProgressValue(readingProgressSlider.value);
+            saveProgress();
+        }
+
+        function restoreSavedScrollPosition(attempt = 0) {
+            const targetScrollTop = savedScrollPosition;
+            const maxScrollTop = getMaxScrollTop();
+            const clampedScrollTop = Math.min(targetScrollTop, maxScrollTop);
+
+            window.scrollTo(0, clampedScrollTop);
+            queueProgressUiSync();
+
+            if (attempt < 10 && maxScrollTop < targetScrollTop) {
+                window.setTimeout(() => {
+                    restoreSavedScrollPosition(attempt + 1);
+                }, 200);
+                return;
+            }
+
+            savedScrollPosition = 0;
+        }
+        
+        function startReadingTimer() {
+            if (document.hidden) {
+                return;
+            }
+            if (visibleReadingStartedAt === null) {
+                visibleReadingStartedAt = Date.now();
+            }
+        }
+
+        function flushVisibleReadingTime() {
+            if (visibleReadingStartedAt !== null) {
+                accumulatedReadingMs += Math.max(Date.now() - visibleReadingStartedAt, 0);
+                visibleReadingStartedAt = null;
+            }
+        }
+
+        function getAccumulatedReadingSeconds() {
+            flushVisibleReadingTime();
+            return Math.floor(accumulatedReadingMs / 1000);
+        }
+
+        function buildProgressPayload(includeReadingTime = false) {
+            const readingSeconds = includeReadingTime ? getAccumulatedReadingSeconds() : 0;
+            return JSON.stringify({
+                comic_name: comicName,
+                chapter: currentChapter,
+                page: 0,
+                scroll_position: Math.round(window.scrollY),
+                total_chapters: chapters.length,
+                total_pages: 0,
+                reading_time: readingSeconds,
+                reading_session_id: readingSessionId
+            });
+        }
+
+        function postProgress(saveData, keepalive = false) {
+            return fetch("{{ url_for('save_progress') }}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                credentials: 'include', // 确保携带认证信息
+                body: saveData,
+                keepalive
+            });
+        }
+
+        function submitProgressSnapshot({ keepalive = false, includeReadingTime = false } = {}) {
+            if (chapters.length === 0) return;
+
+            const readingSeconds = includeReadingTime ? getAccumulatedReadingSeconds() : 0;
+            if (includeReadingTime && readingSeconds > 0) {
+                const previousReportedSeconds = reportedReadingSeconds;
+                reportedReadingSeconds = Math.max(reportedReadingSeconds, readingSeconds);
+                const saveData = buildProgressPayload(true);
+                postProgress(saveData, keepalive).catch(err => {
+                    if (!keepalive) {
+                        reportedReadingSeconds = previousReportedSeconds;
+                    }
+                    console.error('保存阅读状态失败:', err);
+                });
+                return;
+            }
+
+            const saveData = buildProgressPayload(false);
+            postProgress(saveData, keepalive).then(response => {
+                console.log('保存进度响应:', response.status);
+            }).catch(err => {
+                console.error('保存进度失败:', err);
+            });
+        }
+
+        // 保存进度
+        function saveProgress(keepalive = false) {
+            submitProgressSnapshot({ keepalive, includeReadingTime: false });
+        }
+
+        // 显示加载遮罩
+        function showLoading() {
+            loadingOverlay.style.display = 'flex';
+        }
+
+        // 隐藏加载遮罩
+        function hideLoading() {
+            loadingOverlay.style.display = 'none';
+        }
+
+        syncProgressUi(0);
+        syncAutoScrollSpeedUi();
+
+        // 页面关闭时保存进度与阅读时间
+        window.addEventListener('beforeunload', () => {
+            flushVisibleReadingTime();
+            submitProgressSnapshot({ keepalive: true, includeReadingTime: true });
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                flushVisibleReadingTime();
+                submitProgressSnapshot({ keepalive: true, includeReadingTime: true });
+            } else {
+                startReadingTimer();
+            }
+        });
+
+        window.addEventListener('pagehide', () => {
+            flushVisibleReadingTime();
+            submitProgressSnapshot({ keepalive: true, includeReadingTime: true });
+        });
+
+        window.addEventListener('load', startReadingTimer);
+    </script>
+</body>
+</html>

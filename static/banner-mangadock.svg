@@ -1,0 +1,66 @@
+<svg width="1600" height="480" viewBox="0 0 1600 480" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">MangaDock Banner</title>
+  <desc id="desc">A GitHub README banner featuring the Chinese character 棧 and the English name MangaDock.</desc>
+  <defs>
+    <linearGradient id="bg" x1="88" y1="54" x2="1498" y2="438" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5E8C8"/>
+      <stop offset="0.5" stop-color="#F1DDAC"/>
+      <stop offset="1" stop-color="#E5C37A"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#201816"/>
+      <stop offset="1" stop-color="#4D2E1E"/>
+    </linearGradient>
+    <linearGradient id="seal" x1="177" y1="112" x2="470" y2="387" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B1261E"/>
+      <stop offset="1" stop-color="#7D120D"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1600" height="480" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#472611" flood-opacity="0.16"/>
+    </filter>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="2" fill="#7B3C18" fill-opacity="0.12"/>
+    </pattern>
+  </defs>
+
+  <rect x="24" y="24" width="1552" height="432" rx="34" fill="url(#bg)"/>
+  <rect x="24" y="24" width="1552" height="432" rx="34" fill="url(#dots)"/>
+
+  <g opacity="0.22">
+    <path d="M70 111H630" stroke="#743B1D" stroke-width="2"/>
+    <path d="M70 141H630" stroke="#743B1D" stroke-width="2"/>
+    <path d="M70 171H630" stroke="#743B1D" stroke-width="2"/>
+    <path d="M970 312H1530" stroke="#743B1D" stroke-width="2"/>
+    <path d="M970 342H1530" stroke="#743B1D" stroke-width="2"/>
+    <path d="M970 372H1530" stroke="#743B1D" stroke-width="2"/>
+  </g>
+
+  <g opacity="0.18">
+    <path d="M845 76L930 76L874 188L964 188L888 330" stroke="#7C4324" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M1008 102L1182 102" stroke="#7C4324" stroke-width="12" stroke-linecap="round"/>
+    <path d="M1012 150L1166 150" stroke="#7C4324" stroke-width="12" stroke-linecap="round"/>
+    <path d="M1018 198L1146 198" stroke="#7C4324" stroke-width="12" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="104" y="86" width="380" height="308" rx="34" fill="#FFF6E2"/>
+    <rect x="124" y="106" width="340" height="268" rx="28" fill="url(#seal)"/>
+    <rect x="146" y="128" width="296" height="224" rx="22" stroke="#F7D7C8" stroke-width="4" stroke-dasharray="12 12" opacity="0.72"/>
+    <text x="294" y="300" text-anchor="middle" font-size="176" font-weight="700" fill="#FFF5EE" font-family="'Songti SC', 'STSong', 'Noto Serif CJK SC', serif">棧</text>
+  </g>
+
+  <g>
+    <rect x="560" y="112" width="14" height="258" rx="7" fill="#6D3117" opacity="0.45"/>
+    <text x="620" y="186" font-size="38" letter-spacing="10" fill="#7F3A1A" font-family="'Avenir Next', 'Segoe UI', sans-serif">MANGA LIBRARY</text>
+    <text x="620" y="294" font-size="114" font-weight="800" fill="url(#ink)" font-family="'Avenir Next', 'Segoe UI', sans-serif">MangaDock</text>
+    <text x="626" y="352" font-size="30" letter-spacing="5" fill="#5F3624" opacity="0.82" font-family="'Avenir Next', 'Segoe UI', sans-serif">READ • ORGANIZE • SYNC PROGRESS</text>
+  </g>
+
+  <g opacity="0.6">
+    <rect x="1312" y="96" width="148" height="52" rx="26" fill="#201816"/>
+    <text x="1386" y="129" text-anchor="middle" font-size="24" font-weight="700" fill="#F7EACC" font-family="'Avenir Next', 'Segoe UI', sans-serif">棧 / STACK</text>
+  </g>
+
+  <path d="M1265 417C1315 377 1386 361 1477 364" stroke="#5E2E19" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
+  <path d="M1306 398C1361 392 1417 398 1473 417" stroke="#5E2E19" stroke-width="4" stroke-linecap="round" opacity="0.28"/>
+</svg>

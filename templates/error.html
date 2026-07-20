@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="./static/favicon.ico" type="image/x-icon">
+    <title>MangaDock - 错误</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        danger: '#EF4444'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-16 max-w-4xl">
+        <div class="bg-white rounded-xl shadow-md p-8 text-center">
+            <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i class="fa fa-exclamation-triangle text-2xl text-danger"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-4">发生错误</h1>
+            <p class="text-gray-600 mb-8">{{ message }}</p>
+            <a href="{{ url_for('index') }}" class="inline-flex items-center bg-primary hover:bg-primary/90 text-white font-medium py-3 px-8 rounded-lg transition duration-200">
+                <i class="fa fa-home mr-2"></i> 返回主页
+            </a>
+        </div>
+    </div>
+</body>
+</html>

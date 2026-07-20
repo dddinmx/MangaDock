@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+
+{% block title %}MangaDock - 我的{% endblock %}
+
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block extra_head %}
+<style>
+    @font-face {
+        font-family: 'MangaDockKai';
+        src: url("{{ asset_url('fonts/LXGWWenKai-Regular.ttf') }}") format('truetype');
+        font-display: swap;
+    }
+    .settings-brand-title {
+        font-family: 'MangaDockKai', 'Kaiti SC', 'STKaiti', 'KaiTi', serif;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% set flash_messages = get_flashed_messages() %}
+    {% if flash_messages %}
+    <section class="space-y-2" id="settings-flash">
+        {% for message in flash_messages %}
+        <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 px-4 py-3 text-sm shadow-sm">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    <section class="md-panel">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+                <h1 class="settings-brand-title md-page-title">漫棧</h1>
+                <p class="md-page-sub">账号、工具与书库管理</p>
+            </div>
+            <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-ink-200">
+                <i class="fa fa-user-circle"></i>
+                <span>{{ current_user.username if current_user else session.get('username', '') }}</span>
+                {% if is_admin_user %}
+                <span class="px-2 py-0.5 rounded-full bg-brand/20 text-brand-soft text-xs font-semibold">Admin</span>
+                {% else %}
+                <span class="px-2 py-0.5 rounded-full bg-white/10 text-ink-300 text-xs font-semibold">用户</span>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    {% if can_manage_library or is_admin_user %}
+    <section>
+        <h2 class="md-section-title">工具</h2>
+        <div class="md-tool-grid">
+            {% if can_manage_library %}
+            <a href="{{ url_for('download') }}" class="md-tool-card action-press" data-app-loader="true">
+                <div class="md-tool-card__icon"><i class="fa fa-download"></i></div>
+                <div class="md-tool-card__body">
+                    <div class="md-tool-card__title">下载漫画</div>
+                    <p class="md-tool-card__desc">从支持的站点整本下载到本地书库。</p>
+                </div>
+                <i class="fa fa-angle-right md-tool-card__chevron"></i>
+            </a>
+            <a href="{{ url_for('update') }}" class="md-tool-card action-press" data-app-loader="true">
+                <div class="md-tool-card__icon is-mint"><i class="fa fa-refresh"></i></div>
+                <div class="md-tool-card__body">
+                    <div class="md-tool-card__title">检查更新</div>
+                    <p class="md-tool-card__desc">扫描已收藏漫画是否有新章节可补。</p>
+                </div>
+                <i class="fa fa-angle-right md-tool-card__chevron"></i>
+            </a>
+            <a href="{{ url_for('tasks') }}" class="md-tool-card action-press" data-app-loader="true">
+                <div class="md-tool-card__icon is-amber"><i class="fa fa-list-ol"></i></div>
+                <div class="md-tool-card__body">
+                    <div class="md-tool-card__title">任务列表</div>
+                    <p class="md-tool-card__desc">查看下载与更新任务历史与当前状态。</p>
+                </div>
+                <i class="fa fa-angle-right md-tool-card__chevron"></i>
+            </a>
+            {% endif %}
+            <a href="{{ url_for('statistics') }}" class="md-tool-card action-press" data-app-loader="true">
+                <div class="md-tool-card__icon is-blue"><i class="fa fa-line-chart"></i></div>
+                <div class="md-tool-card__body">
+                    <div class="md-tool-card__title">阅读统计</div>
+                    <p class="md-tool-card__desc">累计时长、章节进度等概览。</p>
+                </div>
+                <i class="fa fa-angle-right md-tool-card__chevron"></i>
+            </a>
+        </div>
+    </section>
+    {% else %}
+    <section>
+        <h2 class="md-section-title">工具</h2>
+        <div class="md-tool-grid">
+            <a href="{{ url_for('statistics') }}" class="md-tool-card action-press" data-app-loader="true">
+                <div class="md-tool-card__icon is-blue"><i class="fa fa-line-chart"></i></div>
+                <div class="md-tool-card__body">
+                    <div class="md-tool-card__title">阅读统计</div>
+                    <p class="md-tool-card__desc">累计时长、章节进度等概览。</p>
+                </div>
+                <i class="fa fa-angle-right md-tool-card__chevron"></i>
+            </a>
+        </div>
+    </section>
+    {% endif %}
+
+    <section>
+        <h2 class="md-section-title">账号</h2>
+        <div class="md-tool-grid">
+            <button type="button" data-theme-toggle class="md-tool-card action-press">
+                <div class="md-tool-card__icon"><i data-theme-toggle-icon class="fa fa-moon-o"></i></div>
+                <div class="md-tool-card__body">
+                    <div class="md-tool-card__title">外观主题</div>
+                    <p class="md-tool-card__desc" data-theme-toggle-label>切换到暗黑模式</p>
+                    <p class="text-xs text-ink-400 mt-1" data-theme-toggle-state>当前：浅色模式</p>
+                </div>
+                <i class="fa fa-angle-right md-tool-card__chevron"></i>
+            </button>
+
+            <a href="{{ url_for('change_password') }}" class="md-tool-card action-press" data-app-loader="true">
+                <div class="md-tool-card__icon is-blue"><i class="fa fa-lock"></i></div>
+                <div class="md-tool-card__body">
+                    <div class="md-tool-card__title">修改密码</div>
+                    <p class="md-tool-card__desc">更新当前账号密码。成功后需重新登录。</p>
+                </div>
+                <i class="fa fa-angle-right md-tool-card__chevron"></i>
+            </a>
+
+            {% if is_admin_user %}
+            <a href="{{ url_for('users') }}" class="md-tool-card action-press" data-app-loader="true">
+                <div class="md-tool-card__icon is-mint"><i class="fa fa-users"></i></div>
+                <div class="md-tool-card__body">
+                    <div class="md-tool-card__title">用户管理</div>
+                    <p class="md-tool-card__desc">创建普通用户或管理员，查看角色分配。</p>
+                </div>
+                <i class="fa fa-angle-right md-tool-card__chevron"></i>
+            </a>
+            {% endif %}
+
+            <form method="post" action="{{ url_for('logout') }}" data-api-v1="logout" data-api-redirect="{{ url_for('login') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="md-tool-card action-press">
+                    <div class="md-tool-card__icon is-rose"><i class="fa fa-sign-out"></i></div>
+                    <div class="md-tool-card__body">
+                        <div class="md-tool-card__title">退出登录</div>
+                        <p class="md-tool-card__desc">安全退出当前账号，返回登录页。</p>
+                    </div>
+                    <i class="fa fa-angle-right md-tool-card__chevron"></i>
+                </button>
+            </form>
+        </div>
+    </section>
+
+    {% if is_admin_user %}
+    <section class="md-panel space-y-5">
+        <div class="flex items-start gap-4">
+            <div class="md-tool-card__icon is-amber flex-shrink-0"><i class="fa fa-folder-open"></i></div>
+            <div class="flex-1 min-w-0">
+                <div class="md-tool-card__title">漫画扫盘</div>
+                <p class="md-tool-card__desc">管理员可添加自定义漫画目录，当前支持 PDF 和 CBZ。</p>
+            </div>
+        </div>
+
+        <div class="space-y-3">
+            <form method="post" action="{{ url_for('add_scan_path') }}" class="flex flex-col gap-3 md:flex-row md:items-stretch" data-api-v1="scan-add">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input
+                    type="text"
+                    name="scan_path"
+                    placeholder="输入漫画目录路径，例如 /Volumes/NAS/Comics"
+                    class="md-input min-w-0 flex-1"
+                    required
+                >
+                <button type="submit" class="md-btn-primary action-press whitespace-nowrap md:flex-shrink-0">
+                    <i class="fa fa-plus" style="margin-right:0.35rem"></i>添加路径
+                </button>
+            </form>
+            <form method="post" action="{{ url_for('rescan_comic_library') }}" data-api-v1="scan-rescan">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="md-btn-ghost action-press whitespace-nowrap">
+                    <i class="fa fa-refresh" style="margin-right:0.35rem"></i>立即扫盘
+                </button>
+            </form>
+            <p class="text-xs text-ink-400">新增路径会持久保存；移除路径后，来源于该路径的漫画会在重新扫描后从应用中消失。</p>
+        </div>
+
+        <div class="space-y-3">
+            <div class="text-sm font-semibold text-ink-200">已记录路径</div>
+            {% for scan_path in scan_paths %}
+            <div class="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2 mb-1">
+                            <span class="text-sm font-semibold text-white break-all">{{ scan_path.path }}</span>
+                            {% if scan_path.is_default %}
+                            <span class="md-chip">默认目录</span>
+                            {% endif %}
+                            {% if scan_path.exists %}
+                            <span class="md-chip" style="border-color:rgba(45,212,168,0.35);color:var(--md-mint)">可访问</span>
+                            {% else %}
+                            <span class="md-chip" style="border-color:rgba(251,113,133,0.35);color:#fb7185">目录不存在</span>
+                            {% endif %}
+                        </div>
+                        <p class="text-xs text-ink-400">应用会把该目录下每个子目录视作一部漫画。</p>
+                    </div>
+                    {% if not scan_path.is_default %}
+                    <form method="post" action="{{ url_for('delete_scan_path', scan_path_id=scan_path.id) }}" data-api-v1="scan-delete" data-scan-id="{{ scan_path.id }}" data-api-confirm="确定移除该扫盘路径吗？">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="rounded-lg border border-rose-400/30 bg-rose-500/10 text-rose-300 px-3 py-2 text-sm font-semibold action-press whitespace-nowrap">
+                            <i class="fa fa-trash" style="margin-right:0.25rem"></i>移除
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="rounded-xl border border-dashed border-white/10 px-4 py-4 text-sm text-ink-400">
+                当前仅使用默认漫画目录。
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

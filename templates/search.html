@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}搜索 - MangaDock{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-2xl font-bold text-white md:text-3xl">搜索</h1>
+    <p class="mt-2 text-sm text-ink-300">在本地书库中按标题筛选</p>
+</div>
+
+<form method="get" action="{{ url_for('search_page') }}" class="md-search mb-8 max-w-xl !rounded-xl !py-3">
+    <i class="fa fa-search text-ink-400"></i>
+    <input type="search" name="q" value="{{ query }}" placeholder="输入漫画名称..." autofocus>
+    <button type="submit" class="text-sm font-semibold text-brand-soft">搜索</button>
+</form>
+
+{% if query %}
+<p class="mb-4 text-sm text-ink-300">「{{ query }}」共 {{ comics|length }} 个结果</p>
+{% endif %}
+
+{% if comics %}
+<div class="md-cover-grid">
+    {% for comic in comics %}
+    <a href="{{ url_for('comic_detail', task_id=comic.comic_name) }}" class="md-cover-card" data-app-loader="true">
+        <div class="md-book">
+            <div class="md-book__spine" aria-hidden="true"></div>
+            <div class="md-book__pages" aria-hidden="true"></div>
+            <div class="md-book__cover">
+                <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
+                     onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+            </div>
+        </div>
+        <div class="md-cover-card__title">{{ comic.comic_name }}</div>
+        <div class="md-cover-card__meta">{{ comic.group or '默认分组' }}</div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="md-empty">
+    {% if query %}
+    没有找到匹配的漫画
+    {% else %}
+    输入关键词开始搜索
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

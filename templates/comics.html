@@ -1,0 +1,943 @@
+{% extends "base.html" %}
+
+{% block title %}MangaDock - 漫画库{% endblock %}
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block extra_head %}
+<script>
+    let isLibrarySearchComposing = false;
+
+    function getComicsGrids() {
+        return document.querySelectorAll('[data-comics-grid]');
+    }
+
+    function handleQuickGroupChange(selectElement) {
+        if (!selectElement || !selectElement.value) return;
+        window.location.href = selectElement.value;
+    }
+
+    function toggleLibrarySearch(forceClose = false) {
+        const panel = document.getElementById('library-search-panel');
+        const toggle = document.querySelector('[data-library-search-toggle]');
+        const input = document.getElementById('library-search-input');
+        if (!panel || !toggle) return;
+
+        const shouldOpen = forceClose ? false : panel.hasAttribute('hidden');
+        if (shouldOpen) {
+            panel.removeAttribute('hidden');
+            toggle.setAttribute('aria-expanded', 'true');
+            if (input) {
+                window.setTimeout(() => input.focus(), 30);
+            }
+            return;
+        }
+
+        panel.setAttribute('hidden', '');
+        toggle.setAttribute('aria-expanded', 'false');
+    }
+
+    function filterLibraryComics() {
+        const input = document.getElementById('library-search-input');
+        const query = (input?.value || '').trim().toLowerCase();
+        const items = document.querySelectorAll('[data-comic-search-item]');
+        const sections = document.querySelectorAll('[data-group-section]');
+
+        items.forEach(item => {
+            const title = (item.dataset.comicTitle || '').toLowerCase();
+            const matched = !query || title.includes(query);
+            item.style.display = matched ? '' : 'none';
+        });
+
+        sections.forEach(section => {
+            if (section.hasAttribute('data-library-search-host')) {
+                section.style.display = '';
+                return;
+            }
+            const visibleItems = Array.from(section.querySelectorAll('[data-comic-search-item]'))
+                .filter(item => item.style.display !== 'none');
+            section.style.display = visibleItems.length ? '' : 'none';
+        });
+    }
+
+    function handleLibrarySearchInput() {
+        if (isLibrarySearchComposing) {
+            return;
+        }
+        filterLibraryComics();
+    }
+
+    function handleLibrarySearchCompositionStart() {
+        isLibrarySearchComposing = true;
+    }
+
+    function handleLibrarySearchCompositionEnd() {
+        isLibrarySearchComposing = false;
+        filterLibraryComics();
+    }
+
+    function clearLibrarySearch() {
+        const input = document.getElementById('library-search-input');
+        if (!input) return;
+        input.value = '';
+        filterLibraryComics();
+        toggleLibrarySearch(true);
+    }
+
+    function scrollGroupRail(groupKey, direction) {
+        const rail = document.querySelector(`[data-group-rail="${groupKey}"]`);
+        if (!rail) return;
+        const card = rail.querySelector('.group-rail-card');
+        const cardWidth = card ? card.getBoundingClientRect().width : 220;
+        const gap = window.innerWidth <= 768 ? 12 : 20;
+        const scrollAmount = (cardWidth + gap) * (window.innerWidth <= 768 ? 2 : 3);
+        rail.scrollBy({
+            left: direction * scrollAmount,
+            behavior: 'smooth'
+        });
+    }
+
+    // 切换下拉菜单显示/隐藏
+    function toggleColumnsDropdown() {
+        const dropdown = document.getElementById('columns-dropdown');
+        dropdown.classList.toggle('hidden');
+    }
+
+    // 选择列数
+    function selectColumns(columns) {
+        const grids = getComicsGrids();
+        const currentColumnsText = document.getElementById('current-columns');
+
+        if (!grids.length || !currentColumnsText) return;
+
+        if (columns === 2) {
+            grids.forEach(grid => {
+                grid.className = 'md-cover-grid is-cols-2';
+            });
+            currentColumnsText.textContent = '2列';
+            localStorage.setItem('comicGridColumns', '2');
+        } else {
+            grids.forEach(grid => {
+                grid.className = 'md-cover-grid is-cols-3';
+            });
+            currentColumnsText.textContent = '3列';
+            localStorage.setItem('comicGridColumns', '3');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const savedColumns = localStorage.getItem('comicGridColumns');
+        const grids = getComicsGrids();
+        const currentColumnsText = document.getElementById('current-columns');
+
+        if (savedColumns && grids.length && currentColumnsText) {
+            const columns = parseInt(savedColumns);
+            if (columns === 2) {
+                grids.forEach(grid => {
+                    grid.className = 'md-cover-grid is-cols-2';
+                });
+                currentColumnsText.textContent = '2列';
+            } else if (columns === 3) {
+                grids.forEach(grid => {
+                    grid.className = 'md-cover-grid is-cols-3';
+                });
+                currentColumnsText.textContent = '3列';
+            }
+        }
+    });
+
+    // 点击页面其他地方关闭下拉菜单
+    document.addEventListener('click', function(event) {
+        const dropdown = document.getElementById('columns-dropdown');
+        const toggleBtn = document.getElementById('columns-toggle-btn');
+        const searchPanel = document.getElementById('library-search-panel');
+        const searchToggle = document.querySelector('[data-library-search-toggle]');
+
+        if (dropdown && !dropdown.classList.contains('hidden')) {
+            if (!toggleBtn.contains(event.target)) {
+                dropdown.classList.add('hidden');
+            }
+        }
+
+        if (searchPanel && searchToggle && !searchPanel.hasAttribute('hidden')) {
+            if (!searchPanel.contains(event.target) && !searchToggle.contains(event.target)) {
+                toggleLibrarySearch(true);
+            }
+        }
+    });
+</script>
+<style>
+        .library-toolbar {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+        }
+
+        .library-search-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.75rem;
+            height: 1.75rem;
+            border: none;
+            background: transparent;
+            color: rgb(71, 85, 105);
+        }
+
+        .library-search-toggle:hover {
+            color: rgb(30, 41, 59);
+        }
+
+        .library-search-panel {
+            position: absolute;
+            top: calc(100% + 0.55rem);
+            left: 0;
+            z-index: 20;
+            width: min(20rem, calc(100vw - 2rem));
+            border-radius: 1rem;
+            border: 1px solid rgba(226, 232, 240, 1);
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
+            padding: 0.85rem;
+        }
+
+        .library-search-input-wrap {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            border: 1px solid rgba(203, 213, 225, 1);
+            border-radius: 0.9rem;
+            padding: 0.72rem 0.85rem;
+            background: rgb(248, 250, 252);
+        }
+
+        .library-search-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: rgb(30, 41, 59);
+            font-size: 0.95rem;
+        }
+
+        .library-search-clear {
+            margin-top: 0.65rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            border: none;
+            background: transparent;
+            color: rgb(100, 116, 139);
+            font-size: 0.82rem;
+        }
+
+        html.theme-dark .library-search-toggle {
+            color: rgb(161, 161, 170);
+        }
+
+        html.theme-dark .library-search-toggle:hover {
+            color: rgb(228, 228, 231);
+        }
+
+        html.theme-dark .library-search-panel {
+            background: rgba(31, 31, 31, 0.98);
+            border-color: rgba(63, 63, 70, 0.92);
+            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.42);
+        }
+
+        html.theme-dark .library-search-input-wrap {
+            background: rgb(24, 24, 27);
+            border-color: rgba(63, 63, 70, 0.92);
+        }
+
+        html.theme-dark .library-search-input {
+            color: rgb(244, 244, 245);
+        }
+
+        html.theme-dark .library-search-input::placeholder {
+            color: rgb(113, 113, 122);
+        }
+
+        html.theme-dark .library-search-clear {
+            color: rgb(161, 161, 170);
+        }
+
+        html.theme-dark .library-search-clear:hover {
+            color: rgb(228, 228, 231);
+        }
+
+        .group-section {
+            margin-bottom: 2rem;
+        }
+
+        .group-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .group-section-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .group-section-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .group-view-all-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.15rem 0;
+            border: none;
+            background: transparent;
+            color: rgb(100, 116, 139);
+            font-size: 0.84rem;
+            font-weight: 500;
+            line-height: 1;
+        }
+
+        .group-view-all-btn:hover {
+            color: rgb(51, 65, 85);
+        }
+
+        .group-rail-shell {
+            position: relative;
+        }
+
+        .group-rail {
+            display: flex;
+            gap: 1.25rem;
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            scroll-snap-type: x proximity;
+            scrollbar-width: none;
+            padding-bottom: 0.35rem;
+        }
+
+        .group-rail::-webkit-scrollbar {
+            display: none;
+        }
+
+        .group-rail-card {
+            flex: 0 0 8.75rem;
+            width: 8.75rem;
+            scroll-snap-align: start;
+        }
+
+        @media (min-width: 769px) {
+            .group-rail-card {
+                flex-basis: 9.75rem;
+                width: 9.75rem;
+            }
+        }
+
+        .group-rail-nav {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 999px;
+            border: 1px solid rgba(226, 232, 240, 1);
+            background: white;
+            color: rgb(71, 85, 105);
+            box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+        }
+
+        .group-rail-nav:hover {
+            background: rgba(248, 250, 252, 1);
+            color: rgb(37, 99, 235);
+        }
+
+        .group-quick-select {
+            min-width: 7.25rem;
+            max-width: 12rem;
+            appearance: none;
+            -webkit-appearance: none;
+            border: 1px solid rgba(203, 213, 225, 1);
+            border-radius: 0.85rem;
+            background:
+                linear-gradient(45deg, transparent 50%, #64748b 50%) calc(100% - 18px) calc(50% - 2px) / 6px 6px no-repeat,
+                linear-gradient(135deg, #64748b 50%, transparent 50%) calc(100% - 13px) calc(50% - 2px) / 6px 6px no-repeat,
+                #ffffff;
+            color: rgb(30, 41, 59);
+            font-size: 0.95rem;
+            font-weight: 700;
+            line-height: 1.1;
+            padding: 0.55rem 2rem 0.55rem 0.8rem;
+            box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+        }
+
+        .group-quick-select:focus {
+            outline: none;
+            border-color: rgba(59, 130, 246, 0.55);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+        }
+
+        .group-section-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 1.6rem;
+            height: 1.6rem;
+            padding: 0 0.45rem;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.1);
+            color: rgb(37, 99, 235);
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .recent-reading-card {
+            display: flex;
+            align-items: stretch;
+            gap: 1.15rem;
+            width: min(100%, 34rem);
+            border-radius: 1.35rem;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+            border: 1px solid rgba(226, 232, 240, 0.95);
+            box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+            padding: 1rem;
+            margin-bottom: 1.9rem;
+            overflow: hidden;
+        }
+
+        .recent-reading-cover {
+            flex: 0 0 10rem;
+            width: 10rem;
+            border-radius: 1rem;
+            overflow: hidden;
+            aspect-ratio: 16 / 9;
+            background: rgb(226, 232, 240);
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+        }
+
+        .recent-reading-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .recent-reading-body {
+            min-width: 0;
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 0.7rem;
+        }
+
+        .recent-reading-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: rgb(100, 116, 139);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .recent-reading-title {
+            color: rgb(15, 23, 42);
+            font-size: 1.15rem;
+            font-weight: 700;
+            line-height: 1.3;
+        }
+
+        .recent-reading-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            flex-wrap: wrap;
+            color: rgb(100, 116, 139);
+            font-size: 0.86rem;
+        }
+
+        .recent-reading-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            border-radius: 999px;
+            padding: 0.3rem 0.65rem;
+            background: rgba(59, 130, 246, 0.08);
+            color: rgb(37, 99, 235);
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .recent-reading-progress {
+            width: 100%;
+            height: 0.42rem;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.18);
+            overflow: hidden;
+        }
+
+        .recent-reading-progress-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+        }
+
+        .recent-reading-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            flex-wrap: wrap;
+        }
+
+        .recent-reading-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            color: rgb(15, 23, 42);
+            font-size: 0.88rem;
+            font-weight: 600;
+        }
+
+        html.theme-dark .recent-reading-card {
+            background: linear-gradient(135deg, rgba(36, 36, 38, 0.98), rgba(24, 24, 27, 0.96));
+            border-color: rgba(63, 63, 70, 0.86);
+            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.32);
+        }
+
+        html.theme-dark .recent-reading-title,
+        html.theme-dark .recent-reading-link {
+            color: rgb(244, 244, 245);
+        }
+
+        html.theme-dark .recent-reading-meta,
+        html.theme-dark .recent-reading-kicker {
+            color: rgb(161, 161, 170);
+        }
+
+        html.theme-dark .recent-reading-progress {
+            background: rgba(82, 82, 91, 0.45);
+        }
+
+        .comic-title-overlay {
+            bottom: 0;
+            transition: bottom 0.2s ease;
+        }
+
+        .comic-title-overlay.has-progress {
+            bottom: 4px;
+        }
+
+        /* 移动端优化 */
+        @media (max-width: 768px) {
+            .group-section-header {
+                margin-bottom: 0.85rem;
+            }
+
+            .group-section-actions {
+                gap: 0.5rem;
+            }
+
+            .group-view-all-btn {
+                font-size: 0.78rem;
+            }
+
+            .group-rail-nav {
+                display: none;
+            }
+
+            .group-rail {
+                gap: 0.75rem;
+            }
+
+            .group-section-title {
+                gap: 0.55rem;
+            }
+
+            .group-quick-select {
+                min-width: 6.4rem;
+                max-width: 9rem;
+                font-size: 0.88rem;
+                padding: 0.48rem 1.9rem 0.48rem 0.72rem;
+            }
+
+            .recent-reading-card {
+                width: 100%;
+                gap: 0.85rem;
+                padding: 0.85rem;
+                border-radius: 1.15rem;
+                margin-bottom: 1.45rem;
+            }
+
+            .recent-reading-cover {
+                flex-basis: 7.5rem;
+                width: 7.5rem;
+            }
+
+            .recent-reading-title {
+                font-size: 1rem;
+            }
+
+            .recent-reading-meta {
+                gap: 0.45rem;
+                font-size: 0.78rem;
+            }
+
+            .recent-reading-link {
+                font-size: 0.82rem;
+            }
+
+            .library-search-toggle {
+                width: 1.65rem;
+                height: 1.65rem;
+            }
+
+            .library-search-panel {
+                width: min(18rem, calc(100vw - 2rem));
+            }
+
+            .mobile-columns-control {
+                display: inline-flex;
+            }
+
+            .comic-card-mobile {
+                font-size: 11px;
+            }
+            .comic-card-mobile h3 {
+                font-size: 12px;
+                line-height: 1.2;
+                height: 2.4em;
+                overflow: hidden;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+            }
+            .comic-cover {
+                aspect-ratio: 3/4;
+                height: auto !important;
+            }
+            .comic-card-mobile .read-btn {
+                padding: 5px 4px;
+                font-size: 10px;
+            }
+            .comic-card-mobile .status-badge {
+                font-size: 9px;
+                padding: 1px 4px;
+            }
+            .comic-card-mobile .chapter-count {
+                font-size: 10px;
+            }
+            .comic-card-mobile .progress-text {
+                font-size: 10px;
+            }
+            .mobile-header {
+                padding: 12px 0;
+            }
+            .mobile-header h1 {
+                font-size: 1.875rem; /* 3xl in Tailwind */
+            }
+            .mobile-header p {
+                font-size: 12px;
+            }
+        }
+
+        @media (min-width: 769px) {
+            .comic-title-overlay.has-progress {
+                bottom: 6px;
+            }
+        }
+
+        .comics-shell {
+            min-height: 70vh;
+        }
+
+        .comics-skeleton {
+            padding-top: 0.25rem;
+        }
+
+        .comics-skeleton-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        .comics-skeleton-card {
+            padding: 0.85rem;
+        }
+
+        .comics-skeleton-cover {
+            aspect-ratio: 3 / 4;
+            width: 100%;
+            border-radius: 1rem;
+            margin-bottom: 0.7rem;
+        }
+
+        @media (min-width: 768px) {
+            .comics-skeleton-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 2rem;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="page-shell comics-shell" data-page-shell="comics">
+    <div class="page-shell-skeleton comics-skeleton" aria-hidden="true">
+        <div class="skeleton-block h-10 w-40 mb-6"></div>
+        <div class="skeleton-block h-6 w-28 mb-4"></div>
+        <div class="comics-skeleton-grid">
+            {% for _ in range(6) %}
+            <div class="skeleton-card comics-skeleton-card">
+                <div class="skeleton-block comics-skeleton-cover"></div>
+                <div class="skeleton-block h-4 w-4/5 mb-2"></div>
+                <div class="skeleton-block h-3 w-3/5"></div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="page-shell-content">
+<div class="container mx-auto px-0 py-2 md:px-4 md:py-20 md:max-w-6xl relative">
+        {% if recent_comic and recent_progress %}
+        {% set recent_total = recent_progress.total_chapters if recent_progress.total_chapters and recent_progress.total_chapters > 0 else (recent_comic.available_chapters if recent_comic.available_chapters > 0 else 1) %}
+        {% set recent_completed = recent_progress.last_chapter + 1 %}
+        {% set recent_percent = ((recent_completed / recent_total) * 100) if recent_total > 0 else 0 %}
+        <section class="md-lib-recent">
+            <a href="{{ url_for('comic_detail', task_id=recent_comic.comic_name) }}" data-app-loader="true" class="md-lib-recent-cover action-press">
+                <img src="{{ cover_image_url(recent_comic.comic_name) }}"
+                     alt="{{ recent_comic.comic_name }}封面"
+                     loading="lazy"
+                     decoding="async"
+                     onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+            </a>
+            <div class="md-lib-recent-body">
+                <div class="md-lib-recent-kicker">
+                    <i class="fa fa-history"></i>
+                    最近阅读
+                </div>
+                <div class="md-lib-recent-title">{{ recent_comic.comic_name }}</div>
+                <div class="md-lib-recent-meta">
+                    <span class="md-chip">{{ recent_comic.group or '默认分组' }}</span>
+                    <span>读到第 {{ recent_completed }} 章</span>
+                    <span>{{ recent_comic.available_chapters }} 章可读</span>
+                </div>
+                <div class="md-lib-progress"><span style="width: {{ recent_percent }}%;"></span></div>
+                <div class="md-lib-recent-actions">
+                    <a href="{{ url_for('comic_reader', task_id=recent_comic.comic_name) }}" class="md-lib-link action-press" style="color:var(--md-brand-soft)">
+                        <i class="fa fa-play-circle-o"></i>
+                        继续阅读
+                    </a>
+                    <a href="{{ url_for('comic_detail', task_id=recent_comic.comic_name) }}" data-app-loader="true" class="md-lib-link action-press">
+                        查看详情
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="space-y-2 mb-4">
+            {% for message in messages %}
+            <div class="rounded-xl border border-green-200 bg-green-50 text-green-800 px-4 py-3 text-sm md:text-base">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        {% if can_manage_library and (hidden_library_count > 0 or show_hidden_library) %}
+        <div class="flex justify-end mb-4">
+            <a
+                href="{% if show_hidden_library %}{{ url_for('comics_list', group=selected_group) }}{% else %}{{ url_for('comics_list', group=selected_group, show_hidden='1') }}{% endif %}"
+                data-app-loader="true"
+                class="md-chip action-press"
+            >
+                <i class="fa {% if show_hidden_library %}fa-eye{% else %}fa-eye-slash{% endif %}" style="margin-right:0.35rem"></i>
+                <span>{% if show_hidden_library %}隐藏隐藏内容{% else %}显示隐藏内容{% endif %}</span>
+                {% if hidden_library_count > 0 %}
+                <span class="md-lib-badge" style="margin-left:0.35rem">{{ hidden_library_count }}</span>
+                {% endif %}
+            </a>
+        </div>
+        {% endif %}
+
+        {% if not tasks %}
+        <div class="md-empty mb-8">
+            暂无已下载完成的漫画。请先使用「整本下载」功能下载漫画。
+            <div class="mt-4">
+                <a href="{{ url_for('download') }}" class="md-btn-primary action-press" data-app-loader="true">
+                    <i class="fa fa-download" style="margin-right:0.4rem"></i>前往下载
+                </a>
+            </div>
+        </div>
+        {% else %}
+        {% for group_block in grouped_tasks %}
+        <section class="group-section" data-group-section{% if loop.first %} data-library-search-host{% endif %}>
+            <div class="group-section-header">
+                <div class="group-section-title">
+                    {% if loop.first %}
+                    <div class="library-toolbar">
+                        <select class="md-lib-select" onchange="handleQuickGroupChange(this)" aria-label="快速切换分组">
+                            <option value="{{ url_for('comics_list', group='全部') }}" {% if selected_group == '全部' %}selected{% endif %}>全部</option>
+                            {% for group_name in groups %}
+                            <option value="{{ url_for('comics_list', group=group_name) }}" {% if group_block.name == group_name %}selected{% endif %}>{{ group_name }}</option>
+                            {% endfor %}
+                        </select>
+                        <span class="md-lib-badge">{{ group_block.tasks|length }}</span>
+                        <button type="button" class="md-lib-link action-press" data-library-search-toggle aria-label="搜索漫画" aria-expanded="false" onclick="toggleLibrarySearch()">
+                            <i class="fa fa-search"></i>
+                        </button>
+                        <div id="library-search-panel" class="library-search-panel" hidden>
+                            <div class="library-search-input-wrap">
+                                <i class="fa fa-search text-ink-400"></i>
+                                <input id="library-search-input" type="text" class="library-search-input" placeholder="搜索漫画名" oninput="handleLibrarySearchInput()" oncompositionstart="handleLibrarySearchCompositionStart()" oncompositionend="handleLibrarySearchCompositionEnd()">
+                            </div>
+                            <button type="button" class="library-search-clear action-press" onclick="clearLibrarySearch()">
+                                <i class="fa fa-times-circle-o"></i>
+                                清除搜索
+                            </button>
+                        </div>
+                    </div>
+                    {% else %}
+                    <h2 class="md-section-title !mb-0">{{ group_block.name }}</h2>
+                    <span class="md-lib-badge">{{ group_block.tasks|length }}</span>
+                    {% endif %}
+                </div>
+                {% if selected_group == '全部' or (loop.first and selected_group != '全部') %}
+                <div class="group-section-actions">
+                    {% if can_manage_library %}
+                    {% set group_is_hidden = group_block.name in hidden_group_names %}
+                    <form method="post" action="{{ url_for('toggle_admin_hidden_group') }}" class="inline-flex" data-api-v1="hidden-group">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="group_name" value="{{ group_block.name }}">
+                        <input type="hidden" name="redirect_group" value="{{ selected_group }}">
+                        <input type="hidden" name="return_to" value="comics">
+                        <input type="hidden" name="show_hidden" value="{{ '1' if show_hidden_library else '0' }}">
+                        <input type="hidden" name="action" value="{{ 'show' if group_is_hidden else 'hide' }}">
+                        <button type="submit" class="md-lib-link action-press" aria-label="{{ '取消隐藏分组 ' if group_is_hidden else '隐藏分组 ' }}{{ group_block.name }}">
+                            <i class="fa {{ 'fa-eye' if group_is_hidden else 'fa-eye-slash' }}"></i>
+                            <span>{{ '取消隐藏' if group_is_hidden else '隐藏分组' }}</span>
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% if loop.first and selected_group != '全部' %}
+                    <div class="relative md:hidden mobile-columns-control">
+                        <button
+                            id="columns-toggle-btn"
+                            type="button"
+                            class="md-chip action-press"
+                            onclick="toggleColumnsDropdown()"
+                        >
+                            <i class="fa fa-columns" style="margin-right:0.3rem"></i> <span id="current-columns">3列</span>
+                            <i class="fa fa-angle-down" style="margin-left:0.25rem"></i>
+                        </button>
+                        <div
+                            id="columns-dropdown"
+                            class="absolute right-0 top-full mt-1 rounded-xl border border-white/10 bg-ink-900 shadow-lg z-10 hidden overflow-hidden"
+                        >
+                            <div
+                                class="px-3 py-2 text-sm cursor-pointer text-ink-200 hover:bg-white/5 transition-colors"
+                                onclick="selectColumns(2); toggleColumnsDropdown();"
+                            >
+                                <i class="fa fa-columns mr-1"></i> 2列
+                            </div>
+                            <div
+                                class="px-3 py-2 text-sm cursor-pointer text-ink-200 hover:bg-white/5 transition-colors"
+                                onclick="selectColumns(3); toggleColumnsDropdown();"
+                            >
+                                <i class="fa fa-columns mr-1"></i> 3列
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if selected_group == '全部' %}
+                    <button type="button" class="md-lib-rail-nav action-press" aria-label="向左查看 {{ group_block.name }}" onclick="scrollGroupRail('{{ loop.index0 }}', -1)">
+                        <i class="fa fa-angle-left"></i>
+                    </button>
+                    <button type="button" class="md-lib-rail-nav action-press" aria-label="向右查看 {{ group_block.name }}" onclick="scrollGroupRail('{{ loop.index0 }}', 1)">
+                        <i class="fa fa-angle-right"></i>
+                    </button>
+                    <a href="{{ url_for('comics_list', group=group_block.name) }}" data-app-loader="true" class="md-lib-link action-press">
+                        <span>{{ group_block.tasks|length }}项</span>
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+
+            {% if group_block.tasks %}
+            {% if selected_group == '全部' %}
+            <div class="group-rail-shell">
+                <div data-group-rail="{{ loop.index0 }}" class="group-rail">
+                {% for task in group_block.tasks %}
+                <div class="group-rail-card w-full" data-comic-search-item data-comic-title="{{ task.comic_name }}">
+                    <a href="{{ url_for('comic_detail', task_id=task.comic_name) }}" data-app-loader="true" class="md-cover-card">
+                        <div class="md-book">
+                            <div class="md-book__spine" aria-hidden="true"></div>
+                            <div class="md-book__pages" aria-hidden="true"></div>
+                            <div class="md-book__cover">
+                                <img src="{{ cover_image_url(task.comic_name) }}"
+                                     alt="{{ task.comic_name }}封面"
+                                     loading="lazy"
+                                     decoding="async"
+                                     onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                            </div>
+                        </div>
+                        <div class="md-cover-card__title">{{ task.comic_name }}</div>
+                        <div class="md-cover-card__meta">
+                            {{ task.available_chapters }} 章 · {{ 'PDF' if task.comic_format == 1 else 'CBZ' }}
+                            {% if show_hidden_library and task.is_admin_hidden %} · 隐藏{% endif %}
+                        </div>
+                    </a>
+                </div>
+                {% endfor %}
+                </div>
+            </div>
+            {% else %}
+            <div data-comics-grid="true" class="md-cover-grid">
+                {% for task in group_block.tasks %}
+                <div data-comic-search-item data-comic-title="{{ task.comic_name }}">
+                    <a href="{{ url_for('comic_detail', task_id=task.comic_name) }}" data-app-loader="true" class="md-cover-card">
+                        <div class="md-book">
+                            <div class="md-book__spine" aria-hidden="true"></div>
+                            <div class="md-book__pages" aria-hidden="true"></div>
+                            <div class="md-book__cover">
+                                <img src="{{ cover_image_url(task.comic_name) }}"
+                                     alt="{{ task.comic_name }}封面"
+                                     loading="lazy"
+                                     decoding="async"
+                                     onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                            </div>
+                        </div>
+                        <div class="md-cover-card__title">{{ task.comic_name }}</div>
+                        <div class="md-cover-card__meta">
+                            {{ task.available_chapters }} 章 · {{ 'PDF' if task.comic_format == 1 else 'CBZ' }}
+                            {% if show_hidden_library and task.is_admin_hidden %} · 隐藏{% endif %}
+                        </div>
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="md-empty">
+                该分组下暂时没有漫画。
+            </div>
+            {% endif %}
+        </section>
+        {% endfor %}
+        {% endif %}
+    </div>
+    </div>
+</div>
+{% endblock %}

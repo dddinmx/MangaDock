@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+
+{% block title %}MangaDock - 阅读统计{% endblock %}
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* 移动端优化 */
+    @media (max-width: 768px) {
+        .mobile-header {
+            padding: 12px 0;
+        }
+        .mobile-header h1 {
+            font-size: 1.875rem; /* 3xl in Tailwind */
+        }
+        .mobile-header p {
+            font-size: 12px;
+        }
+    }
+
+    /* 图表样式 */
+    .bar-chart {
+        height: 260px;
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 12px;
+        align-items: end;
+        padding: 12px 8px 0;
+        position: relative;
+    }
+
+    .month-container {
+        height: 100%;
+        display: grid;
+        grid-template-rows: 1fr auto;
+        align-items: end;
+    }
+
+    .bar-area {
+        height: 200px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #E5E7EB;
+    }
+
+    .bar {
+        width: 28px;
+        background: linear-gradient(180deg, #3B82F6 0%, #2563EB 100%);
+        border-radius: 4px 4px 0 0;
+        transition: height 0.3s ease;
+    }
+
+    .month-label {
+        font-size: 12px;
+        color: #6B7280;
+        text-align: center;
+        margin-top: 10px;
+    }
+
+    .heatmap-months {
+        display: grid;
+        grid-template-columns: repeat(53, 12px);
+        gap: 4px;
+        margin-bottom: 8px;
+        padding-left: 28px;
+        width: max-content;
+    }
+
+    .heatmap-month-label {
+        font-size: 11px;
+        color: #6B7280;
+        text-align: left;
+        min-height: 16px;
+        white-space: nowrap;
+    }
+
+    .heatmap-scroll {
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 4px;
+    }
+
+    .heatmap-layout {
+        display: grid;
+        grid-template-columns: 28px 1fr;
+        gap: 8px;
+        align-items: start;
+        width: max-content;
+    }
+
+    .heatmap-weekdays {
+        display: grid;
+        grid-template-rows: repeat(7, 12px);
+        gap: 4px;
+        padding-top: 2px;
+    }
+
+    .heatmap-weekday {
+        font-size: 11px;
+        line-height: 12px;
+        color: #9CA3AF;
+    }
+
+    .heatmap-grid {
+        display: grid;
+        grid-template-columns: repeat(53, 12px);
+        gap: 4px;
+        width: max-content;
+    }
+
+    .heatmap-week {
+        display: grid;
+        grid-template-rows: repeat(7, 12px);
+        gap: 4px;
+    }
+
+    .heatmap-cell {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        background: #E5E7EB;
+    }
+
+    .heatmap-cell.is-outside-year {
+        opacity: 0.28;
+    }
+
+    .heatmap-cell.level-0 { background: #E5E7EB; }
+    .heatmap-cell.level-1 { background: #DBEAFE; }
+    .heatmap-cell.level-2 { background: #93C5FD; }
+    .heatmap-cell.level-3 { background: #3B82F6; }
+    .heatmap-cell.level-4 { background: #1D4ED8; }
+
+    html.theme-dark .heatmap-cell {
+        background: #3f3f46;
+    }
+
+    html.theme-dark .heatmap-cell.level-0 {
+        background: #3f3f46;
+    }
+
+    html.theme-dark .heatmap-cell.level-1 { background: #DBEAFE; }
+    html.theme-dark .heatmap-cell.level-2 { background: #93C5FD; }
+    html.theme-dark .heatmap-cell.level-3 { background: #3B82F6; }
+    html.theme-dark .heatmap-cell.level-4 { background: #1D4ED8; }
+
+    .heatmap-legend {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-top: 14px;
+        font-size: 12px;
+        color: #6B7280;
+        flex-wrap: wrap;
+    }
+
+    .heatmap-legend-scale {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    /* 移动端优化 */
+    @media (max-width: 768px) {
+        .bar-chart {
+            height: 220px;
+            gap: 6px;
+            padding: 8px 0 0;
+        }
+
+        .bar-area {
+            height: 160px;
+            padding-bottom: 8px;
+        }
+
+        .bar {
+            width: 60%;
+            max-width: 18px;
+        }
+
+        .month-label {
+            font-size: 10px;
+            margin-top: 8px;
+        }
+
+        .heatmap-months {
+            padding-left: 24px;
+            gap: 3px;
+            grid-template-columns: repeat(53, 10px);
+        }
+
+        .heatmap-layout {
+            grid-template-columns: 24px 1fr;
+            gap: 6px;
+        }
+
+        .heatmap-weekdays {
+            grid-template-rows: repeat(7, 10px);
+            gap: 3px;
+        }
+
+        .heatmap-weekday {
+            font-size: 10px;
+            line-height: 10px;
+        }
+
+        .heatmap-grid {
+            gap: 3px;
+            grid-template-columns: repeat(53, 10px);
+        }
+
+        .heatmap-week {
+            grid-template-rows: repeat(7, 10px);
+            gap: 3px;
+        }
+
+        .heatmap-cell {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-0 py-2 md:px-4 md:py-8 md:max-w-4xl relative">
+    <!-- 页面标题 -->
+    <header class="mb-4 md:mb-8 mobile-header">
+        <div class="flex justify-between items-center">
+            <h1 class="text-2xl md:text-3xl font-bold text-dark mb-2">阅读统计</h1>
+        </div>
+    </header>
+
+    <!-- 年份选择器 -->
+    <div class="flex justify-between items-center mb-6">
+        <button class="p-2 rounded-full hover:bg-gray-100 transition-colors">
+            <i class="fa fa-chevron-left"></i>
+        </button>
+        <h2 class="text-lg md:text-xl font-semibold text-dark">{{ stats_year }}年</h2>
+        <button class="p-2 rounded-full hover:bg-gray-100 transition-colors">
+            <i class="fa fa-chevron-right"></i>
+        </button>
+    </div>
+
+    <!-- 总阅读时间 -->
+    <div class="bg-white rounded-lg md:rounded-xl shadow-md p-4 md:p-6 mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-2xl md:text-3xl font-bold text-dark mb-1">
+                    {% if total_time > 0 %}
+                        {{ total_time // 60 }}小时 {{ total_time % 60 }}分钟
+                    {% else %}
+                        0小时 0分钟
+                    {% endif %}
+                </h3>
+                <p class="text-sm text-gray-500 flex items-center">
+                    <i class="fa fa-clock-o mr-1"></i>阅读时间
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 阅读时间分布 -->
+    <div class="bg-white rounded-lg md:rounded-xl shadow-md p-4 md:p-6 mb-6">
+        <h3 class="text-lg md:text-xl font-semibold text-dark mb-4">阅读时间分布</h3>
+        <div class="bar-chart">
+            {% for i in range(12) %}
+                {% set current_duration = monthly_data.durations[i] if i < monthly_data.durations|length else 0 %}
+                {% set bar_height = (current_duration / max_duration) * 100 if (max_duration and max_duration > 0) else 0 %}
+                {% set bar_height = bar_height if bar_height <= 100 else 100 %}
+
+                <div class="month-container">
+                    <div class="bar-area">
+                        {% if current_duration > 0 %}
+                        <div class="bar" style="height: {{ bar_height }}%;"></div>
+                        {% endif %}
+                    </div>
+                    <div class="month-label">{{ monthly_data.months[i] }}</div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- 阅读热力图 -->
+    <div class="bg-white rounded-lg md:rounded-xl shadow-md p-4 md:p-6 mb-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
+            <h3 class="text-lg md:text-xl font-semibold text-dark">阅读热力图</h3>
+            <p class="text-sm text-gray-500">{{ stats_year }} 年每日阅读时长</p>
+        </div>
+
+        <div class="heatmap-scroll">
+            <div class="heatmap-months">
+                {% for label in heatmap_month_labels %}
+                <div class="heatmap-month-label">{{ label }}</div>
+                {% endfor %}
+            </div>
+            <div class="heatmap-layout">
+                <div class="heatmap-weekdays">
+                    <div class="heatmap-weekday">一</div>
+                    <div class="heatmap-weekday"></div>
+                    <div class="heatmap-weekday">三</div>
+                    <div class="heatmap-weekday"></div>
+                    <div class="heatmap-weekday">五</div>
+                    <div class="heatmap-weekday"></div>
+                    <div class="heatmap-weekday">日</div>
+                </div>
+                <div class="heatmap-grid">
+                    {% for week in heatmap_weeks %}
+                    <div class="heatmap-week">
+                        {% for cell in week %}
+                        <div
+                            class="heatmap-cell level-{{ cell.level }} {{ '' if cell.is_current_year else 'is-outside-year' }}"
+                            title="{{ cell.date }} · {{ cell.duration }} 分钟"
+                        ></div>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="heatmap-legend">
+            <span>
+                {% if max_daily_duration > 0 %}
+                最长单日阅读 {{ max_daily_duration }} 分钟
+                {% else %}
+                暂无按天阅读记录
+                {% endif %}
+            </span>
+            <div class="heatmap-legend-scale">
+                <span>少</span>
+                <span class="heatmap-cell level-0"></span>
+                <span class="heatmap-cell level-1"></span>
+                <span class="heatmap-cell level-2"></span>
+                <span class="heatmap-cell level-3"></span>
+                <span class="heatmap-cell level-4"></span>
+                <span>多</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 阅读时长排行榜 -->
+    <div class="bg-white rounded-lg md:rounded-xl shadow-md p-4 md:p-6 mb-6">
+        <h3 class="text-lg md:text-xl font-semibold text-dark mb-4">阅读时长排行榜</h3>
+        <div class="space-y-3">
+            {% for comic in reading_time_rank %}
+            <div class="flex items-center gap-3">
+                <div class="text-lg font-bold text-gray-400">{{ loop.index }}</div>
+                <div class="w-12 h-16 bg-gray-200 rounded overflow-hidden flex-shrink-0">
+                    <img src="{{ url_for('static', filename='cover/' + comic.comic_name + '.jpg') }}"
+                         alt="{{ comic.comic_name }}封面"
+                         class="w-full h-full object-cover"
+                         onerror="this.src='{{ url_for('static', filename='cover/cover.png') }}'">
+                </div>
+                <div class="flex-1">
+                    <div class="font-medium text-gray-800">{{ comic.comic_name }}</div>
+                    <div class="text-xs text-gray-500">累计阅读: {{ comic.total_duration }} 分钟</div>
+                </div>
+                <div class="font-medium text-gray-600">{{ comic.total_duration }} 分钟</div>
+            </div>
+            {% else %}
+            <div class="text-center py-8 text-gray-500">
+                <i class="fa fa-book-open-o text-4xl mb-2"></i>
+                <p>暂无阅读记录</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}

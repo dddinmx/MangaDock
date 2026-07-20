@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+
+{% block title %}{{ task.comic_name }} - 详情{% endblock %}
+{% block body_class %}md-body detail-body min-h-screen{% endblock %}
+
+{% block extra_head %}
+<script>
+    function resetReaderEntryButtons() {
+        const readerEntryButtons = document.querySelectorAll('[data-reader-entry]');
+
+        readerEntryButtons.forEach(button => {
+            button.dataset.loading = 'false';
+            button.classList.remove('is-loading');
+            button.removeAttribute('aria-busy');
+        });
+    }
+
+    function bindReaderEntryButtons() {
+        const readerEntryButtons = document.querySelectorAll('[data-reader-entry]');
+
+        readerEntryButtons.forEach(button => {
+            if (button.dataset.bound === 'true') {
+                return;
+            }
+
+            button.dataset.bound = 'true';
+            button.addEventListener('click', (event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+                    return;
+                }
+
+                if (button.dataset.loading === 'true') {
+                    event.preventDefault();
+                    return;
+                }
+
+                event.preventDefault();
+                button.dataset.loading = 'true';
+                button.classList.add('is-loading');
+                button.setAttribute('aria-busy', 'true');
+
+                const targetUrl = button.getAttribute('href');
+                window.requestAnimationFrame(() => {
+                    window.setTimeout(() => {
+                        window.location.href = targetUrl;
+                    }, 140);
+                });
+            });
+        });
+    }
+
+    function toggleCoverEditor() {
+        const editor = document.getElementById('cover-editor-panel');
+        const toggle = document.querySelector('[data-cover-editor-toggle]');
+        if (!editor) {
+            return;
+        }
+
+        if (editor.hasAttribute('hidden')) {
+            editor.removeAttribute('hidden');
+            if (toggle) {
+                toggle.setAttribute('aria-expanded', 'true');
+            }
+            return;
+        }
+
+        editor.setAttribute('hidden', '');
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', 'false');
+        }
+    }
+
+    function toggleDetailOverflowMenu(forceClose = false) {
+        const menu = document.getElementById('detail-overflow-menu');
+        const toggle = document.querySelector('[data-detail-menu-toggle]');
+        if (!menu || !toggle) {
+            return;
+        }
+
+        const shouldOpen = forceClose ? false : menu.hasAttribute('hidden');
+        if (shouldOpen) {
+            menu.removeAttribute('hidden');
+            toggle.setAttribute('aria-expanded', 'true');
+            return;
+        }
+
+        menu.setAttribute('hidden', '');
+        toggle.setAttribute('aria-expanded', 'false');
+    }
+
+    function searchChapters() {
+        const searchInput = document.getElementById('chapter-search');
+        const searchTerm = searchInput.value.toLowerCase();
+        const chapterItems = document.querySelectorAll('.chapter-item');
+
+        chapterItems.forEach(item => {
+            const chapterTitle = item.querySelector('.chapter-title').textContent.toLowerCase();
+            if (chapterTitle.includes(searchTerm)) {
+                item.style.display = 'flex';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+
+    function sortChapters() {
+        const sortSelect = document.getElementById('chapter-sort');
+        const sortType = sortSelect.value;
+        const chapterList = document.getElementById('chapter-list');
+        const chapterItems = Array.from(chapterList.querySelectorAll('.chapter-item'));
+
+        if (sortType === 'asc') {
+            chapterItems.sort((a, b) => {
+                const aNum = parseInt(a.dataset.chapter);
+                const bNum = parseInt(b.dataset.chapter);
+                return aNum - bNum;
+            });
+        } else {
+            chapterItems.sort((a, b) => {
+                const aNum = parseInt(a.dataset.chapter);
+                const bNum = parseInt(b.dataset.chapter);
+                return bNum - aNum;
+            });
+        }
+
+        chapterItems.forEach(item => {
+            chapterList.appendChild(item);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        resetReaderEntryButtons();
+        bindReaderEntryButtons();
+        document.addEventListener('click', function(event) {
+            const menu = document.getElementById('detail-overflow-menu');
+            const toggle = document.querySelector('[data-detail-menu-toggle]');
+            if (!menu || !toggle || menu.hasAttribute('hidden')) {
+                return;
+            }
+
+            if (menu.contains(event.target) || toggle.contains(event.target)) {
+                return;
+            }
+
+            toggleDetailOverflowMenu(true);
+        });
+    });
+
+    window.addEventListener('pageshow', function() {
+        resetReaderEntryButtons();
+    });
+</script>
+<style>
+    .reader-entry-btn {
+        position: relative;
+        overflow: hidden;
+    }
+    .reader-entry-btn .btn-label,
+    .reader-entry-btn .btn-loading {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        width: 100%;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .reader-entry-btn .btn-loading {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        transform: translateY(6px);
+        pointer-events: none;
+    }
+    .reader-entry-btn.is-loading {
+        pointer-events: none;
+        opacity: 0.96;
+    }
+    .reader-entry-btn.is-loading .btn-label {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    .reader-entry-btn.is-loading .btn-loading {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>
+{% endblock %}
+
+{% block main_wrapper %}
+<div class="md-main--flush app-main-content">
+{% block content %}
+<article class="md-detail">
+    {# 氛围底图（方案 C） #}
+    <div class="md-detail-hero-media" aria-hidden="true">
+        <img
+            src="{{ cover_image_url(task.comic_name) }}"
+            alt=""
+            onerror="this.onerror=null;this.src='{{ asset_url('cover/cover.png') }}';"
+        >
+    </div>
+    <div class="md-detail-hero-shade"></div>
+
+    <div class="md-detail-topbar">
+        <a href="{{ url_for('comics_list') }}" class="md-detail-icon-btn action-press" data-app-loader="true" aria-label="返回书架">
+            <i class="fa fa-arrow-left"></i>
+        </a>
+        {% if can_manage_library %}
+        <div class="md-detail-overflow">
+            <button
+                type="button"
+                class="md-detail-icon-btn action-press"
+                data-detail-menu-toggle
+                aria-label="更多操作"
+                aria-expanded="false"
+                onclick="toggleDetailOverflowMenu()">
+                <i class="fa fa-ellipsis-h"></i>
+            </button>
+            <div id="detail-overflow-menu" class="md-detail-menu" hidden>
+                <button
+                    type="button"
+                    class="md-detail-menu-item action-press"
+                    data-cover-editor-toggle
+                    aria-controls="cover-editor-panel"
+                    aria-expanded="false"
+                    onclick="toggleDetailOverflowMenu(true); toggleCoverEditor();">
+                    <i class="fa fa-image"></i>
+                    <span>更换封面</span>
+                </button>
+                <form method="post" action="{{ url_for('toggle_admin_hidden_comic') }}" class="md-detail-menu-form" data-api-v1="hidden-comic">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="comic_name" value="{{ task.comic_name }}">
+                    <input type="hidden" name="task_id" value="{{ task.comic_name }}">
+                    <input type="hidden" name="return_to" value="detail">
+                    <input type="hidden" name="action" value="{{ 'show' if is_current_comic_directly_hidden else 'hide' }}">
+                    <button type="submit" class="md-detail-menu-item action-press">
+                        <i class="fa {{ 'fa-eye' if is_current_comic_directly_hidden else 'fa-eye-slash' }}"></i>
+                        <span>{{ '取消隐藏此漫画' if is_current_comic_directly_hidden else '隐藏此漫画' }}</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="md-detail-inner">
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="space-y-2 mb-4">
+            {% for message in messages %}
+            <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 px-4 py-3 text-sm">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <header class="md-detail-head">
+            <div class="md-detail-cover">
+                <img
+                    src="{{ cover_image_url(task.comic_name) }}"
+                    alt="{{ task.comic_name }}封面"
+                    onerror="this.src='{{ asset_url('cover/cover.png') }}'"
+                >
+            </div>
+            <div class="md-detail-meta">
+                <div class="md-detail-tags">
+                    <span class="md-chip">{{ 'PDF' if task.comic_format == 1 else 'CBZ' }}</span>
+                    <span class="md-chip">{{ task.available_chapters }} 章</span>
+                    {% if can_manage_library %}
+                    <form method="post" action="{{ url_for('assign_comic_group_route') }}" class="md-detail-group-form" data-api-v1="group-assign">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="comic_name" value="{{ task.comic_name }}">
+                        <input type="hidden" name="task_id" value="{{ task.comic_name }}">
+                        <input type="hidden" name="return_to" value="detail">
+                        <label class="md-detail-group-label">
+                            <i class="fa fa-folder-open"></i>
+                            <select name="group_name" aria-label="选择分组">
+                                {% for group_name in groups %}
+                                <option value="{{ group_name }}"{% if group_name == current_group %} selected{% endif %}>{{ group_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <button type="submit" class="md-detail-group-save action-press" aria-label="保存分组">
+                            <i class="fa fa-check"></i>
+                        </button>
+                    </form>
+                    <form method="post" action="{{ url_for('toggle_admin_hidden_group') }}" class="md-detail-group-form" data-api-v1="hidden-group">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="group_name" value="{{ current_group }}">
+                        <input type="hidden" name="task_id" value="{{ task.comic_name }}">
+                        <input type="hidden" name="return_to" value="detail">
+                        <input type="hidden" name="action" value="{{ 'show' if is_current_group_hidden else 'hide' }}">
+                        <button type="submit" class="md-chip action-press" style="cursor:pointer;border:0;">
+                            <i class="fa {{ 'fa-eye' if is_current_group_hidden else 'fa-eye-slash' }}"></i>
+                            <span style="margin-left:0.35rem">{{ '取消隐藏本组' if is_current_group_hidden else '隐藏本组' }}</span>
+                        </button>
+                    </form>
+                    {% else %}
+                    <span class="md-chip"><i class="fa fa-folder-open" style="margin-right:0.35rem"></i>{{ current_group }}</span>
+                    {% endif %}
+                </div>
+
+                <h1 class="md-detail-title">{{ task.comic_name }}</h1>
+
+                <p class="md-detail-sub">
+                    {% if reading_time > 0 %}
+                        {% set hours = reading_time // 60 %}
+                        {% set minutes = reading_time % 60 %}
+                        累计阅读
+                        {% if hours > 0 %}{{ hours }} 小时 {% endif %}{{ minutes }} 分钟
+                    {% else %}
+                        尚未开始阅读
+                    {% endif %}
+                    {% if progress %}
+                        · 上次读到第 {{ progress.last_chapter + 1 }} 章
+                    {% endif %}
+                </p>
+
+                {% if comic_description %}
+                <div class="md-detail-synopsis">
+                    <div class="md-detail-synopsis-label">简介</div>
+                    <p class="md-detail-synopsis-text">{{ comic_description }}</p>
+                </div>
+                {% endif %}
+
+                {% if can_manage_library and is_current_comic_hidden %}
+                <p class="md-detail-warn">
+                    <i class="fa fa-eye-slash"></i>
+                    {% if is_current_group_hidden %}该漫画因分组「{{ current_group }}」被隐藏{% else %}该漫画已隐藏{% endif %}
+                </p>
+                {% endif %}
+
+                {% if can_manage_library %}
+                <div id="cover-editor-panel" class="md-detail-cover-editor" hidden>
+                    <form method="post" action="{{ url_for('update_comic_cover', task_id=task.comic_name) }}" enctype="multipart/form-data" class="md-detail-cover-form" data-api-v1="cover-upload" data-comic-name="{{ task.comic_name }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="file" name="cover_file" accept="image/*" class="md-detail-file" required>
+                        <button type="submit" class="md-btn-primary action-press" style="padding:0.65rem 1rem;font-size:0.8rem;">
+                            <i class="fa fa-upload"></i>
+                            <span style="margin-left:0.35rem">保存封面</span>
+                        </button>
+                    </form>
+                    <p class="md-detail-cover-note">上传 JPG / PNG / WEBP 后会覆盖当前封面，并同步到书架与首页。</p>
+                </div>
+                {% endif %}
+
+                {# 桌面端主按钮（移动端用吸底） #}
+                <div class="md-detail-desktop-cta">
+                    {% if progress %}
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}"
+                       class="md-btn-primary reader-entry-btn action-press"
+                       data-reader-entry="true">
+                        <span class="btn-label">继续阅读 第 {{ progress.last_chapter + 1 }} 章</span>
+                        <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
+                    </a>
+                    {% else %}
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}"
+                       class="md-btn-primary reader-entry-btn action-press"
+                       data-reader-entry="true">
+                        <span class="btn-label">开始阅读</span>
+                        <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
+                    </a>
+                    {% endif %}
+                    <a href="{{ url_for('index') }}" class="md-btn-ghost action-press" data-app-loader="true">返回首页</a>
+                </div>
+            </div>
+        </header>
+
+        <section class="md-detail-chapters">
+            <div class="md-detail-chapters-bar">
+                <h2 class="md-section-title !mb-0">共 {{ task.available_chapters }} 章</h2>
+                <div class="md-detail-chapter-tools">
+                    <div class="md-detail-search">
+                        <i class="fa fa-search"></i>
+                        <input type="text"
+                               id="chapter-search"
+                               placeholder="搜索章节..."
+                               oninput="searchChapters()">
+                    </div>
+                    <select id="chapter-sort" class="md-detail-sort" onchange="sortChapters()">
+                        <option value="asc" selected>正序</option>
+                        <option value="desc">倒序</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="chapter-list" class="md-chapter-list">
+                {% for chapter in chapters %}
+                <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}?start_chapter={{ loop.index0 }}"
+                   class="chapter-item md-chapter-item"
+                   data-chapter="{{ chapter.number }}">
+                    <div class="min-w-0 flex-1">
+                        <div class="chapter-title md-chapter-title">{{ chapter.title }}</div>
+                        <div class="md-chapter-meta">
+                            <span class="chapter-size">{{ chapter.filename }}</span>
+                            <span class="chapter-date uppercase">{{ chapter.format }}</span>
+                        </div>
+                    </div>
+                    <i class="fa fa-angle-right md-chapter-chevron"></i>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+
+    {# 吸底主 CTA（详情页内，非全局 Dock） #}
+    <div class="md-detail-sticky-cta">
+        {% if progress %}
+        <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}"
+           class="md-btn-primary reader-entry-btn action-press md-detail-sticky-btn"
+           data-reader-entry="true">
+            <span class="btn-label">继续阅读 第 {{ progress.last_chapter + 1 }} 章</span>
+            <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
+        </a>
+        {% else %}
+        <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}"
+           class="md-btn-primary reader-entry-btn action-press md-detail-sticky-btn"
+           data-reader-entry="true">
+            <span class="btn-label">开始阅读</span>
+            <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
+        </a>
+        {% endif %}
+    </div>
+</article>
+{% endblock %}
+</div>
+{% endblock %}

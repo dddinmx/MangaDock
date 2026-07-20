@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="../static/favicon.ico" type="image/x-icon">
+    <meta id="theme-color-meta" name="theme-color" content="#667eea">
+    <title>MangaDock - 下载进度</title>
+    <script>
+        (() => {
+            try {
+                const savedTheme = localStorage.getItem('mangadock-theme');
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+                    document.documentElement.classList.add('theme-dark');
+                }
+            } catch (error) {
+                console.warn('Theme bootstrap failed', error);
+            }
+        })();
+    </script>
+    <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
+    <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
+    <style>
+        html.theme-dark {
+            color-scheme: dark;
+        }
+        /* 加载动画样式 */
+        .loader {
+            border-top-color: #3B82F6;
+            animation: spinner 0.6s linear infinite;
+        }
+        @keyframes spinner {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* 按钮加载状态 */
+        .btn-loading {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+        
+        /* 漫画封面图样式 */
+        .comic-cover {
+            width: 100px;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            transition: transform 0.3s ease;
+        }
+        .comic-cover:hover {
+            transform: scale(1.03);
+        }
+        .cover-placeholder {
+            width: 100px;
+            height: 150px;
+            background-color: #f1f1f1;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+        }
+        .cover-placeholder.hidden,
+        .comic-cover.hidden {
+            display: none !important;
+        }
+        .theme-toggle-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            border: 1px solid rgba(203, 213, 225, 0.95);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.92);
+            color: rgb(71, 85, 105);
+            padding: 0.65rem 1rem;
+            box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+        }
+        html.theme-dark body {
+            background: #181818;
+            color: #e5e7eb;
+        }
+        html.theme-dark .theme-toggle-btn,
+        html.theme-dark .bg-white {
+            background-color: #202020 !important;
+            color: #e5e7eb !important;
+            border-color: rgba(51, 65, 85, 0.88);
+        }
+        html.theme-dark .bg-gray-50,
+        html.theme-dark .bg-gray-100 {
+            background-color: #181818 !important;
+        }
+        html.theme-dark .bg-gray-200 {
+            background-color: #242424 !important;
+        }
+        html.theme-dark .text-dark,
+        html.theme-dark .text-gray-800,
+        html.theme-dark .text-gray-700 {
+            color: #f3f4f6 !important;
+        }
+        html.theme-dark .text-gray-600 {
+            color: #d1d5db !important;
+        }
+        html.theme-dark .text-gray-500,
+        html.theme-dark .text-gray-400 {
+            color: #94a3b8 !important;
+        }
+        html.theme-dark .bg-green-50 {
+            background-color: #1c2420 !important;
+        }
+        html.theme-dark .bg-red-50 {
+            background-color: #2a1b1b !important;
+        }
+        html.theme-dark .border-danger {
+            border-color: #ef4444 !important;
+        }
+        html.theme-dark .comic-cover,
+        html.theme-dark .bg-white.rounded-xl {
+            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.35);
+        }
+        html.theme-dark .cover-placeholder {
+            background-color: #242424;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <!-- 导航 -->
+        <nav class="mb-8 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-4 flex-wrap">
+                <a href="{{ url_for('index') }}" class="inline-flex items-center text-primary hover:text-primary/80">
+                    <i class="fa fa-arrow-left mr-2"></i> 返回主页
+                </a>
+                <a href="{{ url_for('tasks') }}" class="inline-flex items-center text-primary hover:text-primary/80">
+                    <i class="fa fa-list mr-2"></i> 所有任务
+                </a>
+            </div>
+            <button id="theme-toggle" type="button" class="theme-toggle-btn">
+                <i id="theme-toggle-icon" class="fa fa-moon-o"></i>
+                <span id="theme-toggle-label">暗黑</span>
+            </button>
+        </nav>
+
+        <!-- 标题和封面图区域 - 优化布局 -->
+        <header class="mb-8 flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-8">
+            <!-- 图片展示区域 -->
+            <div id="comic-cover-container" class="mb-4 sm:mb-0">
+                <!-- 封面占位符 -->
+                <div class="cover-placeholder w-48 h-64 bg-gray-200 rounded-md flex items-center justify-center text-gray-400" id="cover-placeholder">
+                    <i class="fa fa-book text-4xl" id="cover-placeholder-icon"></i>
+                </div>
+                <!-- 封面图片（src 由脚本设置，避免相对路径与缓存问题） -->
+                <img id="comic-cover" class="comic-cover hidden w-48 h-64 object-cover rounded-md shadow-md transition-all duration-300 hover:shadow-lg"
+                     alt="漫画封面图"
+                     style="display: none;">
+            </div>
+            
+            <!-- 标题区域 - 关键优化：移除右侧自动边距，添加内边距 -->
+            <div class="text-center sm:text-left sm:flex-1 pt-2 sm:pt-0">
+                <h1 class="text-3xl font-bold text-dark mb-2">正在下载</h1>
+                <p class="text-gray-600 text-xl" id="comic-name">正在初始化任务...</p>
+            </div>
+        </header>
+
+        <!-- 进度卡片 -->
+        <div class="bg-white rounded-xl shadow-md p-6 md:p-8 mb-8">
+            <!-- 加载动画 (初始显示) -->
+            <div id="initial-loader" class="flex justify-center py-12">
+                <div class="loader w-12 h-12 rounded-full border-4 border-gray-200"></div>
+            </div>
+
+            <!-- 进度内容 (初始隐藏) -->
+            <div id="progress-content" class="hidden">
+                <!-- 进度条 -->
+                <div class="mb-6">
+                    <div class="flex justify-between mb-2">
+                        <span class="text-sm font-medium text-gray-700">总体进度</span>
+                        <span class="text-sm font-medium text-primary" id="progress-percent">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-4">
+                        <div 
+                            id="progress-bar" 
+                            class="bg-primary h-4 rounded-full transition-all duration-500 ease-out" 
+                            style="width: 0%"
+                        ></div>
+                    </div>
+                </div>
+
+                <!-- 状态信息 -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <div class="text-sm text-gray-500 mb-1">总章节数</div>
+                        <div class="text-2xl font-bold text-gray-800" id="total-chapters">--</div>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <div class="text-sm text-gray-500 mb-1">已完成章节</div>
+                        <div class="text-2xl font-bold text-primary" id="completed-chapters">0</div>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <div class="text-sm text-gray-500 mb-1">当前状态</div>
+                        <div class="text-xl font-bold text-secondary" id="status">等待中...</div>
+                    </div>
+                </div>
+
+                <!-- 时间信息 -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                    <div class="flex items-center">
+                        <i class="fa fa-clock-o text-gray-400 mr-3 text-xl"></i>
+                        <div>
+                            <div class="text-sm text-gray-500">开始时间</div>
+                            <div class="text-gray-800" id="start-time">--:--:--</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center">
+                        <i class="fa fa-flag text-gray-400 mr-3 text-xl"></i>
+                        <div>
+                            <div class="text-sm text-gray-500">结束时间</div>
+                            <div class="text-gray-800" id="end-time">--:--:--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 操作按钮 -->
+                <div class="flex justify-center">
+                    <button 
+                        id="cancel-btn" 
+                        type="button"
+                        class="bg-danger hover:bg-danger/90 text-white font-medium py-2 px-6 rounded-lg transition duration-200 flex items-center"
+                    >
+                        <i class="fa fa-times mr-2" id="cancel-btn-icon"></i>
+                        <span id="cancel-btn-text">取消下载</span>
+                        <i class="fa fa-spinner fa-spin ml-2" id="cancel-loading" style="display: none;" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 日志区域 -->
+        <div class="bg-white rounded-xl shadow-md p-6 md:p-8 mb-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                <i class="fa fa-list-alt text-primary mr-2"></i> 下载日志
+            </h2>
+            <div 
+                id="log-container" 
+                class="bg-gray-50 rounded-lg p-4 h-64 overflow-y-auto text-sm text-gray-700 font-mono"
+            >
+                <div class="text-gray-500">等待任务开始...</div>
+            </div>
+        </div>
+
+        <!-- 完成操作区 (默认隐藏) -->
+        <div id="completed-actions" class="hidden bg-green-50 rounded-xl p-6 text-center mb-8">
+            <i class="fa fa-check-circle text-5xl text-secondary mb-4"></i>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">操作完成!</h2>
+            <p class="text-gray-600 mb-6">漫画已成功下载或更新完成</p>
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+                <a href="{{ url_for('download') }}" class="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-6 rounded-lg transition duration-200">
+                    <i class="fa fa-download mr-2"></i> 下载其他漫画
+                </a>
+                <a href="{{ url_for('update') }}" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-3 px-6 rounded-lg transition duration-200">
+                    <i class="fa fa-refresh mr-2"></i> 更新其他漫画
+                </a>
+                <a href="{{ url_for('index') }}" class="bg-gray-600 hover:bg-gray-700 text-white font-medium py-3 px-6 rounded-lg transition duration-200">
+                    <i class="fa fa-home mr-2"></i> 返回主页
+                </a>
+            </div>
+        </div>
+
+        <!-- 错误提示区 (默认隐藏) -->
+        <div id="error-message" class="hidden bg-red-50 border-l-4 border-danger p-4 rounded-r mb-8">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fa fa-exclamation-circle text-danger text-xl"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm text-red-700" id="error-text">
+                        发生错误，请查看日志了解详情
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+        <script src="{{ asset_url('js/api_v1.js') }}"></script>
+<script>
+        (() => {
+            const themeToggle = document.getElementById('theme-toggle');
+            const themeToggleIcon = document.getElementById('theme-toggle-icon');
+            const themeToggleLabel = document.getElementById('theme-toggle-label');
+            const themeColorMeta = document.getElementById('theme-color-meta');
+
+            const syncThemeToggle = () => {
+                const isDark = document.documentElement.classList.contains('theme-dark');
+                themeToggleIcon.className = isDark ? 'fa fa-sun-o' : 'fa fa-moon-o';
+                themeToggleLabel.textContent = isDark ? '浅色' : '暗黑';
+                themeColorMeta.setAttribute('content', isDark ? '#0d1117' : '#667eea');
+            };
+
+            const setThemeMode = (mode) => {
+                const isDark = mode === 'dark';
+                document.documentElement.classList.toggle('theme-dark', isDark);
+                localStorage.setItem('mangadock-theme', isDark ? 'dark' : 'light');
+                syncThemeToggle();
+            };
+
+            syncThemeToggle();
+            themeToggle.addEventListener('click', () => {
+                const nextMode = document.documentElement.classList.contains('theme-dark') ? 'light' : 'dark';
+                setThemeMode(nextMode);
+            });
+        })();
+
+        // 任务ID — 状态轮询与取消走 /api/v1
+        const taskId = "{{ task_id }}";
+        const csrfToken = "{{ csrf_token() }}";
+        const coverBaseUrl = "{{ url_for('static', filename='cover') }}";
+        let updateInterval;
+        let quickCheckInterval = null;
+        let initialLoadComplete = false;
+        let coverImageLoaded = false;
+        let coverLoadInFlight = false;
+        let lastCoverAttemptAt = 0;
+        let lastCoverComicName = '';
+        let isCancelling = false;
+
+        function setCancelLoadingVisible(visible) {
+            const cancelLoading = document.getElementById('cancel-loading');
+            if (!cancelLoading) {
+                return;
+            }
+            // 不用仅依赖 Tailwind hidden：flex 布局下更稳妥地用 inline style
+            cancelLoading.style.display = visible ? 'inline-block' : 'none';
+            cancelLoading.setAttribute('aria-hidden', visible ? 'false' : 'true');
+        }
+
+        function resetCancelButtonState() {
+            isCancelling = false;
+            const cancelBtn = document.getElementById('cancel-btn');
+            const cancelBtnText = document.getElementById('cancel-btn-text');
+
+            if (!cancelBtn || !cancelBtnText) {
+                return;
+            }
+
+            cancelBtn.classList.remove('btn-loading');
+            cancelBtn.disabled = false;
+            cancelBtnText.textContent = '取消下载';
+            setCancelLoadingVisible(false);
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            resetCancelButtonState();
+            const cancelBtn = document.getElementById('cancel-btn');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', handleCancel);
+            }
+            
+            // 开始获取任务状态
+            fetchTaskStatus();
+            
+            // 初始快速检查，完成后改为 3s 轮询
+            let quickCheckCount = 0;
+            quickCheckInterval = setInterval(() => {
+                if (initialLoadComplete || quickCheckCount >= 10) {
+                    clearInterval(quickCheckInterval);
+                    quickCheckInterval = null;
+                    if (!updateInterval) {
+                        updateInterval = setInterval(fetchTaskStatus, 3000);
+                    }
+                    return;
+                }
+                fetchTaskStatus();
+                quickCheckCount += 1;
+            }, 200);
+        });
+
+        window.addEventListener('pageshow', () => {
+            resetCancelButtonState();
+        });
+        
+        // 处理取消下载
+        function handleCancel() {
+            if (isCancelling) return;
+            
+            if (!confirm('确定要取消当前下载任务吗？')) {
+                return;
+            }
+            
+            isCancelling = true;
+            const cancelBtn = document.getElementById('cancel-btn');
+            const cancelBtnText = document.getElementById('cancel-btn-text');
+            
+            cancelBtn.classList.add('btn-loading');
+            cancelBtn.disabled = true;
+            cancelBtnText.textContent = '取消中...';
+            setCancelLoadingVisible(true);
+            
+            window.MangaDockApi.apiV1('POST', `/api/v1/tasks/${encodeURIComponent(taskId)}/cancel`, {}, { csrfToken })
+                .then(result => {
+                    if (result.ok) {
+                        addLogEntry('任务已取消，正在清理资源...');
+                        fetchTaskStatus();
+                    } else {
+                        alert('取消失败: ' + (result.message || '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    console.error('取消请求失败:', error);
+                    alert('取消请求发送失败，请重试');
+                })
+                .finally(() => {
+                    // 任务若已取消，按钮会被隐藏；否则恢复
+                    resetCancelButtonState();
+                });
+        }
+        
+        // 获取任务状态（/api/v1）
+        function fetchTaskStatus() {
+            if (!window.MangaDockApi || typeof window.MangaDockApi.apiV1 !== 'function') {
+                console.error('MangaDockApi 未加载');
+                return;
+            }
+            window.MangaDockApi.apiV1('GET', `/api/v1/tasks/${encodeURIComponent(taskId)}`)
+                .then(result => {
+                    if (!result.ok || !result.data) {
+                        throw new Error(result.message || '网络响应不正常');
+                    }
+                    const data = Object.assign({}, result.data, {
+                        start_time: window.MangaDockApi.formatClock(result.data.start_time),
+                        end_time: window.MangaDockApi.formatClock(result.data.end_time),
+                    });
+                    if (!initialLoadComplete) {
+                        initialLoadComplete = true;
+                        document.getElementById('initial-loader').classList.add('hidden');
+                        document.getElementById('progress-content').classList.remove('hidden');
+                        // 内容展示后强制保证取消按钮不在 loading
+                        resetCancelButtonState();
+                    }
+                    
+                    updateUI(data);
+                    
+                    // 封面可能在任务中途才下载完成：轮询期间持续尝试（带节流与防缓存）
+                    if (data.comic_name) {
+                        maybeLoadCoverImage(data.comic_name);
+                    }
+                    
+                    if (['completed', 'cancelled', 'error'].includes(data.status)) {
+                        if (updateInterval) {
+                            clearInterval(updateInterval);
+                            updateInterval = null;
+                        }
+                        if (quickCheckInterval) {
+                            clearInterval(quickCheckInterval);
+                            quickCheckInterval = null;
+                        }
+                        
+                        if (data.status === 'completed') {
+                            document.getElementById('completed-actions').classList.remove('hidden');
+                            // 完成时再强刷一次封面（防缓存）
+                            if (data.comic_name) {
+                                coverImageLoaded = false;
+                                lastCoverAttemptAt = 0;
+                                maybeLoadCoverImage(data.comic_name, true);
+                            }
+                        }
+                        
+                        if (data.status === 'error') {
+                            document.getElementById('error-message').classList.remove('hidden');
+                        }
+                        
+                        document.getElementById('cancel-btn').classList.add('hidden');
+                        setCancelLoadingVisible(false);
+                    }
+                })
+                .catch(error => {
+                    console.error('获取任务状态失败:', error);
+                    if (!initialLoadComplete) {
+                        initialLoadComplete = true;
+                        document.getElementById('initial-loader').classList.add('hidden');
+                        document.getElementById('progress-content').classList.remove('hidden');
+                        document.getElementById('error-message').classList.remove('hidden');
+                        document.getElementById('error-text').textContent = '获取任务状态失败，请稍后刷新页面';
+                        resetCancelButtonState();
+                    }
+                });
+        }
+
+        function maybeLoadCoverImage(comicName, force) {
+            if (coverImageLoaded || coverLoadInFlight) {
+                return;
+            }
+            if (!comicName || comicName === '未知漫画' || comicName === '正在初始化任务...') {
+                return;
+            }
+            const now = Date.now();
+            // 未强制时 2.5s 节流，避免轮询打爆 404
+            if (!force && now - lastCoverAttemptAt < 2500) {
+                return;
+            }
+            lastCoverAttemptAt = now;
+            loadCoverImageByName(comicName);
+        }
+        
+        function loadCoverImageByName(comicName) {
+            const imgElement = document.getElementById('comic-cover');
+            const placeholder = document.getElementById('cover-placeholder');
+            const placeholderIcon = document.getElementById('cover-placeholder-icon');
+            if (!imgElement || !placeholder) {
+                return;
+            }
+
+            coverLoadInFlight = true;
+            lastCoverComicName = comicName;
+
+            // 绝对路径 + 防缓存：封面在任务中途生成时，避免浏览器沿用 404 缓存
+            const imageUrl = `${coverBaseUrl}/${encodeURIComponent(comicName)}.jpg?t=${Date.now()}`;
+            imgElement.alt = `${comicName}的封面图`;
+
+            const onLoad = function () {
+                if (lastCoverComicName !== comicName) {
+                    return;
+                }
+                placeholder.classList.add('hidden');
+                placeholder.style.display = 'none';
+                imgElement.classList.remove('hidden');
+                imgElement.style.display = 'block';
+                coverImageLoaded = true;
+                coverLoadInFlight = false;
+                imgElement.removeEventListener('load', onLoad);
+                imgElement.removeEventListener('error', onError);
+            };
+
+            const onError = function () {
+                if (lastCoverComicName !== comicName) {
+                    return;
+                }
+                // 封面尚未就绪：保持书本占位，稍后轮询再试（不要换成感叹号后永远停住）
+                imgElement.classList.add('hidden');
+                imgElement.style.display = 'none';
+                placeholder.classList.remove('hidden');
+                placeholder.style.display = '';
+                if (placeholderIcon) {
+                    placeholderIcon.className = 'fa fa-book text-4xl';
+                }
+                coverImageLoaded = false;
+                coverLoadInFlight = false;
+                imgElement.removeEventListener('load', onLoad);
+                imgElement.removeEventListener('error', onError);
+            };
+
+            imgElement.addEventListener('load', onLoad);
+            imgElement.addEventListener('error', onError);
+            imgElement.src = imageUrl;
+        }
+        
+        // 添加日志条目
+        function addLogEntry(message) {
+            const logContainer = document.getElementById('log-container');
+            const logElement = document.createElement('div');
+            logElement.className = 'mb-1 border-b border-gray-100 pb-1 text-gray-700';
+            logElement.textContent = message;
+            logContainer.appendChild(logElement);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // 更新UI显示
+        function updateUI(data) {
+            document.getElementById('progress-bar').style.width = `${data.progress_percent}%`;
+            document.getElementById('progress-percent').textContent = `${data.progress_percent}%`;
+            
+            document.getElementById('total-chapters').textContent = data.total_chapters || '--';
+            document.getElementById('completed-chapters').textContent = data.completed_chapters || '0';
+            
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = getStatusText(data.status);
+            
+            switch(data.status) {
+                case 'running':
+                    statusElement.className = 'text-xl font-bold text-primary';
+                    break;
+                case 'completed':
+                    statusElement.className = 'text-xl font-bold text-secondary';
+                    break;
+                case 'cancelled':
+                    statusElement.className = 'text-xl font-bold text-gray-600';
+                    break;
+                case 'error':
+                    statusElement.className = 'text-xl font-bold text-danger';
+                    break;
+                default:
+                    statusElement.className = 'text-xl font-bold text-gray-600';
+            }
+            
+            document.getElementById('start-time').textContent = data.start_time || '--:--:--';
+            document.getElementById('end-time').textContent = data.end_time || '--:--:--';
+            
+            if (data.comic_name) {
+                const element = document.getElementById('comic-name');
+                element.textContent = `${data.comic_name}`;
+                element.style.fontWeight = 'bold';
+            }
+            
+            const logContainer = document.getElementById('log-container');
+            logContainer.innerHTML = '';
+            
+            if (data.log && data.log.length > 0) {
+                data.log.forEach(logEntry => {
+                    const logElement = document.createElement('div');
+                    logElement.className = 'mb-1 border-b border-gray-100 pb-1 last:border-0 last:mb-0 last:pb-0';
+                    logElement.textContent = logEntry;
+                    logContainer.appendChild(logElement);
+                });
+            } else {
+                const emptyLogElement = document.createElement('div');
+                emptyLogElement.className = 'text-gray-500';
+                emptyLogElement.textContent = '等待任务开始...';
+                logContainer.appendChild(emptyLogElement);
+            }
+            
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // 获取状态文本
+        function getStatusText(status) {
+            const statusMap = {
+                'pending': '等待中...',
+                'running': '下载中...',
+                'completed': '已完成',
+                'cancelled': '已取消',
+                'error': '出错'
+            };
+            
+            return statusMap[status] || status;
+        }
+    </script>
+</body>
+</html>

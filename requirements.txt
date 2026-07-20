@@ -1,0 +1,11 @@
+flask==2.2.5
+werkzeug==2.2.3
+gunicorn==22.0.0
+requests==2.32.4
+beautifulsoup4==4.12.3
+Pillow==10.4.0
+img2pdf==0.5.1
+natsort==8.4.0
+flask-sqlalchemy==2.5.1
+sqlalchemy==1.4.54
+Flask-WTF==1.2.2

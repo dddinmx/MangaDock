@@ -1,0 +1,18 @@
+services:
+  mangadock:
+    build: .
+    image: mangadock:latest
+    container_name: MangaDock
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data/comic:/app/comic
+      - ./data/cover:/app/static/cover
+      - ./data/comic.json:/app/comic.json
+      - mangadock_instance:/app/instance
+
+volumes:
+  mangadock_instance:
