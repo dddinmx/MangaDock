@@ -5,8 +5,6 @@
 
 {% block extra_head %}
 <script>
-    let isLibrarySearchComposing = false;
-
     function getComicsGrids() {
         return document.querySelectorAll('[data-comics-grid]');
     }
@@ -14,73 +12,6 @@
     function handleQuickGroupChange(selectElement) {
         if (!selectElement || !selectElement.value) return;
         window.location.href = selectElement.value;
-    }
-
-    function toggleLibrarySearch(forceClose = false) {
-        const panel = document.getElementById('library-search-panel');
-        const toggle = document.querySelector('[data-library-search-toggle]');
-        const input = document.getElementById('library-search-input');
-        if (!panel || !toggle) return;
-
-        const shouldOpen = forceClose ? false : panel.hasAttribute('hidden');
-        if (shouldOpen) {
-            panel.removeAttribute('hidden');
-            toggle.setAttribute('aria-expanded', 'true');
-            if (input) {
-                window.setTimeout(() => input.focus(), 30);
-            }
-            return;
-        }
-
-        panel.setAttribute('hidden', '');
-        toggle.setAttribute('aria-expanded', 'false');
-    }
-
-    function filterLibraryComics() {
-        const input = document.getElementById('library-search-input');
-        const query = (input?.value || '').trim().toLowerCase();
-        const items = document.querySelectorAll('[data-comic-search-item]');
-        const sections = document.querySelectorAll('[data-group-section]');
-
-        items.forEach(item => {
-            const title = (item.dataset.comicTitle || '').toLowerCase();
-            const matched = !query || title.includes(query);
-            item.style.display = matched ? '' : 'none';
-        });
-
-        sections.forEach(section => {
-            if (section.hasAttribute('data-library-search-host')) {
-                section.style.display = '';
-                return;
-            }
-            const visibleItems = Array.from(section.querySelectorAll('[data-comic-search-item]'))
-                .filter(item => item.style.display !== 'none');
-            section.style.display = visibleItems.length ? '' : 'none';
-        });
-    }
-
-    function handleLibrarySearchInput() {
-        if (isLibrarySearchComposing) {
-            return;
-        }
-        filterLibraryComics();
-    }
-
-    function handleLibrarySearchCompositionStart() {
-        isLibrarySearchComposing = true;
-    }
-
-    function handleLibrarySearchCompositionEnd() {
-        isLibrarySearchComposing = false;
-        filterLibraryComics();
-    }
-
-    function clearLibrarySearch() {
-        const input = document.getElementById('library-search-input');
-        if (!input) return;
-        input.value = '';
-        filterLibraryComics();
-        toggleLibrarySearch(true);
     }
 
     function scrollGroupRail(groupKey, direction) {
@@ -96,13 +27,11 @@
         });
     }
 
-    // 切换下拉菜单显示/隐藏
     function toggleColumnsDropdown() {
         const dropdown = document.getElementById('columns-dropdown');
         dropdown.classList.toggle('hidden');
     }
 
-    // 选择列数
     function selectColumns(columns) {
         const grids = getComicsGrids();
         const currentColumnsText = document.getElementById('current-columns');
@@ -143,42 +72,15 @@
                 currentColumnsText.textContent = '3列';
             }
         }
-
-        // 顶栏搜索框提交 ?q= 后，在书架内联过滤
-        try {
-            const params = new URLSearchParams(window.location.search);
-            const query = (params.get('q') || '').trim();
-            if (query) {
-                const input = document.getElementById('library-search-input');
-                if (input) {
-                    input.value = query;
-                    if (document.getElementById('library-search-panel')) {
-                        toggleLibrarySearch();
-                    }
-                    filterLibraryComics();
-                }
-            }
-        } catch (error) {
-            // ignore search bootstrap failures
-        }
     });
 
-    // 点击页面其他地方关闭下拉菜单
     document.addEventListener('click', function(event) {
         const dropdown = document.getElementById('columns-dropdown');
         const toggleBtn = document.getElementById('columns-toggle-btn');
-        const searchPanel = document.getElementById('library-search-panel');
-        const searchToggle = document.querySelector('[data-library-search-toggle]');
 
-        if (dropdown && !dropdown.classList.contains('hidden')) {
-            if (!toggleBtn.contains(event.target)) {
+        if (dropdown && toggleBtn && !dropdown.classList.contains('hidden')) {
+            if (!toggleBtn.contains(event.target) && !dropdown.contains(event.target)) {
                 dropdown.classList.add('hidden');
-            }
-        }
-
-        if (searchPanel && searchToggle && !searchPanel.hasAttribute('hidden')) {
-            if (!searchPanel.contains(event.target) && !searchToggle.contains(event.target)) {
-                toggleLibrarySearch(true);
             }
         }
     });
@@ -190,99 +92,6 @@
             align-items: center;
             gap: 0.5rem;
             min-height: 2.25rem;
-        }
-
-        .library-search-toggle {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 1.75rem;
-            height: 1.75rem;
-            border: none;
-            background: transparent;
-            color: rgb(71, 85, 105);
-        }
-
-        .library-search-toggle:hover {
-            color: rgb(30, 41, 59);
-        }
-
-        .library-search-panel {
-            position: absolute;
-            top: calc(100% + 0.55rem);
-            left: 0;
-            z-index: 20;
-            width: min(20rem, calc(100vw - 2rem));
-            border-radius: 1rem;
-            border: 1px solid rgba(226, 232, 240, 1);
-            background: rgba(255, 255, 255, 0.98);
-            box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
-            padding: 0.85rem;
-        }
-
-        .library-search-input-wrap {
-            display: flex;
-            align-items: center;
-            gap: 0.65rem;
-            border: 1px solid rgba(203, 213, 225, 1);
-            border-radius: 0.9rem;
-            padding: 0.72rem 0.85rem;
-            background: rgb(248, 250, 252);
-        }
-
-        .library-search-input {
-            width: 100%;
-            background: transparent;
-            border: none;
-            outline: none;
-            color: rgb(30, 41, 59);
-            font-size: 0.95rem;
-        }
-
-        .library-search-clear {
-            margin-top: 0.65rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            border: none;
-            background: transparent;
-            color: rgb(100, 116, 139);
-            font-size: 0.82rem;
-        }
-
-        html.theme-dark .library-search-toggle {
-            color: rgb(161, 161, 170);
-        }
-
-        html.theme-dark .library-search-toggle:hover {
-            color: rgb(228, 228, 231);
-        }
-
-        html.theme-dark .library-search-panel {
-            background: rgba(31, 31, 31, 0.98);
-            border-color: rgba(63, 63, 70, 0.92);
-            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.42);
-        }
-
-        html.theme-dark .library-search-input-wrap {
-            background: rgb(24, 24, 27);
-            border-color: rgba(63, 63, 70, 0.92);
-        }
-
-        html.theme-dark .library-search-input {
-            color: rgb(244, 244, 245);
-        }
-
-        html.theme-dark .library-search-input::placeholder {
-            color: rgb(113, 113, 122);
-        }
-
-        html.theme-dark .library-search-clear {
-            color: rgb(161, 161, 170);
-        }
-
-        html.theme-dark .library-search-clear:hover {
-            color: rgb(228, 228, 231);
         }
 
         .group-section {
@@ -702,15 +511,6 @@
                 font-size: 0.82rem;
             }
 
-            .library-search-toggle {
-                width: 1.65rem;
-                height: 1.65rem;
-            }
-
-            .library-search-panel {
-                width: min(18rem, calc(100vw - 2rem));
-            }
-
             .mobile-columns-control {
                 display: inline-flex;
             }
@@ -853,7 +653,7 @@
         </div>
         {% else %}
         {% for group_block in grouped_tasks %}
-        <section class="group-section" data-group-section{% if loop.first %} data-library-search-host{% endif %}>
+        <section class="group-section" data-group-section>
             <div class="group-section-header">
                 <div class="group-section-title">
                     {% if loop.first %}
@@ -865,19 +665,6 @@
                             {% endfor %}
                         </select>
                         <span class="md-lib-badge">{{ group_block.tasks|length }}</span>
-                        <button type="button" class="md-lib-link action-press" data-library-search-toggle aria-label="搜索漫画" aria-expanded="false" onclick="toggleLibrarySearch()">
-                            <i class="fa fa-search"></i>
-                        </button>
-                        <div id="library-search-panel" class="library-search-panel" hidden>
-                            <div class="library-search-input-wrap">
-                                <i class="fa fa-search text-ink-400"></i>
-                                <input id="library-search-input" type="text" class="library-search-input" placeholder="搜索漫画名" oninput="handleLibrarySearchInput()" oncompositionstart="handleLibrarySearchCompositionStart()" oncompositionend="handleLibrarySearchCompositionEnd()">
-                            </div>
-                            <button type="button" class="library-search-clear action-press" onclick="clearLibrarySearch()">
-                                <i class="fa fa-times-circle-o"></i>
-                                清除搜索
-                            </button>
-                        </div>
                     </div>
                     {% else %}
                     <h2 class="md-section-title !mb-0">{{ group_block.name }}</h2>
@@ -956,7 +743,7 @@
                 {% set available = task.available_chapters or 0 %}
                 {% set read_count = (progress.last_chapter + 1) if progress and progress.last_chapter is not none else 0 %}
                 {% set unread_count = available - read_count if available > read_count else 0 %}
-                <div class="group-rail-card w-full" data-comic-search-item data-comic-title="{{ task.comic_name }}">
+                <div class="group-rail-card w-full">
                     <a href="{{ url_for('comic_detail', task_id=task.comic_name) }}" data-app-loader="true" class="md-cover-card">
                         <div class="md-book">
                             <div class="md-book__spine" aria-hidden="true"></div>
@@ -989,7 +776,7 @@
                 {% set available = task.available_chapters or 0 %}
                 {% set read_count = (progress.last_chapter + 1) if progress and progress.last_chapter is not none else 0 %}
                 {% set unread_count = available - read_count if available > read_count else 0 %}
-                <div data-comic-search-item data-comic-title="{{ task.comic_name }}">
+                <div>
                     <a href="{{ url_for('comic_detail', task_id=task.comic_name) }}" data-app-loader="true" class="md-cover-card">
                         <div class="md-book">
                             <div class="md-book__spine" aria-hidden="true"></div>

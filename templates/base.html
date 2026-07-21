@@ -783,16 +783,16 @@
                 <a href="{{ url_for('settings') }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'users', 'change_password', 'statistics', 'download', 'update', 'tasks'] %} is-active{% endif %}">我的</a>
             </nav>
 
-            {# 保留顶栏搜索框；结果在书架页过滤。已取消第二个搜索按钮及独立搜索页 #}
-            <form class="md-search" method="get" action="{{ url_for('comics_list') }}" role="search">
-                <input type="hidden" name="group" value="全部">
+            {# 顶栏常驻搜索：结果页 /search，与书架分离 #}
+            <form class="md-search" method="get" action="{{ url_for('search_page') }}" role="search">
                 <i class="fa fa-search text-ink-400"></i>
                 <input
                     type="search"
                     name="q"
-                    value="{{ request.args.get('q', '') if request.endpoint == 'comics_list' else '' }}"
+                    value="{{ request.args.get('q', '') if request.endpoint == 'search_page' else '' }}"
                     placeholder="搜索漫画..."
                     aria-label="搜索漫画"
+                    {% if request.endpoint == 'search_page' %}autofocus{% endif %}
                 >
             </form>
 

@@ -1,24 +1,23 @@
 {% extends "base.html" %}
 
-{% block title %}搜索 - MangaDock{% endblock %}
+{% block title %}{% if query %}搜索：{{ query }}{% else %}搜索{% endif %} - MangaDock{% endblock %}
 
 {% block content %}
-<div class="mb-8">
-    <h1 class="text-2xl font-bold text-white md:text-3xl">搜索</h1>
-    <p class="mt-2 text-sm text-ink-300">在本地书库中按标题筛选</p>
+<div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+    <div>
+        <h1 class="text-2xl font-bold text-white md:text-3xl">搜索结果</h1>
+        {% if query %}
+        <p class="mt-2 text-sm text-ink-300">
+            「{{ query }}」共 <span class="font-semibold text-white">{{ result_count }}</span> 个结果
+        </p>
+        {% else %}
+        <p class="mt-2 text-sm text-ink-300">在顶部搜索栏输入漫画名称，在本地书库中查找</p>
+        {% endif %}
+    </div>
+    <a href="{{ url_for('comics_list') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">返回书架</a>
 </div>
 
-<form method="get" action="{{ url_for('search_page') }}" class="md-search mb-8 max-w-xl !rounded-xl !py-3">
-    <i class="fa fa-search text-ink-400"></i>
-    <input type="search" name="q" value="{{ query }}" placeholder="输入漫画名称..." autofocus>
-    <button type="submit" class="text-sm font-semibold text-brand-soft">搜索</button>
-</form>
-
-{% if query %}
-<p class="mb-4 text-sm text-ink-300">「{{ query }}」共 {{ comics|length }} 个结果</p>
-{% endif %}
-
-{% if comics %}
+{% if query and comics %}
 <div class="md-cover-grid">
     {% for comic in comics %}
     <a href="{{ url_for('comic_detail', task_id=comic.comic_name) }}" class="md-cover-card" data-app-loader="true">
@@ -27,21 +26,33 @@
             <div class="md-book__pages" aria-hidden="true"></div>
             <div class="md-book__cover">
                 <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
+                     loading="lazy"
+                     decoding="async"
                      onerror="this.src='{{ asset_url('cover/cover.png') }}'">
             </div>
         </div>
         <div class="md-cover-card__title">{{ comic.comic_name }}</div>
-        <div class="md-cover-card__meta">{{ comic.group or '默认分组' }}</div>
+        <div class="md-cover-card__meta">
+            {{ comic.group or '默认分组' }}
+            {% if comic.available_chapters %} · {{ comic.available_chapters }} 章{% endif %}
+        </div>
     </a>
     {% endfor %}
 </div>
+{% elif query %}
+<div class="md-empty">
+    没有找到与「{{ query }}」匹配的漫画
+    <div class="mt-4 flex flex-wrap justify-center gap-3">
+        <a href="{{ url_for('comics_list') }}" class="md-btn-ghost" data-app-loader="true">打开书架</a>
+        <a href="{{ url_for('search_page') }}" class="md-btn-primary" data-app-loader="true">重新搜索</a>
+    </div>
+</div>
 {% else %}
 <div class="md-empty">
-    {% if query %}
-    没有找到匹配的漫画
-    {% else %}
-    输入关键词开始搜索
-    {% endif %}
+    使用顶部搜索栏输入关键词开始搜索
+    <div class="mt-4">
+        <a href="{{ url_for('comics_list') }}" class="md-btn-primary" data-app-loader="true">打开书架</a>
+    </div>
 </div>
 {% endif %}
 {% endblock %}

@@ -388,8 +388,34 @@ def index():
 @app.route('/search')
 @login_required
 def search_page():
-    # 独立搜索页已下线；保留路由以免旧链接 404，统一回到书架（书架内联搜索仍可用）
-    return redirect(url_for('comics_list'))
+    """独立搜索结果页：按标题筛选本地书库，不与书架混排。"""
+    current_user = get_current_user()
+    query = (request.args.get('q') or '').strip()
+    comics = get_available_comics() or []
+    comics, _group_names, _counts, _lookup = filter_grouped_comics_for_user(comics, current_user)
+
+    hidden_comics, hidden_groups = get_admin_hidden_targets(current_user)
+    comics = [
+        comic for comic in comics
+        if not is_comic_hidden_for_admin(comic, hidden_comics, hidden_groups)
+    ]
+
+    results = []
+    if query:
+        lowered = query.casefold()
+        results = [
+            comic for comic in comics
+            if lowered in (comic.get('comic_name') or '').casefold()
+        ]
+        results.sort(key=lambda c: (c.get('comic_name') or ''))
+
+    return render_template(
+        'search.html',
+        query=query,
+        comics=results,
+        result_count=len(results),
+        current_user=current_user,
+    )
 
 
 @app.route('/history')
@@ -713,12 +739,8 @@ def comics_list():
     current_user_id = session.get('user_id')
     can_show_hidden_library = bool(current_user and current_user.is_admin)
     show_hidden_library = can_show_hidden_library and request.args.get('show_hidden') == '1'
-    search_query = (request.args.get('q') or '').strip()
     requested_group = request.args.get('group')
-    if search_query and requested_group is None:
-        # 顶栏搜索默认在全部分组中过滤
-        group_filter = '全部'
-    elif requested_group is None:
+    if requested_group is None:
         group_filter = get_saved_group_filter(current_user_id)
     else:
         group_filter = normalize_group_name(requested_group) or '全部'
