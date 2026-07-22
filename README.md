@@ -19,7 +19,7 @@
 # 🖥️ 界面
 
 ## Web PWA  
-<img width="850" alt="img" src="https://github.com/user-attachments/assets/9bdcfb9e-daca-4edb-b575-1c5b1e78cba4" />  
+<img width="2910" height="1961" alt="image" src="https://github.com/user-attachments/assets/2e247713-311a-4832-80b0-ae8b9691696b" />
 
 ## Tachimanga  
 <img width="850" alt="img" src="https://github.com/user-attachments/assets/56501558-bd5e-4c7e-859a-65ab01c666da" />  
