@@ -36,7 +36,7 @@
 ```docker
 services:
   mangadock:
-    image: dddinmx/mangadock:v1.2
+    image: dddinmx/mangadock:latest
     container_name: MangaDock
     restart: unless-stopped
     ports:
