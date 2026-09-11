@@ -16,6 +16,8 @@
 - [x] 包子漫画（`baozimh.org`）
 - [x] 包子漫画（`cn.baozimhcn.com`）
 
+**V2.1 支持 Epub 格式小说阅读**
+
 ## 🖥️ 界面
 
 ### Web PWA
