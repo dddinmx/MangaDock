@@ -8,7 +8,7 @@
   <a href="https://hub.docker.com/r/dddinmx/mangadock"><img alt="Platforms" src="https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-2496ED"></a>
 </p>
 
-**棧**（MangaDock）是一个基于 Python 的本地漫画阅读、下载与管理工具，并支持本地 EPUB 小说阅读。
+**棧**（MangaDock）是一个基于 Python 的本地漫画阅读、下载与管理工具，并支持本地 EPUB 小说阅读。  
 
 **支持站点：**
 
@@ -16,7 +16,13 @@
 - [x] 包子漫画（`baozimh.org`）
 - [x] 包子漫画（`cn.baozimhcn.com`）
 
-**V2.1 支持 Epub 格式小说阅读**
+### Project Team
+
+| Role | Member |
+|---|---|
+| 👤 Project Owner | [@dddinmx](https://github.com/dddinmx) |
+| 🤖 AI Maintainer | OpenAI Codex |
+| 🔍 Code Review | OpenAI Codex &&  [@dddinmx](https://github.com/dddinmx)  |
 
 ## 🖥️ 界面
 
@@ -106,4 +112,4 @@ Android 上可尝试通过 Mihon 使用兼容的插件；兼容性以对应客�
 
 ## 💬 交流
 
-使用中遇到问题、希望添加功能或有改进建议，欢迎提交 [Issue](https://github.com/dddinmx/MangaDock/issues) 或发起 Discussion。
+使用中遇到问题、希望添加功能或有改进建议，欢迎提交 [Issue](https://github.com/dddinmx/MangaDock/issues) 或发起 Discussion。  
