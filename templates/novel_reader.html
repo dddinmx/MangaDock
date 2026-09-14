@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta id="reader-theme-color-meta" name="theme-color" content="#0b0b0f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>{{ novel.title }} - 阅读</title>
+    <link rel="shortcut icon" href="{{ asset_url('favicon.ico') }}" type="image/x-icon">
+    <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
+    <script>
+        (() => {
+            try {
+                const supportedAccents = ['pink-blue', 'pink-green', 'gray', 'pink', 'red'];
+                const savedAccent = localStorage.getItem('mangadock-accent');
+                document.documentElement.dataset.accent = supportedAccents.includes(savedAccent) ? savedAccent : 'red';
+            } catch (error) {
+                document.documentElement.dataset.accent = 'red';
+            }
+        })();
+    </script>
+    <style>
+        @font-face { font-family: "MangaDock Kai"; src: url("{{ asset_url('fonts/LXGWWenKai-Regular.ttf') }}") format("truetype"); font-display: swap; }
+        :root { --reader-size: 22px; --reader-leading: 2.15; --reader-width: 796px; --reader-margin: 18px; --reader-page-gap: 36px; --reader-font: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif; --reader-bg: #0b0b0f; --reader-text: #dcdce5; --reader-title: #ffffff; --reader-muted: #626273; --reader-brand: #e11d48; --reader-brand-rgb: 225, 29, 72; }
+        html[data-accent="pink-blue"] { --reader-brand: #60a5fa; --reader-brand-rgb: 96, 165, 250; }
+        html[data-accent="pink-green"] { --reader-brand: #34d399; --reader-brand-rgb: 52, 211, 153; }
+        html[data-accent="gray"] { --reader-brand: #64748b; --reader-brand-rgb: 100, 116, 139; }
+        html[data-accent="pink"] { --reader-brand: #ec4899; --reader-brand-rgb: 236, 72, 153; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html { height: 100%; background: var(--reader-bg); color-scheme: dark; }
+        body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; background: var(--reader-bg); color: var(--reader-text); font-family: var(--reader-font); transition: background-color .2s, color .2s; }
+        .novel-reader-header { position: fixed; inset: 0 0 auto; z-index: 20; height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: 1px solid rgba(255,255,255,.07); background: rgba(7,7,10,.9); backdrop-filter: blur(18px); transition: transform .25s, opacity .25s; }
+        .novel-reader-header.is-hidden { transform: translateY(-100%); opacity: 0; }
+        .novel-reader-back { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; text-decoration: none; background: rgba(255,255,255,.08); }
+        .novel-reader-heading { min-width: 0; }
+        .novel-reader-book { overflow: hidden; color: #fff; font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+        .novel-reader-chapter { overflow: hidden; margin-top: 3px; color: #8b8b9e; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+        .novel-reader-minimal-header { position: fixed; z-index: 12; top: max(18px, env(safe-area-inset-top)); left: 50%; width: min(100%, var(--reader-width)); padding: 0 var(--reader-margin); color: var(--reader-muted); font-size: 13px; line-height: 1; transform: translateX(-50%); transition: opacity .2s; }
+        .novel-reader-minimal-footer { position: fixed; z-index: 12; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); width: min(100%, var(--reader-width)); padding: 0 var(--reader-margin); display: flex; align-items: center; justify-content: space-between; color: var(--reader-muted); font-size: 12px; line-height: 1; transform: translateX(-50%); transition: opacity .2s; }
+        .novel-reader-clock { display: inline-flex; align-items: center; gap: 5px; }
+        .novel-reader-minimal-header.is-hidden, .novel-reader-minimal-footer.is-hidden { opacity: 0; pointer-events: none; }
+        .novel-reader-main { width: min(100%, var(--reader-width)); height: 100dvh; margin: 0 auto; padding: 60px 0 48px; overflow: hidden; }
+        .novel-reader-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; isolation: isolate; touch-action: none; user-select: none; -webkit-user-select: none; }
+        .novel-reader-layer { position: absolute; inset: 0; overflow: hidden; contain: paint; background: var(--reader-bg); transform: translate3d(0,0,0); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+        .novel-reader-layer.is-dragging { transition: none !important; }
+        .novel-reader-layer.is-measuring { opacity: 0; visibility: hidden; pointer-events: none; z-index: 0; }
+        .novel-reader-layer.is-prepared { pointer-events: none; z-index: 0; }
+        .novel-reader-layer.is-outgoing { z-index: 2; pointer-events: none; }
+        .novel-reader-layer.is-incoming { z-index: 1; pointer-events: none; }
+        .novel-reader-flow { position: absolute; top: 0; left: 0; width: calc(100% - var(--reader-page-gap)); height: 100%; margin-left: var(--reader-margin); column-width: var(--reader-page-width, 760px); column-gap: var(--reader-page-gap); column-fill: auto; transform: translate3d(0,0,0); transition: none; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+        .novel-reader-layer.is-motion-hinted, .novel-reader-flow.is-motion-hinted { will-change: transform; }
+        .novel-reader-flow.is-dragging { transition: none !important; }
+        .novel-reader-title { margin: 0 0 1.7rem; color: var(--reader-title); font-size: clamp(1.65rem, 5vw, 2.4rem); line-height: 1.35; text-align: center; }
+        .novel-reader-content { font-size: var(--reader-size); line-height: var(--reader-leading); letter-spacing: .025em; }
+        .novel-reader-content p { margin: 0 0 .9em; text-align: justify; text-indent: 2em; overflow-wrap: anywhere; }
+        .novel-reader-controls { position: fixed; z-index: 20; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 5px; padding: 7px; border: 1px solid rgba(255,255,255,.1); border-radius: 999px; background: rgba(12,12,18,.94); box-shadow: 0 18px 45px rgba(0,0,0,.55); backdrop-filter: blur(18px); transform: translateX(-50%); transition: transform .25s, opacity .25s; }
+        .novel-reader-controls.is-hidden { transform: translate(-50%, calc(100% + 30px)); opacity: 0; }
+        .novel-control { min-width: 42px; height: 38px; padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: #b7b7c6; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+        .novel-control:hover { color: #fff; background: rgba(255,255,255,.08); }
+        .novel-control.is-primary { background: var(--reader-brand); color: #fff; }
+        .novel-control.is-disabled { opacity: .28; pointer-events: none; }
+        .novel-background-panel { position: fixed; z-index: 21; left: 50%; bottom: max(76px, calc(env(safe-area-inset-bottom) + 66px)); width: min(280px, calc(100vw - 32px)); padding: 14px; border: 1px solid rgba(255,255,255,.12); border-radius: 18px; background: rgba(18,18,25,.97); color: #ededf2; box-shadow: 0 18px 45px rgba(0,0,0,.55); transform: translateX(-50%); backdrop-filter: blur(18px); }
+        .novel-background-panel[hidden] { display: none; }
+        .novel-background-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 650; }
+        .novel-background-picker { width: 42px; height: 30px; padding: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; background: transparent; cursor: pointer; }
+        .novel-background-presets { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+        .novel-background-swatch { width: 34px; height: 34px; border: 2px solid rgba(255,255,255,.2); border-radius: 50%; cursor: pointer; }
+        .novel-background-swatch:hover { transform: scale(1.08); }
+        .novel-font-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+        .novel-font-option { height: 42px; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; background: rgba(255,255,255,.04); color: #d7d7e1; cursor: pointer; }
+        .novel-font-option:hover { background: rgba(255,255,255,.09); color: #fff; }
+        .novel-font-option.is-active { border-color: rgba(var(--reader-brand-rgb),.65); background: rgba(var(--reader-brand-rgb),.18); color: #fff; }
+        .novel-margin-setting { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
+        .novel-margin-value { color: #a9a9b8; font-size: 12px; font-weight: 500; }
+        .novel-margin-slider { width: 100%; height: 30px; margin-top: 8px; accent-color: var(--reader-brand); cursor: pointer; }
+        @media (max-width: 600px) { :root { --reader-size: 21px; --reader-leading: 2.2; --reader-margin: 16px; } .novel-reader-main { padding-top: 52px; padding-bottom: 42px; } .novel-control span { display: none; } }
+    </style>
+</head>
+<body>
+    <header class="novel-reader-header is-hidden" id="reader-header">
+        <a class="novel-reader-back" href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" aria-label="返回详情"><i class="fa fa-arrow-left"></i></a>
+        <div class="novel-reader-heading"><div class="novel-reader-book">{{ novel.title }}</div><div class="novel-reader-chapter" id="reader-chapter-label">{{ chapter.title }} · {{ chapter.index + 1 }} / {{ chapter.total_chapters }}</div></div>
+    </header>
+    <div class="novel-reader-minimal-header" id="reader-minimal-header">{{ chapter.title }}</div>
+    <div class="novel-reader-minimal-footer" id="reader-minimal-footer"><span class="novel-reader-clock"><i class="fa fa-clock-o"></i><span id="reader-clock"></span></span><span id="reader-page-status">1 / 1</span></div>
+    <main class="novel-reader-main">
+        <div class="novel-reader-viewport" id="reader-viewport">
+            <div class="novel-reader-layer" id="reader-layer">
+                <div class="novel-reader-flow" id="reader-flow">
+                    <h1 class="novel-reader-title">{{ chapter.title }}</h1>
+                    <article class="novel-reader-content">
+                        {% for paragraph in chapter.paragraphs %}{% if not loop.first or paragraph|trim != chapter.title|trim %}<p>{{ paragraph }}</p>{% endif %}{% endfor %}
+                    </article>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="novel-background-panel" id="background-panel" hidden>
+        <label class="novel-background-title" for="background-picker">
+            <span>自定义阅读背景</span>
+            <input class="novel-background-picker" id="background-picker" type="color" value="#0b0b0f">
+        </label>
+        <div class="novel-background-presets" aria-label="预设背景色">
+            <button class="novel-background-swatch" type="button" data-reader-background="#0b0b0f" style="background:#0b0b0f" aria-label="深色"></button>
+            <button class="novel-background-swatch" type="button" data-reader-background="#1c2230" style="background:#1c2230" aria-label="深蓝"></button>
+            <button class="novel-background-swatch" type="button" data-reader-background="#f2ead7" style="background:#f2ead7" aria-label="羊皮纸"></button>
+            <button class="novel-background-swatch" type="button" data-reader-background="#dfd7ca" style="background:#dfd7ca" aria-label="米灰"></button>
+            <button class="novel-background-swatch" type="button" data-reader-background="#dce8d5" style="background:#dce8d5" aria-label="护眼绿"></button>
+            <button class="novel-background-swatch" type="button" data-reader-background="#f5f5f2" style="background:#f5f5f2" aria-label="浅色"></button>
+        </div>
+    </div>
+
+    <div class="novel-background-panel" id="font-panel" hidden>
+        <div class="novel-background-title"><span>选择阅读字体</span></div>
+        <div class="novel-font-options" aria-label="阅读字体">
+            <button class="novel-font-option" type="button" data-reader-font="default" style="font-family:-apple-system,'PingFang SC',sans-serif">默认</button>
+            <button class="novel-font-option" type="button" data-reader-font="song" style="font-family:'Songti SC',STSong,serif">宋体</button>
+            <button class="novel-font-option" type="button" data-reader-font="kai" style="font-family:'MangaDock Kai',serif">楷体</button>
+            <button class="novel-font-option" type="button" data-reader-font="hei" style="font-family:'Heiti SC',STHeiti,sans-serif">黑体</button>
+        </div>
+        <div class="novel-margin-setting">
+            <label class="novel-background-title" for="margin-slider"><span>左右边距</span><output class="novel-margin-value" id="margin-value">18px</output></label>
+            <input class="novel-margin-slider" id="margin-slider" type="range" min="8" max="80" step="2" value="18" aria-label="调整小说正文左右边距">
+        </div>
+    </div>
+
+    <nav class="novel-reader-controls is-hidden" id="reader-controls" aria-label="阅读工具">
+        <a class="novel-control{% if chapter.index <= 0 %} is-disabled{% endif %}" id="previous-chapter" href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index - 1) }}" data-reader-nav data-reader-chapter="{{ chapter.index - 1 }}"><i class="fa fa-angle-left"></i><span>上一章</span></a>
+        <a class="novel-control" href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}"><i class="fa fa-list"></i><span>目录</span></a>
+        <button class="novel-control" type="button" id="font-smaller" aria-label="缩小字号">A−</button>
+        <button class="novel-control" type="button" id="font-larger" aria-label="放大字号">A+</button>
+        <button class="novel-control" type="button" id="font-toggle" aria-label="选择阅读字体"><i class="fa fa-font"></i><span>字体</span></button>
+        <button class="novel-control" type="button" id="background-toggle" aria-label="设置阅读背景"><i class="fa fa-paint-brush"></i><span>背景</span></button>
+        <a class="novel-control is-primary{% if chapter.index + 1 >= chapter.total_chapters %} is-disabled{% endif %}" id="next-chapter" href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index + 1) }}" data-reader-nav data-reader-chapter="{{ chapter.index + 1 }}"><span>下一章</span><i class="fa fa-angle-right"></i></a>
+    </nav>
+
+    <script>
+        const csrfToken = {{ csrf_token()|tojson }};
+        const progressKey = {{ progress_key|tojson }};
+        const initialChapter = {{ chapter|tojson }};
+        const totalChapters = {{ chapter.total_chapters }};
+        const serverSavedPage = {{ saved_page or 0 }};
+        const browserProgressKey = `mangadock-novel-progress:${progressKey}`;
+        function loadBrowserProgress() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(browserProgressKey));
+                if (saved?.chapter !== initialChapter.index || !Number.isInteger(saved.page) || saved.page < 0) return null;
+                return saved;
+            } catch (error) {
+                return null;
+            }
+        }
+        const browserProgress = loadBrowserProgress();
+        const savedPage = browserProgress ? browserProgress.page : serverSavedPage;
+        const chapterApiBaseUrl = {{ chapter_api_base_url|tojson }};
+        const readerBaseUrl = {{ reader_base_url|tojson }};
+        const novelTitle = {{ novel.title|tojson }};
+        const sessionId = `novel-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        let visibleReadingStartedAt = null;
+        let accumulatedReadingMs = 0;
+        const root = document.documentElement;
+        const readerThemeColorMeta = document.getElementById('reader-theme-color-meta');
+        const header = document.getElementById('reader-header');
+        const chapterLabel = document.getElementById('reader-chapter-label');
+        const minimalHeader = document.getElementById('reader-minimal-header');
+        const minimalFooter = document.getElementById('reader-minimal-footer');
+        const clockLabel = document.getElementById('reader-clock');
+        const pageStatus = document.getElementById('reader-page-status');
+        const controls = document.getElementById('reader-controls');
+        const viewport = document.getElementById('reader-viewport');
+        let layer = document.getElementById('reader-layer');
+        let flow = document.getElementById('reader-flow');
+        const previousChapter = document.getElementById('previous-chapter');
+        const nextChapter = document.getElementById('next-chapter');
+        const backgroundPanel = document.getElementById('background-panel');
+        const fontPanel = document.getElementById('font-panel');
+        const backgroundPicker = document.getElementById('background-picker');
+        const marginSlider = document.getElementById('margin-slider');
+        const marginValue = document.getElementById('margin-value');
+        const fontFamilies = {
+            default: '-apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif',
+            song: '"Songti SC", STSong, serif',
+            kai: '"MangaDock Kai", serif',
+            hei: '"Heiti SC", STHeiti, sans-serif'
+        };
+        const chapterCache = new Map([[initialChapter.index, initialChapter]]);
+        const chapterViews = new Map();
+        const chapterViewPromises = new Map();
+        let viewGeneration = 0;
+        let preloadTimer = null;
+        let chapterIndex = initialChapter.index;
+        let currentChapter = initialChapter;
+        let pageIndex = Math.max(0, savedPage);
+        let pageCount = 1;
+        let pageWidth = 1;
+        let pageStep = 1;
+        let fontSize = Number(localStorage.getItem('mangadock-novel-font-size') || (matchMedia('(max-width: 600px)').matches ? 21 : 22));
+        let readerMargin = Number(localStorage.getItem('mangadock-novel-margin') || (matchMedia('(max-width: 600px)').matches ? 16 : 18));
+        let saveTimer = null;
+        let paginationTimer = null;
+        let resizeTimer = null;
+        let measuredViewportWidth = 0;
+        let measuredViewportHeight = 0;
+        let motionHintReleaseTimer = null;
+        let touchStartX = null;
+        let touchStartY = null;
+        let touchStartTime = 0;
+        let touchDeltaX = 0;
+        let touchAxis = null;
+        let touchLastX = null;
+        let touchLastTime = 0;
+        let touchVelocityX = 0;
+        let touchBaseOffset = 0;
+        let layerBaseOffset = 0;
+        let renderedFlowOffset = 0;
+        let renderedLayerOffset = 0;
+        let pendingDragOffset = null;
+        let dragAnimationFrame = null;
+        let pendingLayerDrag = null;
+        let layerDragAnimationFrame = null;
+        let settleAnimationFrame = null;
+        let settleTimer = null;
+        let settleAnimation = null;
+        let settleFrom = 0;
+        let settleTo = 0;
+        let settleGeneration = 0;
+        let flowIsSettling = false;
+        let lastSwipeAt = 0;
+        let wheelDistance = 0;
+        let wheelTimer = null;
+        let isSwitchingChapter = false;
+        let isTouching = false;
+        let gestureNeighbor = null;
+        const motionHintElements = new Set();
+
+        function schedulePagination(preservePosition = true, targetPage = null) {
+            clearTimeout(paginationTimer);
+            paginationTimer = setTimeout(() => recalculatePagination(preservePosition, targetPage), 60);
+        }
+        function handleReaderResize() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (isMotionBusy()) {
+                    handleReaderResize();
+                    return;
+                }
+                // Mobile browser chrome can emit resize without changing the reading area.
+                if (viewport.clientWidth === measuredViewportWidth && viewport.clientHeight === measuredViewportHeight) return;
+                applyReaderMargin();
+            }, 120);
+        }
+        function applyFontSize() {
+            fontSize = Math.max(15, Math.min(fontSize, 30));
+            root.style.setProperty('--reader-size', `${fontSize}px`);
+            localStorage.setItem('mangadock-novel-font-size', String(fontSize));
+            invalidatePreparedChapterViews();
+            schedulePagination();
+        }
+        function applyFont(fontKey) {
+            if (!fontFamilies[fontKey]) fontKey = 'default';
+            root.style.setProperty('--reader-font', fontFamilies[fontKey]);
+            document.body.style.fontFamily = fontFamilies[fontKey];
+            localStorage.setItem('mangadock-novel-font', fontKey);
+            document.querySelectorAll('[data-reader-font]').forEach((button) => button.classList.toggle('is-active', button.dataset.readerFont === fontKey));
+            invalidatePreparedChapterViews();
+            schedulePagination();
+        }
+        function applyReaderMargin(value = readerMargin) {
+            const maximum = Math.max(8, Math.min(80, Math.floor(innerWidth / 4)));
+            readerMargin = Number.isFinite(Number(value)) ? Number(value) : 18;
+            readerMargin = Math.max(8, Math.min(readerMargin, maximum));
+            root.style.setProperty('--reader-margin', `${readerMargin}px`);
+            root.style.setProperty('--reader-page-gap', `${readerMargin * 2}px`);
+            marginSlider.max = maximum;
+            marginSlider.value = readerMargin;
+            marginValue.textContent = `${readerMargin}px`;
+            localStorage.setItem('mangadock-novel-margin', String(readerMargin));
+            invalidatePreparedChapterViews();
+            schedulePagination();
+        }
+        function applyBackground(color) {
+            if (!/^#[0-9a-f]{6}$/i.test(color)) color = '#0b0b0f';
+            const red = parseInt(color.slice(1, 3), 16);
+            const green = parseInt(color.slice(3, 5), 16);
+            const blue = parseInt(color.slice(5, 7), 16);
+            const isLight = (red * 299 + green * 587 + blue * 114) / 1000 > 155;
+            root.style.setProperty('--reader-bg', color);
+            root.style.backgroundColor = color;
+            readerThemeColorMeta.setAttribute('content', color);
+            root.style.setProperty('--reader-text', isLight ? '#27272d' : '#dcdce5');
+            root.style.setProperty('--reader-title', isLight ? '#111116' : '#ffffff');
+            root.style.setProperty('--reader-muted', isLight ? '#6a6a72' : '#626273');
+            root.style.colorScheme = isLight ? 'light' : 'dark';
+            backgroundPicker.value = color;
+            localStorage.setItem('mangadock-novel-background', color);
+        }
+        function textOffsetWithinParagraph(paragraph, node, offset) {
+            if (node === paragraph) {
+                return [...paragraph.childNodes]
+                    .slice(0, Math.max(0, offset))
+                    .reduce((length, child) => length + (child.textContent || '').length, 0);
+            }
+            const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+            let total = 0;
+            let current;
+            while ((current = walker.nextNode())) {
+                if (current === node) return total + Math.max(0, offset);
+                total += current.textContent.length;
+            }
+            return 0;
+        }
+        function caretAtPoint(x, y) {
+            if (document.caretPositionFromPoint) {
+                const position = document.caretPositionFromPoint(x, y);
+                if (position) return {node: position.offsetNode, offset: position.offset};
+            }
+            if (document.caretRangeFromPoint) {
+                const range = document.caretRangeFromPoint(x, y);
+                if (range) return {node: range.startContainer, offset: range.startOffset};
+            }
+            return null;
+        }
+        function captureTextAnchor() {
+            const viewportRect = viewport.getBoundingClientRect();
+            const paragraphs = [...flow.querySelectorAll('.novel-reader-content p')];
+            let firstVisibleLine = null;
+
+            paragraphs.forEach((paragraph, paragraphIndex) => {
+                const range = document.createRange();
+                range.selectNodeContents(paragraph);
+                [...range.getClientRects()].forEach((rect) => {
+                    const visible = rect.right > viewportRect.left
+                        && rect.left < viewportRect.right
+                        && rect.bottom > viewportRect.top
+                        && rect.top < viewportRect.bottom;
+                    if (!visible || rect.width <= 0 || rect.height <= 0) return;
+                    const score = (Math.max(rect.top, viewportRect.top) - viewportRect.top) * viewportRect.width
+                        + Math.max(rect.left - viewportRect.left, 0);
+                    if (!firstVisibleLine || score < firstVisibleLine.score) {
+                        firstVisibleLine = {paragraph, paragraphIndex, rect, score};
+                    }
+                });
+            });
+
+            if (!firstVisibleLine) return {paragraphIndex: 0, charOffset: 0};
+            const sampleX = Math.max(
+                viewportRect.left + 2,
+                Math.min(firstVisibleLine.rect.left + 2, viewportRect.right - 2)
+            );
+            const sampleY = Math.max(
+                viewportRect.top + 2,
+                Math.min(firstVisibleLine.rect.top + firstVisibleLine.rect.height / 2, viewportRect.bottom - 2)
+            );
+            const caret = caretAtPoint(sampleX, sampleY);
+            const paragraphLength = firstVisibleLine.paragraph.textContent.length;
+            const charOffset = caret && firstVisibleLine.paragraph.contains(caret.node)
+                ? textOffsetWithinParagraph(firstVisibleLine.paragraph, caret.node, caret.offset)
+                : 0;
+            return {
+                paragraphIndex: firstVisibleLine.paragraphIndex,
+                charOffset: Math.max(0, Math.min(charOffset, paragraphLength))
+            };
+        }
+        function startReadingTimer() {
+            if (!document.hidden && visibleReadingStartedAt === null) {
+                visibleReadingStartedAt = Date.now();
+            }
+        }
+        function pauseReadingTimer() {
+            if (visibleReadingStartedAt !== null) {
+                accumulatedReadingMs += Math.max(Date.now() - visibleReadingStartedAt, 0);
+                visibleReadingStartedAt = null;
+            }
+        }
+        function getVisibleReadingSeconds() {
+            const activeMs = visibleReadingStartedAt === null
+                ? 0
+                : Math.max(Date.now() - visibleReadingStartedAt, 0);
+            return Math.floor((accumulatedReadingMs + activeMs) / 1000);
+        }
+        function isMotionBusy() {
+            return isTouching || flowIsSettling || isSwitchingChapter;
+        }
+        function saveProgress(keepalive = false, options = {}) {
+            if (isMotionBusy() && !keepalive) {
+                queueSave();
+                return Promise.resolve(null);
+            }
+            persistBrowserProgress();
+            const skipAnchor = options.skipAnchor === true || keepalive;
+            const anchor = skipAnchor ? {paragraphIndex: 0, charOffset: 0} : captureTextAnchor();
+            return fetch({{ url_for('save_progress')|tojson }}, {
+                method: 'POST', keepalive,
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+                body: JSON.stringify({
+                    comic_name: progressKey, chapter: chapterIndex, page: pageIndex,
+                    scroll_position: 0, total_chapters: totalChapters,
+                    total_pages: pageCount, reading_time: getVisibleReadingSeconds(),
+                    reading_session_id: sessionId,
+                    anchor_paragraph: anchor.paragraphIndex,
+                    anchor_offset: anchor.charOffset
+                })
+            }).catch(() => null);
+        }
+        function persistBrowserProgress() {
+            try {
+                localStorage.setItem(browserProgressKey, JSON.stringify({
+                    chapter: chapterIndex,
+                    page: pageIndex,
+                    savedAt: Date.now()
+                }));
+            } catch (error) {
+                // Reading itself must continue if browser storage is unavailable.
+            }
+        }
+        function queueSave(options = {}) { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveProgress(false, options), 700); }
+        function setReaderChromeHidden(hidden) {
+            header.classList.toggle('is-hidden', hidden);
+            controls.classList.toggle('is-hidden', hidden);
+            minimalHeader.classList.toggle('is-hidden', !hidden);
+            minimalFooter.classList.toggle('is-hidden', !hidden);
+            if (hidden) {
+                backgroundPanel.hidden = true;
+                fontPanel.hidden = true;
+            }
+        }
+        function readerUrl(index) { return `${readerBaseUrl}?start_chapter=${index}`; }
+        function chapterApiUrl(index) { return `${chapterApiBaseUrl}/${index}`; }
+        function updateChapterLink(link, targetIndex, disabled) {
+            link.href = readerUrl(targetIndex);
+            link.dataset.readerChapter = targetIndex;
+            link.classList.toggle('is-disabled', disabled);
+        }
+        function updateChapterUi() {
+            updateChapterLink(previousChapter, chapterIndex - 1, chapterIndex <= 0);
+            updateChapterLink(nextChapter, chapterIndex + 1, chapterIndex + 1 >= totalChapters);
+            document.title = `${novelTitle} - ${currentChapter.title}`;
+            updatePageLabel();
+        }
+        function updatePageLabel() {
+            chapterLabel.textContent = `${currentChapter.title} · ${chapterIndex + 1} / ${totalChapters} · ${pageIndex + 1} / ${pageCount} 页`;
+            minimalHeader.textContent = currentChapter.title;
+            pageStatus.textContent = `${pageIndex + 1} / ${pageCount}`;
+        }
+        function updateClock() {
+            clockLabel.textContent = new Intl.DateTimeFormat('zh-CN', {hour: '2-digit', minute: '2-digit', hour12: false}).format(new Date());
+        }
+        function applyFlowOffset(offset) {
+            renderedFlowOffset = offset;
+            if (flow) flow.style.transform = `translate3d(${offset}px,0,0)`;
+        }
+        function queueDragOffset(offset) {
+            pendingDragOffset = offset;
+            if (dragAnimationFrame !== null) return;
+            dragAnimationFrame = requestAnimationFrame(() => {
+                dragAnimationFrame = null;
+                if (pendingDragOffset === null) return;
+                applyFlowOffset(pendingDragOffset);
+                pendingDragOffset = null;
+            });
+        }
+        function cancelQueuedDrag(offset = null) {
+            if (dragAnimationFrame !== null) cancelAnimationFrame(dragAnimationFrame);
+            dragAnimationFrame = null;
+            pendingDragOffset = null;
+            if (offset !== null) applyFlowOffset(offset);
+        }
+        function applyLayerDrag(drag) {
+            if (!drag || !drag.outgoingLayer || !drag.incomingLayer) return;
+            drag.outgoingLayer.style.transform = `translate3d(${drag.outgoingOffset}px,0,0)`;
+            drag.incomingLayer.style.transform = `translate3d(${drag.incomingOffset}px,0,0)`;
+            renderedLayerOffset = drag.outgoingOffset;
+        }
+        function queueLayerDrag(outgoingLayer, outgoingOffset, incomingLayer, incomingOffset) {
+            pendingLayerDrag = {outgoingLayer, outgoingOffset, incomingLayer, incomingOffset};
+            if (layerDragAnimationFrame !== null) return;
+            layerDragAnimationFrame = requestAnimationFrame(() => {
+                layerDragAnimationFrame = null;
+                const drag = pendingLayerDrag;
+                pendingLayerDrag = null;
+                applyLayerDrag(drag);
+            });
+        }
+        function flushQueuedLayerDrag() {
+            if (layerDragAnimationFrame !== null) cancelAnimationFrame(layerDragAnimationFrame);
+            layerDragAnimationFrame = null;
+            const drag = pendingLayerDrag;
+            pendingLayerDrag = null;
+            applyLayerDrag(drag);
+        }
+        function finishGestureDrag() {
+            // Pending touch coordinates have not been submitted in a display frame.
+            // Start settling from the last submitted transform, not a touchend snap.
+            cancelQueuedDrag();
+            if (layerDragAnimationFrame !== null) cancelAnimationFrame(layerDragAnimationFrame);
+            layerDragAnimationFrame = null;
+            pendingLayerDrag = null;
+        }
+        function touchEventTime(event) {
+            return Number.isFinite(event.timeStamp) && event.timeStamp > 0 ? event.timeStamp : performance.now();
+        }
+        function releaseTouchVelocity(now) {
+            // A normal gap between the last move and lift is not a deliberate stop.
+            const pause = Math.max(0, now - touchLastTime - 32);
+            return touchVelocityX * Math.max(0, 1 - pause / 90);
+        }
+        function addMotionHint(element) {
+            if (!element) return;
+            clearTimeout(motionHintReleaseTimer);
+            element.classList.add('is-motion-hinted');
+            motionHintElements.add(element);
+        }
+        function releaseMotionHint(element) {
+            if (!element) return;
+            element.classList.remove('is-motion-hinted');
+            motionHintElements.delete(element);
+        }
+        function clearMotionHints(except = null) {
+            motionHintElements.forEach((element) => {
+                if (element !== except) releaseMotionHint(element);
+            });
+        }
+        function prepareGestureMotionHints() {
+            clearMotionHints(flow);
+            addMotionHint(flow);
+            if (pageIndex !== 0 && pageIndex !== pageCount - 1) return;
+            addMotionHint(layer);
+            if (pageIndex === 0) {
+                const previous = getReadyChapterView(chapterIndex - 1);
+                if (previous) addMotionHint(previous.layer);
+            }
+            if (pageIndex === pageCount - 1) {
+                const next = getReadyChapterView(chapterIndex + 1);
+                if (next) addMotionHint(next.layer);
+            }
+        }
+        function cancelFlowSettle() {
+            settleGeneration += 1;
+            if (settleAnimationFrame !== null) {
+                cancelAnimationFrame(settleAnimationFrame);
+                settleAnimationFrame = null;
+            }
+            if (settleTimer !== null) {
+                clearTimeout(settleTimer);
+                settleTimer = null;
+            }
+            if (settleAnimation) {
+                let progress = null;
+                try {
+                    progress = settleAnimation.effect.getComputedTiming().progress;
+                } catch (error) {
+                    progress = null;
+                }
+                if (Number.isFinite(progress)) {
+                    renderedFlowOffset = settleFrom + (settleTo - settleFrom) * progress;
+                }
+                try {
+                    settleAnimation.commitStyles();
+                } catch (error) {
+                    // Keep the sampled offset if the animation cannot commit.
+                }
+                try {
+                    settleAnimation.cancel();
+                } catch (error) {
+                    // Already finished or detached.
+                }
+                settleAnimation = null;
+                applyFlowOffset(renderedFlowOffset);
+            }
+            flowIsSettling = false;
+        }
+        function startFlowSettle(targetOffset, velocity, duration, onDone, easing) {
+            cancelFlowSettle();
+            const startOffset = renderedFlowOffset;
+            const delta = targetOffset - startOffset;
+            const finish = () => {
+                if (settleAnimation) {
+                    try {
+                        settleAnimation.cancel();
+                    } catch (error) {
+                        // Ignore.
+                    }
+                    settleAnimation = null;
+                }
+                applyFlowOffset(targetOffset);
+                flowIsSettling = false;
+                if (!isTouching && flow) flow.classList.remove('is-dragging');
+                if (onDone) onDone();
+            };
+            if (!flow || Math.abs(delta) < .5 || duration < 1) {
+                finish();
+                return;
+            }
+            const gen = settleGeneration;
+            flowIsSettling = true;
+            settleFrom = startOffset;
+            settleTo = targetOffset;
+            flow.classList.add('is-dragging');
+            clearInlineTransition(flow);
+            applyFlowOffset(startOffset);
+            const motionEasing = easing || 'cubic-bezier(.25,.46,.45,.94)';
+            if (typeof flow.animate === 'function') {
+                const anim = flow.animate(
+                    [
+                        {transform: `translate3d(${startOffset}px,0,0)`},
+                        {transform: `translate3d(${targetOffset}px,0,0)`}
+                    ],
+                    {duration, easing: motionEasing, fill: 'forwards'}
+                );
+                settleAnimation = anim;
+                anim.onfinish = () => {
+                    if (gen !== settleGeneration) return;
+                    finish();
+                };
+                return;
+            }
+            animateElement(flow, targetOffset, duration, motionEasing);
+            renderedFlowOffset = targetOffset;
+            settleTimer = setTimeout(() => {
+                settleTimer = null;
+                if (gen !== settleGeneration) return;
+                finish();
+            }, duration);
+        }
+        function settleMotion(targetOffset, velocity = 0, currentOffset = renderedFlowOffset) {
+            const delta = targetOffset - currentOffset;
+            const distance = Math.abs(delta);
+            if (distance < .5) return {duration: 0, easing: 'linear'};
+            const pageDistance = Math.max(1, pageStep || viewport.clientWidth || distance);
+            const remainingRatio = Math.min(1, distance / pageDistance);
+            const baseDuration = 230 + remainingRatio * 120;
+            const forwardVelocity = Number.isFinite(velocity) ? Math.max(0, velocity * Math.sign(delta)) : 0;
+            const duration = Math.round(forwardVelocity > 0
+                ? Math.max(120, Math.min(baseDuration, 2 * distance / forwardVelocity))
+                : baseDuration);
+            // With x1=1/3 the initial speed is 3*y1*distance/duration.
+            // Match the finger's release speed, then reach the page with zero speed.
+            // Bound y1 to keep very fast, near-edge flicks monotonic without overshoot.
+            const y1 = Math.min(1, forwardVelocity * duration / (3 * distance));
+            return {
+                duration,
+                easing: `cubic-bezier(${1 / 3},${y1},${2 / 3},1)`
+            };
+        }
+        function clearInlineTransition(element) {
+            if (element) element.style.removeProperty('transition');
+        }
+        function snapElement(element, offset) {
+            element.classList.add('is-dragging');
+            clearInlineTransition(element);
+            element.style.transform = `translate3d(${offset}px,0,0)`;
+        }
+        function animateElement(element, offset, duration = 220, easing = 'cubic-bezier(.25,.46,.45,.94)') {
+            element.classList.remove('is-dragging');
+            element.style.transition = `transform ${duration}ms ${easing}`;
+            element.style.transform = `translate3d(${offset}px,0,0)`;
+        }
+        function setFlowPosition(offset, smooth = true, duration = 220, easing = 'cubic-bezier(.25,.46,.45,.94)', velocity = 0, onDone = null) {
+            cancelQueuedDrag();
+            if (!smooth || Math.abs(offset - renderedFlowOffset) < .5) {
+                cancelFlowSettle();
+                if (flow) {
+                    flow.classList.add('is-dragging');
+                    clearInlineTransition(flow);
+                }
+                applyFlowOffset(offset);
+                if (!isTouching) requestAnimationFrame(() => {
+                    if (!isTouching && !flowIsSettling && flow) flow.classList.remove('is-dragging');
+                });
+                if (onDone) onDone();
+                return;
+            }
+            startFlowSettle(offset, velocity, duration, onDone, easing);
+        }
+        function setPage(targetPage, smooth = true, velocity = 0) {
+            pageIndex = Math.max(0, Math.min(targetPage, pageCount - 1));
+            const targetOffset = -pageIndex * pageStep;
+            const motion = smooth ? settleMotion(targetOffset, velocity) : {duration: 0, easing: 'linear'};
+            const settlingFlow = flow;
+            setFlowPosition(targetOffset, smooth, motion.duration, motion.easing, velocity, () => {
+                clearTimeout(motionHintReleaseTimer);
+                motionHintReleaseTimer = setTimeout(() => {
+                    if (!isMotionBusy()) releaseMotionHint(settlingFlow);
+                }, 160);
+                updatePageLabel();
+                // The page index is sufficient for a normal page turn. Avoid a
+                // synchronous full-chapter Range/getClientRects scan right after it.
+                queueSave({skipAnchor: true});
+            });
+        }
+        function readElementOffset(element) {
+            const transform = getComputedStyle(element).transform;
+            if (!transform || transform === 'none') return 0;
+            const values = transform.slice(transform.indexOf('(') + 1, -1).split(',').map(Number);
+            const offset = transform.startsWith('matrix3d') ? values[12] : values[4];
+            return Number.isFinite(offset) ? offset : 0;
+        }
+        function waitForTransform(element, timeout = 320) {
+            return new Promise((resolve) => {
+                let done = false;
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    element.removeEventListener('transitionend', onEnd);
+                    resolve();
+                };
+                const onEnd = (event) => {
+                    if (event.target === element && event.propertyName === 'transform') finish();
+                };
+                element.addEventListener('transitionend', onEnd);
+                setTimeout(finish, timeout);
+            });
+        }
+        function registerCurrentChapterView(ready) {
+            chapterViews.set(chapterIndex, {
+                index: chapterIndex,
+                generation: viewGeneration,
+                layer,
+                flow,
+                chapter: currentChapter,
+                pageCount,
+                pageWidth,
+                pageStep,
+                ready
+            });
+        }
+        function removeChapterView(view) {
+            if (!view) return;
+            if (view.layer && view.layer !== layer) view.layer.remove();
+            else if (view.flow && view.flow !== flow && view.flow.parentNode !== layer) view.flow.remove();
+        }
+        function invalidatePreparedChapterViews() {
+            if (isSwitchingChapter) return;
+            viewGeneration += 1;
+            chapterViews.forEach((view) => removeChapterView(view));
+            chapterViews.clear();
+            chapterViewPromises.clear();
+            registerCurrentChapterView(false);
+        }
+        function measureFlowPagination(flowEl) {
+            const step = viewport.clientWidth;
+            const width = flowEl.clientWidth;
+            const columnWidth = pageWidth > 1 ? pageWidth : width;
+            flowEl.style.columnWidth = `${columnWidth}px`;
+            flowEl.classList.add('is-dragging');
+            flowEl.style.transform = 'translate3d(0,0,0)';
+            void flowEl.offsetWidth;
+            const count = Math.max(1, Math.round((flowEl.scrollWidth + (readerMargin * 2)) / Math.max(step, 1)));
+            return {pageWidth: columnWidth, pageStep: step, pageCount: count};
+        }
+        function getReadyChapterView(index) {
+            const view = chapterViews.get(index);
+            if (
+                !view
+                || view.generation !== viewGeneration
+                || !view.ready
+                || !view.flow
+                || !view.flow.isConnected
+                || !view.layer
+                || !view.layer.isConnected
+            ) return null;
+            return view;
+        }
+        function adjacentParkOffset(direction) {
+            const step = viewport.clientWidth || pageStep;
+            return direction > 0 ? step : -step;
+        }
+        function chapterPageOffset(view, direction) {
+            const step = view.pageStep || pageStep || viewport.clientWidth;
+            if (direction > 0) return 0;
+            return -(Math.max(0, (view.pageCount || 1) - 1) * step);
+        }
+        function positionAdjacentChapters() {
+            chapterViews.forEach((view, index) => {
+                if (!view.ready || !view.layer || view.layer === layer) return;
+                const direction = index - chapterIndex;
+                const layerEl = view.layer;
+                layerEl.classList.add('is-prepared', 'is-dragging');
+                layerEl.classList.remove('is-incoming', 'is-outgoing');
+                clearInlineTransition(layerEl);
+                clearInlineTransition(view.flow);
+                if (direction === 1 || direction === -1) {
+                    layerEl.classList.remove('is-measuring');
+                    layerEl.setAttribute('aria-hidden', 'true');
+                    layerEl.style.transform = `translate3d(${adjacentParkOffset(direction)}px,0,0)`;
+                    view.flow.classList.add('is-dragging');
+                    view.flow.style.transform = `translate3d(${chapterPageOffset(view, direction)}px,0,0)`;
+                    view.parkedAs = direction;
+                } else {
+                    layerEl.classList.add('is-measuring');
+                    view.parkedAs = 0;
+                }
+            });
+        }
+        function parkChapterView(view) {
+            if (!view || !view.layer) return;
+            const layerEl = view.layer;
+            layerEl.classList.remove('is-outgoing', 'is-incoming');
+            layerEl.classList.add('is-prepared', 'is-dragging');
+            layerEl.setAttribute('aria-hidden', 'true');
+            clearInlineTransition(layerEl);
+            if (layerEl.id === 'reader-layer') layerEl.removeAttribute('id');
+            if (view.flow && view.flow.id === 'reader-flow') view.flow.removeAttribute('id');
+            view.generation = viewGeneration;
+            view.ready = true;
+            chapterViews.set(view.index, view);
+        }
+        function activateChapterView(view, offset) {
+            cancelFlowSettle();
+            cancelQueuedDrag();
+            if (layer && layer !== view.layer) layer.removeAttribute('id');
+            if (flow && flow !== view.flow) flow.removeAttribute('id');
+            const layerEl = view.layer;
+            const flowEl = view.flow;
+            layerEl.id = 'reader-layer';
+            flowEl.id = 'reader-flow';
+            layerEl.classList.remove('is-prepared', 'is-incoming', 'is-outgoing', 'is-dragging', 'is-measuring');
+            flowEl.classList.remove('is-dragging');
+            layerEl.removeAttribute('aria-hidden');
+            clearInlineTransition(layerEl);
+            clearInlineTransition(flowEl);
+            layerEl.style.transform = 'translate3d(0,0,0)';
+            flowEl.style.transform = `translate3d(${offset}px,0,0)`;
+            layer = layerEl;
+            flow = flowEl;
+            renderedLayerOffset = 0;
+            renderedFlowOffset = offset;
+            flowIsSettling = false;
+            view.parkedAs = 0;
+            registerCurrentChapterView(true);
+        }
+        async function prepareChapterView(index) {
+            if (isMotionBusy() && index !== chapterIndex) return null;
+            const generation = viewGeneration;
+            const chapter = await getChapter(index);
+            if (generation !== viewGeneration) return null;
+            if (isMotionBusy() && index !== chapterIndex) return null;
+            if (index === chapterIndex && flow && layer) {
+                const current = {
+                    index,
+                    generation,
+                    layer,
+                    flow,
+                    chapter: currentChapter,
+                    pageCount,
+                    pageWidth,
+                    pageStep,
+                    ready: pageCount >= 1 && pageWidth > 1
+                };
+                chapterViews.set(index, current);
+                return current;
+            }
+            let view = chapterViews.get(index);
+            if (!view || view.generation !== generation || !view.layer || !view.layer.isConnected || !view.flow || !view.flow.isConnected) {
+                const layerEl = document.createElement('div');
+                layerEl.className = 'novel-reader-layer is-prepared is-dragging is-measuring';
+                layerEl.setAttribute('aria-hidden', 'true');
+                const flowEl = document.createElement('div');
+                flowEl.className = 'novel-reader-flow is-dragging';
+                flowEl.append(createChapterFragment(chapter));
+                layerEl.appendChild(flowEl);
+                viewport.appendChild(layerEl);
+                view = {index, generation, layer: layerEl, flow: flowEl, chapter, ready: false, parkedAs: 0};
+                chapterViews.set(index, view);
+            } else {
+                view.chapter = chapter;
+            }
+            if (isMotionBusy() && index !== chapterIndex) return null;
+            const metrics = measureFlowPagination(view.flow);
+            if (generation !== viewGeneration) return null;
+            view.pageWidth = metrics.pageWidth;
+            view.pageStep = metrics.pageStep;
+            view.pageCount = metrics.pageCount;
+            view.ready = true;
+            positionAdjacentChapters();
+            return view;
+        }
+        function ensureChapterView(index) {
+            if (index < 0 || index >= totalChapters) return Promise.resolve(null);
+            const ready = getReadyChapterView(index);
+            if (ready) return Promise.resolve(ready);
+            const pending = chapterViewPromises.get(index);
+            if (pending) return pending;
+            const request = prepareChapterView(index)
+                .catch((error) => {
+                    if (chapterViewPromises.get(index) === request) chapterViewPromises.delete(index);
+                    throw error;
+                })
+                .then((view) => {
+                    if (chapterViewPromises.get(index) === request) chapterViewPromises.delete(index);
+                    return view;
+                });
+            chapterViewPromises.set(index, request);
+            return request;
+        }
+        function scheduleAdjacentPreload() {
+            clearTimeout(preloadTimer);
+            preloadTimer = setTimeout(() => preloadAdjacentChapters(), 400);
+        }
+        function recalculatePagination(preservePosition = true, targetPage = null) {
+            if (isMotionBusy()) {
+                schedulePagination(preservePosition, targetPage);
+                return;
+            }
+            if (!viewport.clientWidth) return;
+            measuredViewportWidth = viewport.clientWidth;
+            measuredViewportHeight = viewport.clientHeight;
+            const oldCount = pageCount;
+            const oldRatio = oldCount > 1 ? pageIndex / (oldCount - 1) : 0;
+            pageWidth = flow.clientWidth;
+            pageStep = viewport.clientWidth;
+            root.style.setProperty('--reader-page-width', `${pageWidth}px`);
+            flow.style.columnWidth = `${pageWidth}px`;
+            cancelQueuedDrag();
+            cancelFlowSettle();
+            flow.classList.add('is-dragging');
+            applyFlowOffset(0);
+            void flow.offsetWidth;
+            pageCount = Math.max(1, Math.round((flow.scrollWidth + (readerMargin * 2)) / pageStep));
+            if (targetPage === 'last') pageIndex = pageCount - 1;
+            else if (Number.isFinite(targetPage)) pageIndex = targetPage;
+            else if (preservePosition) pageIndex = Math.round(oldRatio * Math.max(0, pageCount - 1));
+            pageIndex = Math.max(0, Math.min(pageIndex, pageCount - 1));
+            applyFlowOffset(-pageIndex * pageStep);
+            if (layer) {
+                snapElement(layer, 0);
+                renderedLayerOffset = 0;
+            }
+            requestAnimationFrame(() => {
+                if (flow) flow.classList.remove('is-dragging');
+                if (layer) layer.classList.remove('is-dragging');
+            });
+            updatePageLabel();
+            registerCurrentChapterView(true);
+            positionAdjacentChapters();
+            scheduleAdjacentPreload();
+        }
+        function createChapterFragment(chapter) {
+            const fragment = document.createDocumentFragment();
+            const title = document.createElement('h1');
+            title.className = 'novel-reader-title';
+            title.textContent = chapter.title;
+            const article = document.createElement('article');
+            article.className = 'novel-reader-content';
+            chapter.paragraphs.forEach((paragraph, index) => {
+                if (index === 0 && paragraph.trim() === chapter.title.trim()) return;
+                const element = document.createElement('p');
+                element.textContent = paragraph;
+                article.appendChild(element);
+            });
+            fragment.append(title, article);
+            return fragment;
+        }
+        async function getChapter(index) {
+            const cached = chapterCache.get(index);
+            if (cached) return cached;
+            const request = fetch(chapterApiUrl(index), {headers: {'Accept': 'application/json'}})
+                .then((response) => {
+                    if (!response.ok) throw new Error('章节加载失败');
+                    return response.json();
+                })
+                .then((chapter) => {
+                    chapterCache.set(index, chapter);
+                    return chapter;
+                })
+                .catch((error) => {
+                    chapterCache.delete(index);
+                    throw error;
+                });
+            chapterCache.set(index, request);
+            return request;
+        }
+        function evictDistantChapterViews() {
+            chapterCache.forEach((value, index) => {
+                if (Math.abs(index - chapterIndex) > 2) chapterCache.delete(index);
+            });
+            chapterViews.forEach((view, index) => {
+                if (Math.abs(index - chapterIndex) <= 1) return;
+                removeChapterView(view);
+                chapterViews.delete(index);
+            });
+        }
+        function preloadAdjacentChapters() {
+            if (isMotionBusy()) {
+                scheduleAdjacentPreload();
+                return;
+            }
+            evictDistantChapterViews();
+            // Keep only the two chapters that can become visible on the next swipe.
+            // Extra long-text layers were consuming mobile compositor memory without
+            // helping the immediate gesture.
+            const targets = [chapterIndex + 1, chapterIndex - 1];
+            const run = async () => {
+                for (const index of targets) {
+                    if (isMotionBusy()) {
+                        scheduleAdjacentPreload();
+                        return;
+                    }
+                    if (index < 0 || index >= totalChapters) continue;
+                    try {
+                        await ensureChapterView(index);
+                    } catch (error) {
+                        // Keep reading if a neighbor chapter cannot be warmed.
+                    }
+                }
+            };
+            if (typeof window.requestIdleCallback === 'function') {
+                window.requestIdleCallback(() => { run().catch(() => null); }, {timeout: 2000});
+            } else {
+                setTimeout(() => { run().catch(() => null); }, 0);
+            }
+        }
+        function neighborForDelta(deltaX) {
+            if (deltaX < 0 && pageIndex >= pageCount - 1 && chapterIndex + 1 < totalChapters) {
+                const view = getReadyChapterView(chapterIndex + 1);
+                if (!view) return null;
+                return {view, direction: 1, parkOffset: adjacentParkOffset(1)};
+            }
+            if (deltaX > 0 && pageIndex <= 0 && chapterIndex > 0) {
+                const view = getReadyChapterView(chapterIndex - 1);
+                if (!view) return null;
+                return {view, direction: -1, parkOffset: adjacentParkOffset(-1)};
+            }
+            return null;
+        }
+        function attachGestureNeighbor(deltaX) {
+            if (gestureNeighbor) return gestureNeighbor;
+            const neighbor = neighborForDelta(deltaX);
+            if (!neighbor || !neighbor.view.layer) return null;
+            neighbor.view.layer.classList.remove('is-prepared', 'is-measuring');
+            neighbor.view.layer.classList.add('is-incoming', 'is-dragging');
+            neighbor.view.layer.setAttribute('aria-hidden', 'true');
+            gestureNeighbor = neighbor;
+            return neighbor;
+        }
+        function restoreGestureNeighbor(duration = 760) {
+            const neighbor = gestureNeighbor;
+            gestureNeighbor = null;
+            if (!neighbor || !neighbor.view.layer || neighbor.view.layer === layer) return;
+            animateElement(neighbor.view.layer, neighbor.parkOffset, duration, 'cubic-bezier(.25,.46,.45,.94)');
+            setTimeout(() => {
+                if (neighbor.view.layer && neighbor.view.layer !== layer) {
+                    neighbor.view.layer.classList.add('is-prepared', 'is-dragging');
+                    neighbor.view.layer.classList.remove('is-incoming', 'is-outgoing');
+                    clearInlineTransition(neighbor.view.layer);
+                    neighbor.view.layer.style.transform = `translate3d(${neighbor.parkOffset}px,0,0)`;
+                }
+            }, duration + 20);
+        }
+        function restoreCurrentLayer(duration = 760) {
+            if (!layer || Math.abs(renderedLayerOffset) < .5) {
+                renderedLayerOffset = 0;
+                return;
+            }
+            animateElement(layer, 0, duration, 'cubic-bezier(.25,.46,.45,.94)');
+            renderedLayerOffset = 0;
+            setTimeout(() => {
+                if (!layer) return;
+                layer.classList.remove('is-outgoing', 'is-incoming');
+                snapElement(layer, 0);
+                requestAnimationFrame(() => layer && layer.classList.remove('is-dragging'));
+            }, duration + 20);
+        }
+        function abortChapterSwitch(outgoingLayer) {
+            if (outgoingLayer) {
+                outgoingLayer.classList.remove('is-outgoing', 'is-incoming');
+                snapElement(outgoingLayer, 0);
+                requestAnimationFrame(() => outgoingLayer.classList.remove('is-dragging'));
+            }
+            renderedLayerOffset = 0;
+            setPage(pageIndex, true);
+            isSwitchingChapter = false;
+            setReaderChromeHidden(false);
+            restoreGestureNeighbor();
+            clearMotionHints();
+        }
+        async function switchChapter(targetIndex, direction, velocity = 0) {
+            if (targetIndex < 0 || targetIndex >= totalChapters || isSwitchingChapter) return;
+            isSwitchingChapter = true;
+            setReaderChromeHidden(true);
+
+            const step = viewport.clientWidth || pageStep;
+            const dir = direction === 'previous' ? -1 : 1;
+            const outgoingView = chapterViews.get(chapterIndex) || {
+                index: chapterIndex, generation: viewGeneration, layer, flow, chapter: currentChapter, pageCount, pageWidth, pageStep, ready: true
+            };
+            outgoingView.layer = outgoingView.layer || layer;
+            outgoingView.flow = outgoingView.flow || flow;
+            outgoingView.chapter = outgoingView.chapter || currentChapter;
+            const outgoingLayer = outgoingView.layer;
+            const outgoingFlow = outgoingView.flow;
+            const restOffset = -pageIndex * step;
+            const outgoingTarget = -dir * step;
+            const incomingTarget = 0;
+
+            snapElement(outgoingFlow, restOffset);
+            renderedFlowOffset = restOffset;
+
+            let view = getReadyChapterView(targetIndex);
+            if (!view) {
+                try {
+                    view = await ensureChapterView(targetIndex);
+                } catch (error) {
+                    abortChapterSwitch(outgoingLayer);
+                    return;
+                }
+            }
+            if (!view || !view.flow || !view.layer) {
+                abortChapterSwitch(outgoingLayer);
+                return;
+            }
+
+            const incomingLayer = view.layer;
+            const incomingFlow = view.flow;
+            const incomingPage = dir < 0 ? Math.max(0, view.pageCount - 1) : 0;
+            const incomingFlowOffset = -incomingPage * step;
+            const outgoingNow = readElementOffset(outgoingLayer);
+            const incomingStart = outgoingNow + (dir * step);
+            const outgoingMotion = settleMotion(outgoingTarget, velocity, outgoingNow);
+            const duration = Math.min(760, outgoingMotion.duration || 760);
+            const easing = outgoingMotion.easing;
+
+            snapElement(incomingFlow, incomingFlowOffset);
+            snapElement(incomingLayer, incomingStart);
+            outgoingLayer.classList.add('is-outgoing');
+            outgoingLayer.classList.remove('is-prepared', 'is-incoming', 'is-measuring');
+            incomingLayer.classList.remove('is-prepared', 'is-measuring');
+            incomingLayer.classList.add('is-incoming');
+            incomingLayer.setAttribute('aria-hidden', 'true');
+            void incomingLayer.offsetWidth;
+            void outgoingLayer.offsetWidth;
+
+            animateElement(outgoingLayer, outgoingTarget, duration, easing);
+            animateElement(incomingLayer, incomingTarget, duration, easing);
+
+            chapterIndex = targetIndex;
+            currentChapter = view.chapter;
+            pageIndex = incomingPage;
+            pageCount = view.pageCount;
+            pageWidth = view.pageWidth || pageWidth;
+            pageStep = step;
+            renderedLayerOffset = incomingTarget;
+            renderedFlowOffset = incomingFlowOffset;
+            gestureNeighbor = null;
+
+            await Promise.all([
+                waitForTransform(outgoingLayer, duration + 40),
+                waitForTransform(incomingLayer, duration + 40)
+            ]);
+
+            activateChapterView(view, incomingFlowOffset);
+            clearMotionHints();
+            updateChapterUi();
+            persistBrowserProgress();
+            history.replaceState(null, '', readerUrl(chapterIndex));
+            isSwitchingChapter = false;
+            requestAnimationFrame(() => {
+                parkChapterView(outgoingView);
+                positionAdjacentChapters();
+                scheduleAdjacentPreload();
+                saveProgress(false, {skipAnchor: true});
+            });
+        }
+        function movePage(direction, velocity = 0) {
+            const targetPage = pageIndex + direction;
+            if (targetPage >= 0 && targetPage < pageCount) {
+                setPage(targetPage, true, velocity);
+                setReaderChromeHidden(true);
+                return;
+            }
+            switchChapter(chapterIndex + direction, direction < 0 ? 'previous' : 'next', velocity);
+        }
+
+        viewport.addEventListener('transitionend', (event) => {
+            if (event.target === flow && event.propertyName === 'transform') flowIsSettling = false;
+        });
+        document.getElementById('font-smaller').addEventListener('click', () => { fontSize -= 1; applyFontSize(); });
+        document.getElementById('font-larger').addEventListener('click', () => { fontSize += 1; applyFontSize(); });
+        document.getElementById('font-toggle').addEventListener('click', () => { fontPanel.hidden = !fontPanel.hidden; backgroundPanel.hidden = true; });
+        document.getElementById('background-toggle').addEventListener('click', () => { backgroundPanel.hidden = !backgroundPanel.hidden; fontPanel.hidden = true; });
+        marginSlider.addEventListener('input', () => applyReaderMargin(marginSlider.value));
+        backgroundPicker.addEventListener('input', () => applyBackground(backgroundPicker.value));
+        document.querySelectorAll('[data-reader-font]').forEach((button) => button.addEventListener('click', () => applyFont(button.dataset.readerFont)));
+        document.querySelectorAll('[data-reader-background]').forEach((button) => button.addEventListener('click', () => applyBackground(button.dataset.readerBackground)));
+        document.addEventListener('click', (event) => {
+            const chapterLink = event.target.closest('[data-reader-nav]');
+            if (chapterLink) {
+                event.preventDefault();
+                if (!chapterLink.classList.contains('is-disabled')) {
+                    const targetIndex = Number(chapterLink.dataset.readerChapter);
+                    switchChapter(targetIndex, targetIndex < chapterIndex ? 'previous' : 'next');
+                }
+                return;
+            }
+            const readerMain = event.target.closest('.novel-reader-main');
+            if (Date.now() - lastSwipeAt < 350 || isSwitchingChapter || event.target.closest('a,button,input') || !readerMain) return;
+            const viewportRect = viewport.getBoundingClientRect();
+            const horizontalPosition = (event.clientX - viewportRect.left) / viewportRect.width;
+            if (horizontalPosition <= 0.28) {
+                movePage(-1, 1.25);
+                setReaderChromeHidden(true);
+            } else if (horizontalPosition >= 0.72) {
+                movePage(1, -1.25);
+                setReaderChromeHidden(true);
+            } else {
+                setReaderChromeHidden(!header.classList.contains('is-hidden'));
+            }
+        });
+        viewport.addEventListener('touchstart', (event) => {
+            if (event.touches.length !== 1 || isSwitchingChapter) return;
+            clearTimeout(saveTimer);
+            isTouching = true;
+            touchStartX = event.touches[0].clientX;
+            touchStartY = event.touches[0].clientY;
+            touchStartTime = touchEventTime(event);
+            touchDeltaX = 0;
+            touchAxis = null;
+            touchLastX = touchStartX;
+            touchLastTime = touchStartTime;
+            touchVelocityX = 0;
+            cancelFlowSettle();
+            cancelQueuedDrag();
+            flushQueuedLayerDrag();
+            touchBaseOffset = renderedFlowOffset;
+            layerBaseOffset = renderedLayerOffset;
+            pageIndex = Math.max(0, Math.min(Math.round(-touchBaseOffset / pageStep), pageCount - 1));
+            // Promote only the layer(s) that may move in this gesture. Doing this on
+            // touchstart gives the browser a frame to allocate before touchmove.
+            prepareGestureMotionHints();
+            if (flow) {
+                flow.classList.add('is-dragging');
+                clearInlineTransition(flow);
+            }
+            applyFlowOffset(touchBaseOffset);
+        }, {passive: true});
+        viewport.addEventListener('touchmove', (event) => {
+            if (touchStartX === null || touchStartY === null || event.touches.length !== 1) return;
+            const touch = event.touches[0];
+            const deltaX = touch.clientX - touchStartX;
+            const deltaY = touch.clientY - touchStartY;
+            if (touchAxis === null) {
+                const distance = Math.max(Math.abs(deltaX), Math.abs(deltaY));
+                if (distance < 2) return;
+                if (Math.abs(deltaX) >= Math.abs(deltaY) * 1.1) touchAxis = 'horizontal';
+                else if (Math.abs(deltaY) >= Math.abs(deltaX) * 1.1) touchAxis = 'vertical';
+                else if (distance >= 6) touchAxis = Math.abs(deltaX) >= Math.abs(deltaY) ? 'horizontal' : 'vertical';
+                else return;
+                if (touchAxis !== 'horizontal') {
+                    flow.classList.remove('is-dragging');
+                    return;
+                }
+            }
+            if (touchAxis !== 'horizontal') return;
+            event.preventDefault();
+            touchDeltaX = deltaX;
+            const now = touchEventTime(event);
+            const elapsed = Math.max(1, now - touchLastTime);
+            const instantVelocity = (touch.clientX - touchLastX) / elapsed;
+            const sampleWeight = 1 - Math.exp(-elapsed / 20);
+            touchVelocityX += (instantVelocity - touchVelocityX) * sampleWeight;
+            touchLastX = touch.clientX;
+            touchLastTime = now;
+            const atBoundary = (pageIndex === 0 && deltaX > 0 && chapterIndex === 0)
+                || (pageIndex === pageCount - 1 && deltaX < 0 && chapterIndex + 1 >= totalChapters);
+            const drag = atBoundary ? deltaX * .28 : deltaX;
+            const neighbor = atBoundary ? null : attachGestureNeighbor(deltaX);
+            if (neighbor) {
+                cancelQueuedDrag(touchBaseOffset);
+                layer.classList.add('is-outgoing', 'is-dragging');
+                const layerOffset = layerBaseOffset + drag;
+                queueLayerDrag(layer, layerOffset, neighbor.view.layer, neighbor.parkOffset + drag);
+            } else {
+                queueDragOffset(touchBaseOffset + drag);
+            }
+        }, {passive: false});
+        viewport.addEventListener('touchend', (event) => {
+            if (touchStartX === null) return;
+            const wasHorizontal = touchAxis === 'horizontal';
+            const finalX = event.changedTouches.length ? event.changedTouches[0].clientX : touchStartX + touchDeltaX;
+            const deltaX = finalX - touchStartX;
+            const now = touchEventTime(event);
+            const duration = Math.max(1, now - touchStartTime);
+            const releaseVelocityX = releaseTouchVelocity(now);
+            const velocity = Math.max(Math.abs(deltaX) / duration, Math.abs(releaseVelocityX));
+            const turningToNeighbor = wasHorizontal && ((deltaX < 0 && pageIndex >= pageCount - 1) || (deltaX > 0 && pageIndex <= 0));
+            finishGestureDrag();
+            isTouching = false;
+            touchStartX = null;
+            touchStartY = null;
+            touchStartTime = 0;
+            touchDeltaX = 0;
+            touchAxis = null;
+            touchLastX = null;
+            touchLastTime = 0;
+            touchVelocityX = 0;
+            touchBaseOffset = 0;
+            layerBaseOffset = 0;
+            const distanceThreshold = Math.min(36, pageWidth * .1);
+            const fastFlick = Math.abs(deltaX) >= 10 && velocity >= .2;
+            const commitPage = wasHorizontal && (Math.abs(deltaX) >= distanceThreshold || fastFlick);
+            const direction = deltaX < 0 ? 1 : -1;
+            const targetPage = pageIndex + direction;
+            const crossesChapter = targetPage < 0 || targetPage >= pageCount;
+            const hasTargetChapter = chapterIndex + direction >= 0 && chapterIndex + direction < totalChapters;
+            if (commitPage && crossesChapter && hasTargetChapter) {
+                // Keep the two moving chapter layers promoted until switchChapter
+                // finishes its transition.
+            } else if (commitPage && crossesChapter) {
+                clearMotionHints();
+            } else {
+                // The flow remains promoted through setPage's settle animation;
+                // unused neighbouring layers can be released immediately.
+                clearMotionHints(flow);
+            }
+            if (commitPage) {
+                lastSwipeAt = Date.now();
+                movePage(deltaX < 0 ? 1 : -1, releaseVelocityX);
+                if (!turningToNeighbor && Math.abs(renderedLayerOffset) > .5) {
+                    restoreGestureNeighbor();
+                    restoreCurrentLayer();
+                }
+            } else {
+                setPage(pageIndex, true, releaseVelocityX);
+                if (Math.abs(renderedLayerOffset) > .5) {
+                    restoreGestureNeighbor();
+                    restoreCurrentLayer();
+                }
+            }
+        }, {passive: true});
+        viewport.addEventListener('touchcancel', () => {
+            finishGestureDrag();
+            isTouching = false;
+            touchStartX = null;
+            touchStartY = null;
+            touchStartTime = 0;
+            touchDeltaX = 0;
+            touchAxis = null;
+            touchLastX = null;
+            touchLastTime = 0;
+            touchVelocityX = 0;
+            touchBaseOffset = 0;
+            layerBaseOffset = 0;
+            setPage(pageIndex);
+            restoreGestureNeighbor();
+            restoreCurrentLayer();
+            clearMotionHints();
+        }, {passive: true});
+        viewport.addEventListener('wheel', (event) => {
+            if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || isSwitchingChapter) return;
+            event.preventDefault();
+            wheelDistance += event.deltaX;
+            clearTimeout(wheelTimer);
+            wheelTimer = setTimeout(() => { wheelDistance = 0; }, 180);
+            if (Math.abs(wheelDistance) < 70) return;
+            const direction = wheelDistance > 0 ? 1 : -1;
+            wheelDistance = 0;
+            movePage(direction);
+        }, {passive: false});
+        addEventListener('keydown', (event) => {
+            if (event.target.matches('input,button') || isSwitchingChapter) return;
+            if (event.key === 'ArrowLeft') movePage(-1);
+            if (event.key === 'ArrowRight') movePage(1);
+        });
+        addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                pauseReadingTimer();
+                saveProgress(true);
+            } else {
+                startReadingTimer();
+            }
+        });
+        addEventListener('pagehide', () => {
+            pauseReadingTimer();
+            saveProgress(true);
+        });
+        addEventListener('resize', handleReaderResize);
+        addEventListener('load', () => {
+            applyFontSize();
+            applyFont(localStorage.getItem('mangadock-novel-font') || 'default');
+            applyBackground(localStorage.getItem('mangadock-novel-background') || '#0b0b0f');
+            applyReaderMargin();
+            setReaderChromeHidden(true);
+            updateClock();
+            requestAnimationFrame(() => recalculatePagination(false, savedPage));
+            if (document.fonts) document.fonts.ready.then(() => {
+                const applyFonts = () => {
+                    if (isMotionBusy()) {
+                        setTimeout(applyFonts, 120);
+                        return;
+                    }
+                    invalidatePreparedChapterViews();
+                    recalculatePagination(true);
+                };
+                applyFonts();
+            });
+        });
+        addEventListener('load', startReadingTimer);
+        setInterval(() => saveProgress(false), 30000);
+        setInterval(updateClock, 60000);
+    </script>
+</body>
+</html>

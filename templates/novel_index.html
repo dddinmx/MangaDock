@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}MangaDock - 小说首页{% endblock %}
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block main_wrapper %}
+<div class="md-main--flush app-main-content">
+    {% if spotlight %}
+    <section class="md-hero">
+        <div class="md-hero-media" aria-hidden="true">
+            <img class="md-hero-media-img is-soft" src="{{ url_for('novel_cover', novel_id=spotlight.novel_id) }}" alt="">
+        </div>
+        <div class="md-hero-shade"></div>
+        <div class="md-hero-inner">
+            <div class="md-hero-copy">
+                <div class="md-hero-tags">小说 · EPUB · {{ spotlight.chapter_count }} 章</div>
+                <h1 class="md-hero-title">{{ spotlight.title }}</h1>
+                <p class="md-hero-desc">
+                    {% if spotlight.description %}{{ spotlight.description }}
+                    {% else %}{{ spotlight.author }} 著。本地 EPUB 已入库，阅读进度会自动保存在当前账号下。{% endif %}
+                </p>
+                {% if spotlight.progress %}
+                <p class="md-hero-progress-hint">上次读到第 {{ spotlight.last_chapter + 1 }} 章</p>
+                {% endif %}
+                <div class="md-hero-actions">
+                    <a href="{{ url_for('novel_reader', novel_id=spotlight.novel_id) }}" class="md-btn-primary action-press">
+                        {{ '继续阅读' if spotlight.progress else '开始阅读' }}
+                    </a>
+                    <a href="{{ url_for('novel_detail', novel_id=spotlight.novel_id) }}" class="md-btn-ghost action-press" data-app-loader="true">详情</a>
+                    <span class="md-chapter-pill"><i class="fa fa-bookmark"></i>{{ spotlight.author }}</span>
+                </div>
+            </div>
+            <div class="md-hero-art">
+                <img src="{{ url_for('novel_cover', novel_id=spotlight.novel_id) }}" alt="{{ spotlight.title }}" loading="eager" decoding="async">
+            </div>
+        </div>
+    </section>
+    {% else %}
+    <section class="md-hero">
+        <div class="md-hero-shade"></div>
+        <div class="md-hero-inner">
+            <div class="md-hero-copy">
+                <div class="md-hero-tags">MANGADOCK NOVELS</div>
+                <h1 class="md-hero-title">你的小说库还是空的</h1>
+                <p class="md-hero-desc">将 EPUB 文件放入项目的“小说”目录，这里会自动显示。</p>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <div class="md-main md-home-sections">
+        {% if latest_novels %}
+        <section class="md-section !py-8">
+            <div class="mb-5 flex items-end justify-between gap-3">
+                <h2 class="md-section-title !mb-0">最近入库</h2>
+                <a href="{{ url_for('novels_list') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部书架</a>
+            </div>
+            <div class="md-cover-grid">
+                {% for novel in latest_novels %}
+                <a href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" class="md-cover-card" data-app-loader="true">
+                    <div class="md-book">
+                        <div class="md-book__spine" aria-hidden="true"></div>
+                        <div class="md-book__pages" aria-hidden="true"></div>
+                        <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="{{ novel.title }}"></div>
+                    </div>
+                    <div class="md-cover-card__title">{{ novel.title }}</div>
+                    <div class="md-cover-card__meta">{{ novel.author }}</div>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

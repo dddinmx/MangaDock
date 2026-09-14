@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}MangaDock - 用户管理{% endblock %}
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block extra_head %}
+<style>
+    .user-permission-panel {
+        margin-top: 0.9rem;
+        padding-top: 0.9rem;
+        border-top: 1px dashed rgba(203, 213, 225, 1);
+    }
+
+    .permission-chip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .permission-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.45rem 0.7rem;
+        border: 1px solid rgba(209, 213, 219, 1);
+        border-radius: 999px;
+        background: rgba(249, 250, 251, 1);
+        font-size: 0.78rem;
+        color: rgb(55, 65, 81);
+        cursor: pointer;
+        transition: all 0.18s ease;
+    }
+
+    .permission-chip input {
+        accent-color: rgb(59, 130, 246);
+    }
+
+    .permission-chip:hover {
+        border-color: rgba(147, 197, 253, 1);
+        background: rgba(239, 246, 255, 1);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto pt-8 md:pt-10 space-y-6">
+    <header>
+        <h1 class="text-3xl md:text-[2rem] font-bold text-dark mb-2">用户管理</h1>
+        <p class="text-gray-600 text-base md:text-lg">管理员可以创建用户，并分配管理员或普通用户权限。</p>
+    </header>
+
+    {% set flash_messages = get_flashed_messages() %}
+    {% if flash_messages %}
+    <div class="space-y-2">
+        {% for message in flash_messages %}
+        <div class="rounded-xl border border-blue-200 bg-blue-50 text-blue-800 px-4 py-3 text-sm md:text-base">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="grid items-start gap-6 lg:grid-cols-[1.1fr,0.9fr]">
+        <section class="bg-white rounded-xl shadow-md p-5 md:p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold text-dark">现有用户</h2>
+                <span class="text-sm text-gray-500">{{ users|length }} 个账号</span>
+            </div>
+            <div class="space-y-3">
+                {% for user in users %}
+                <div class="border border-gray-200 rounded-lg px-4 py-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <div class="font-medium text-dark">{{ user.username }}</div>
+                            <div class="text-sm text-gray-500">ID {{ user.id }}</div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="px-3 py-1 rounded-full text-xs font-medium {% if user.role == 'admin' %}bg-blue-100 text-blue-800{% else %}bg-gray-100 text-gray-700{% endif %}">
+                                {{ '管理员' if user.role == 'admin' else '普通用户' }}
+                            </span>
+                            {% if user.role != 'admin' %}
+                            <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" data-api-v1="user-delete" data-user-id="{{ user.id }}" data-api-confirm="确定删除用户 {{ user.username }} 吗？此操作不可恢复。">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="text-sm font-medium text-red-500 hover:text-red-600 action-press">
+                                    删除
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if user.role != 'admin' %}
+                    <form method="post" action="{{ url_for('update_user_groups', user_id=user.id) }}" class="user-permission-panel space-y-3" data-api-v1="user-groups" data-user-id="{{ user.id }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="text-sm font-medium text-gray-700">可见分组授权</div>
+                        {% if groups %}
+                        <div class="permission-chip-list">
+                            {% for group_name in groups %}
+                            <label class="permission-chip">
+                                <input type="checkbox" name="group_names" value="{{ group_name }}"{% if group_name in user_group_permissions.get(user.id, []) %} checked{% endif %}>
+                                <span>{{ group_name }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-sm text-gray-500">还没有可授权的分组，请先创建漫画分组。</div>
+                        {% endif %}
+                        <div class="flex justify-end">
+                            <button type="submit" class="bg-primary hover:bg-primary/90 text-white text-sm font-medium py-2 px-4 rounded-lg action-press">
+                                保存授权
+                            </button>
+                        </div>
+                    </form>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="bg-white rounded-xl shadow-md p-5 md:p-6 self-start">
+            <h2 class="text-xl font-semibold text-dark mb-4">创建用户</h2>
+            <form method="post" action="{{ url_for('users') }}" class="space-y-4" data-api-v1="user-create">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <div>
+                    <label for="username" class="block text-sm font-medium text-gray-700 mb-2">用户名</label>
+                    <input id="username" name="username" type="text" minlength="3" maxlength="80" required class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
+                </div>
+
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700 mb-2">初始密码</label>
+                    <input id="password" name="password" type="password" minlength="6" required class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
+                </div>
+
+                <div>
+                    <label for="confirm_password" class="block text-sm font-medium text-gray-700 mb-2">确认密码</label>
+                    <input id="confirm_password" name="confirm_password" type="password" minlength="6" required class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
+                </div>
+
+                <div>
+                    <label for="role" class="block text-sm font-medium text-gray-700 mb-2">角色</label>
+                    <select id="role" name="role" class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
+                        <option value="user">普通用户</option>
+                        <option value="admin">管理员</option>
+                    </select>
+                </div>
+
+                {% if groups %}
+                <div>
+                    <div class="block text-sm font-medium text-gray-700 mb-2">初始可见分组</div>
+                    <div class="permission-chip-list">
+                        {% for group_name in groups %}
+                        <label class="permission-chip">
+                            <input type="checkbox" name="group_names" value="{{ group_name }}">
+                            <span>{{ group_name }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <button type="submit" class="w-full mt-3 bg-primary hover:bg-primary/90 text-white font-medium py-3 px-4 rounded-lg action-press">
+                    创建用户
+                </button>
+            </form>
+        </section>
+    </div>
+</div>
+{% endblock %}

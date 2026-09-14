@@ -1,0 +1,24 @@
+.git
+.gitignore
+**/__pycache__/
+**/*.py[cod]
+**/._*
+.DS_Store
+
+# Never bake personal libraries, covers, databases, sessions, logs, or locks
+# into a public image. docker-compose mounts these directories at runtime.
+data/
+comic/
+小说/
+instance/
+static/cover/*
+!static/cover/cover.png
+
+node_modules/
+tests/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.lock
+*.before-*

@@ -34,7 +34,9 @@
 
 ## 📖 Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:v2.1`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.1` 和 `latest` 都同时提供 `linux/amd64` 与 `linux/arm64`；Docker 会自动选择与主机匹配的版本。
+Docker Hub 镜像：[`dddinmx/mangadock:v2.1.1`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.1.1` 和 `latest` 都同时提供 `linux/amd64` 与 `linux/arm64`；Docker 会自动选择与主机匹配的版本。
+
+`v2.1.1` 修复了兼容 Tachiyomi/Mihon 客户端使用 Basic Auth 读取漫画目录、详情、封面和章节时可能出现的 500 错误。
 
 ### 1. 创建数据目录和映射文件
 
@@ -50,7 +52,7 @@ printf '{}\n' > data/comic.json
 ```yaml
 services:
   mangadock:
-    image: dddinmx/mangadock:v2.1
+    image: dddinmx/mangadock:v2.1.1
     container_name: MangaDock
     restart: unless-stopped
     ports:

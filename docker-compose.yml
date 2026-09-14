@@ -1,0 +1,18 @@
+services:
+  mangadock:
+    build: .
+    image: ${MANGADOCK_IMAGE:-dddinmx/mangadock:latest}
+    container_name: MangaDock
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MANGADOCK_PORT:-5001}:5001"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # Set this before first boot to choose the initial admin password.
+      MANGADOCK_ADMIN_PASSWORD: ${MANGADOCK_ADMIN_PASSWORD:-}
+    volumes:
+      - ./data/comic:/app/comic
+      - ./data/cover:/app/static/cover
+      - ./data/novels:/app/小说
+      - ./data/comic.json:/app/comic.json
+      - ./data/instance:/app/instance

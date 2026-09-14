@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}{% if query %}搜索：{{ query }}{% else %}搜索小说{% endif %} - MangaDock{% endblock %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+    <div>
+        <h1 class="text-2xl font-bold text-white md:text-3xl">搜索结果</h1>
+        <p class="mt-2 text-sm text-ink-300">
+            {% if query %}「{{ query }}」共 <span class="font-semibold text-white">{{ result_count }}</span> 个结果
+            {% else %}可按书名或作者搜索本地小说{% endif %}
+        </p>
+    </div>
+    <a href="{{ url_for('novels_list') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">返回书架</a>
+</div>
+
+{% if query and novels %}
+<div class="md-cover-grid">
+    {% for novel in novels %}
+    <a href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" class="md-cover-card" data-app-loader="true">
+        <div class="md-book">
+            <div class="md-book__spine" aria-hidden="true"></div><div class="md-book__pages" aria-hidden="true"></div>
+            <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="{{ novel.title }}"></div>
+        </div>
+        <div class="md-cover-card__title">{{ novel.title }}</div>
+        <div class="md-cover-card__meta">{{ novel.author }} · {{ novel.chapter_count }} 章</div>
+    </a>
+    {% endfor %}
+</div>
+{% elif query %}
+<div class="md-empty">没有找到与「{{ query }}」匹配的小说。</div>
+{% else %}
+<div class="md-empty">使用顶部搜索栏输入关键词开始搜索。</div>
+{% endif %}
+{% endblock %}

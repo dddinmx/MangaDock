@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}{{ novel.title }} - 详情{% endblock %}
+{% block body_class %}md-body detail-body min-h-screen{% endblock %}
+
+{% block extra_head %}
+<script>
+    function searchNovelChapters() {
+        const term = document.getElementById('chapter-search').value.toLowerCase();
+        document.querySelectorAll('.chapter-item').forEach((item) => {
+            item.style.display = item.querySelector('.chapter-title').textContent.toLowerCase().includes(term) ? 'flex' : 'none';
+        });
+    }
+    function sortNovelChapters() {
+        const list = document.getElementById('chapter-list');
+        const descending = document.getElementById('chapter-sort').value === 'desc';
+        [...list.querySelectorAll('.chapter-item')]
+            .sort((a, b) => descending ? Number(b.dataset.chapter) - Number(a.dataset.chapter) : Number(a.dataset.chapter) - Number(b.dataset.chapter))
+            .forEach((item) => list.appendChild(item));
+    }
+    function toggleNovelCoverEditor() {
+        const editor = document.getElementById('novel-cover-editor');
+        if (editor) editor.toggleAttribute('hidden');
+    }
+</script>
+{% endblock %}
+
+{% block main_wrapper %}
+<div class="md-main--flush app-main-content">
+<article class="md-detail">
+    <div class="md-detail-hero-media" aria-hidden="true">
+        <img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="">
+    </div>
+    <div class="md-detail-hero-shade"></div>
+    <div class="md-detail-topbar">
+        <a href="{{ url_for('novel_index') }}" class="md-detail-icon-btn action-press" data-app-loader="true" aria-label="返回小说首页"><i class="fa fa-arrow-left"></i></a>
+    </div>
+
+    <div class="md-detail-inner">
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="space-y-2 mb-4">
+            {% for message in messages %}<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 px-4 py-3 text-sm">{{ message }}</div>{% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+        <header class="md-detail-head">
+            <div class="md-detail-cover">
+                <img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="{{ novel.title }}封面">
+            </div>
+            <div class="md-detail-meta">
+                <div class="md-detail-tags">
+                    <span class="md-chip">EPUB</span>
+                    <span class="md-chip">{{ novel.chapter_count }} 章</span>
+                    <span class="md-chip"><i class="fa fa-user" style="margin-right:0.35rem"></i>{{ novel.author }}</span>
+                    {% if can_manage_library %}
+                    <button type="button" class="md-chip action-press" style="cursor:pointer" onclick="toggleNovelCoverEditor()"><i class="fa fa-image" style="margin-right:0.35rem"></i>更换封面</button>
+                    {% endif %}
+                </div>
+                <h1 class="md-detail-title">{{ novel.title }}</h1>
+                <p class="md-detail-sub">
+                    {% if reading_time > 0 %}累计阅读 {{ display_reading_minutes(reading_time) }}{% else %}尚未开始阅读{% endif %}
+                    {% if progress %} · 上次读到第 {{ progress.last_chapter + 1 }} 章{% endif %}
+                </p>
+                {% if novel.description %}
+                <div class="md-detail-synopsis">
+                    <div class="md-detail-synopsis-label">简介</div>
+                    <p class="md-detail-synopsis-text">{{ novel.description }}</p>
+                </div>
+                {% endif %}
+                {% if can_manage_library %}
+                <div id="novel-cover-editor" class="md-detail-cover-editor" hidden>
+                    <form method="post" action="{{ url_for('update_novel_cover', novel_id=novel.novel_id) }}" enctype="multipart/form-data" class="md-detail-cover-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="file" name="cover_file" accept="image/jpeg,image/png,image/webp" class="md-detail-file" required>
+                        <button type="submit" class="md-btn-primary action-press" style="padding:0.65rem 1rem;font-size:0.8rem;"><i class="fa fa-upload"></i><span style="margin-left:0.35rem">保存封面</span></button>
+                    </form>
+                    <p class="md-detail-cover-note">支持 JPG、PNG 和 WEBP，更新后会同步用于首页、书架和详情页。</p>
+                </div>
+                {% endif %}
+                <div class="md-detail-desktop-cta">
+                    <a href="{{ url_for('novel_reader', novel_id=novel.novel_id) }}" class="md-btn-primary action-press">
+                        {{ '继续阅读 第 ' ~ (progress.last_chapter + 1) ~ ' 章' if progress else '开始阅读' }}
+                    </a>
+                    <a href="{{ url_for('novel_index') }}" class="md-btn-ghost action-press" data-app-loader="true">返回首页</a>
+                </div>
+            </div>
+        </header>
+
+        <section class="md-detail-chapters">
+            <div class="md-detail-chapters-bar">
+                <h2 class="md-section-title !mb-0">共 {{ novel.chapter_count }} 章</h2>
+                <div class="md-detail-chapter-tools">
+                    <div class="md-detail-search"><i class="fa fa-search"></i><input type="text" id="chapter-search" placeholder="搜索章节..." oninput="searchNovelChapters()"></div>
+                    <select id="chapter-sort" class="md-detail-sort" onchange="sortNovelChapters()"><option value="asc">正序</option><option value="desc">倒序</option></select>
+                </div>
+            </div>
+            <div id="chapter-list" class="md-chapter-list">
+                {% for chapter in chapters %}
+                <a href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index) }}" class="chapter-item md-chapter-item" data-chapter="{{ chapter.index }}">
+                    <div class="min-w-0 flex-1">
+                        <div class="chapter-title md-chapter-title">{{ chapter.title }}</div>
+                        <div class="md-chapter-meta"><span class="chapter-size">{{ chapter.filename }}</span><span class="chapter-date uppercase">EPUB</span></div>
+                    </div>
+                    <i class="fa fa-angle-right md-chapter-chevron"></i>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+
+    <div class="md-detail-sticky-cta">
+        <a href="{{ url_for('novel_reader', novel_id=novel.novel_id) }}" class="md-btn-primary action-press md-detail-sticky-btn">
+            {{ '继续阅读 第 ' ~ (progress.last_chapter + 1) ~ ' 章' if progress else '开始阅读' }}
+        </a>
+    </div>
+</article>
+</div>
+{% endblock %}

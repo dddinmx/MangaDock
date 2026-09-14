@@ -1,0 +1,455 @@
+{% extends "base.html" %}
+
+{% block title %}MangaDock - 更新漫画{% endblock %}
+
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block extra_head %}
+<style>
+    .update-status-header {
+        margin-bottom: 2rem;
+    }
+
+    .update-status-copy {
+        display: grid;
+        gap: 0.9rem;
+    }
+
+    .update-mode-panel {
+        margin-bottom: 2rem;
+        padding: 1rem;
+    }
+
+    .update-result-panel {
+        margin-top: 0.25rem;
+        padding: 1rem 1.25rem;
+    }
+
+    @media (min-width: 768px) {
+        .update-status-header {
+            margin-bottom: 2.35rem;
+        }
+
+        .update-mode-panel {
+            margin-bottom: 2.25rem;
+            padding: 1.25rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+    <div class="container mx-auto px-0 py-2 md:py-20 max-w-4xl">
+
+        <!-- 错误 / 成功提示（API 调用也会写入） -->
+        <div id="update-error" class="bg-red-50 border-l-4 border-danger p-4 rounded-r mb-6 animate-fade-in{% if not error %} hidden{% endif %}">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fa fa-exclamation-circle text-danger"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm text-red-700" id="update-error-text">{{ error or '' }}</p>
+                </div>
+            </div>
+        </div>
+
+        {% set flash_messages = get_flashed_messages() %}
+        <div id="update-success" class="space-y-3 mb-6{% if not flash_messages %} hidden{% endif %}">
+            {% if flash_messages %}
+            {% for message in flash_messages %}
+            <div class="bg-green-50 border-l-4 border-green-500 p-4 rounded-r animate-fade-in">
+                <p class="text-sm text-green-800">{{ message }}</p>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+
+        <section class="bg-white rounded-xl shadow-md p-6 md:p-8 mb-8 card-lift">
+            <div class="update-status-header flex flex-col md:flex-row md:items-start md:justify-between gap-5">
+                <div class="update-status-copy">
+                    <h2 class="text-xl font-bold text-dark">可更新漫画</h2>
+                    <p class="text-gray-600 text-sm">
+                        系统会根据 <code class="px-1 py-0.5 rounded bg-gray-100 text-gray-700">comic.json</code> 中的漫画链接做每日一次更新检查。
+                    </p>
+                    <p class="text-xs text-gray-500 pt-1">
+                        {% if last_update_checked_at %}
+                        上次检查：{{ last_update_checked_at.strftime('%Y-%m-%d %H:%M') }}
+                        {% else %}
+                        还没有可用的检查结果
+                        {% endif %}
+                    </p>
+                </div>
+                <form method="post" action="{{ url_for('check_updates_now') }}" id="checkUpdatesForm" data-api-mode="v1">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" id="checkUpdatesButton" class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 px-4 py-2.5 text-sm font-medium action-press hover:bg-gray-50">
+                        <i class="fa fa-refresh mr-2{% if update_checking %} fa-spin{% endif %}" id="checkUpdatesIcon"></i>
+                        <span id="checkUpdatesLabel">{% if update_checking %}检查中...{% else %}立即检查{% endif %}</span>
+                    </button>
+                </form>
+            </div>
+
+            <form method="post" action="{{ url_for('update_mode') }}" id="updateModeForm" class="update-mode-panel rounded-xl border border-slate-200 bg-slate-50" data-api-mode="v1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                        <div class="text-sm font-semibold text-slate-800">更新模式</div>
+                        <p class="text-xs text-slate-500 mt-1" id="updateModeHint">
+                            {% if comic_update_mode == 'auto' %}
+                            当前为自动更新，扫描发现更新后会自动加入任务队列。
+                            {% else %}
+                            当前为手动更新，扫描结果需要手动选择漫画更新。
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1 self-start md:self-auto">
+                        <button
+                            type="submit"
+                            name="mode"
+                            value="manual"
+                            class="update-mode-button px-4 py-2 rounded-md text-sm font-semibold action-press {% if comic_update_mode == 'manual' %}bg-blue-500 text-white shadow-sm{% else %}text-slate-600 hover:bg-slate-100{% endif %}"
+                        >
+                            手动更新
+                        </button>
+                        <button
+                            type="submit"
+                            name="mode"
+                            value="auto"
+                            class="update-mode-button px-4 py-2 rounded-md text-sm font-semibold action-press {% if comic_update_mode == 'auto' %}bg-blue-500 text-white shadow-sm{% else %}text-slate-600 hover:bg-slate-100{% endif %}"
+                        >
+                            自动更新
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            {% if update_candidates %}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for candidate in update_candidates %}
+                <div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-gray-900 break-all">{{ candidate.comic_name }}</div>
+                            <div class="text-sm text-amber-700 mt-1">发现 {{ candidate.pending_chapters }} 个新章节</div>
+                            <div class="text-xs text-gray-500 mt-2">
+                                本地 {{ candidate.local_total_chapters }} 章 / 远端 {{ candidate.remote_total_chapters }} 章
+                            </div>
+                            {% if candidate.latest_chapter_title %}
+                            <div class="text-xs text-gray-500 mt-1 break-all">最新章节：{{ candidate.latest_chapter_title }}</div>
+                            {% endif %}
+                        </div>
+                        {% if comic_update_mode == 'auto' %}
+                        <span class="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-3 py-1 text-xs font-semibold whitespace-nowrap">
+                            自动入队
+                        </span>
+                        {% else %}
+                        <button
+                            type="button"
+                            class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold update-candidate-button"
+                            data-comic-name="{{ candidate.comic_name }}"
+                            aria-label="选择 {{ candidate.comic_name }} 并前往更新表单">
+                            去更新
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="update-result-panel rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-600">
+                {% if update_checking %}
+                正在后台检查更新，稍后刷新页面即可看到结果。
+                {% else %}
+                当前没有检测到可更新的漫画。
+                {% endif %}
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- 没有已下载漫画的提示 -->
+        {% if not comics %}
+        <div class="bg-blue-50 border-l-4 border-primary p-6 rounded-r mb-8">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fa fa-info-circle text-primary text-xl"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-gray-700">
+                        暂无已下载的漫画。请先使用"整本下载"功能下载漫画，之后可以在这里更新。
+                    </p>
+                    <div class="mt-4">
+                        <a href="{{ url_for('download') }}" class="inline-flex items-center text-primary hover:text-primary/80 font-medium transition-colors duration-200 action-press">
+                            <i class="fa fa-download mr-2"></i> 前往下载漫画
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <!-- 更新表单 -->
+        <div class="bg-white rounded-xl shadow-md p-6 md:p-8 mb-8 card-lift">
+            <form method="post" action="{{ url_for('update') }}" id="updateForm" data-api-mode="v1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-6">
+                    <label for="comic_name" class="block text-gray-700 font-medium mb-2">选择漫画</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fa fa-book text-gray-400"></i>
+                        </div>
+                        <select
+                            id="comic_name"
+                            name="comic_name"
+                            class="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition duration-200"
+                            required
+                        >
+                            <option value="">-- 请选择要更新的漫画 --</option>
+                            {% for comic in comics %}
+                            <option value="{{ comic }}">{{ comic }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-8">
+                    <label class="block text-gray-700 font-medium mb-3">更新格式</label>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label class="flex items-center p-4 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition duration-200 hover:border-primary/30">
+                            <input
+                                type="radio"
+                                name="format"
+                                value="1"
+                                class="w-5 h-5 text-primary focus:ring-primary border-gray-300"
+                            >
+                            <div class="ml-3">
+                                <div class="font-medium text-gray-800">PDF格式</div>
+                                <div class="text-sm text-gray-500">更新为PDF格式</div>
+                            </div>
+                        </label>
+
+                        <label class="flex items-center p-4 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition duration-200 hover:border-primary/30">
+                            <input
+                                type="radio"
+                                name="format"
+                                value="2"
+                                class="w-5 h-5 text-primary focus:ring-primary border-gray-300"
+                                checked
+                            >
+                            <div class="ml-3">
+                                <div class="font-medium text-gray-800">CBZ格式</div>
+                                <div class="text-sm text-gray-500">更新为CBZ格式</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-center">
+                    <button
+                        type="submit"
+                        class="bg-secondary hover:bg-secondary/90 text-white font-medium py-3 px-8 rounded-lg action-press flex items-center shadow-md hover:shadow-lg"
+                        id="updateButton"
+                    >
+                        <i class="fa fa-refresh mr-2"></i>
+                        <span>开始更新</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ asset_url('js/api_v1.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('updateForm');
+        const button = document.getElementById('updateButton');
+        const comicSelect = document.getElementById('comic_name');
+        const candidateButtons = document.querySelectorAll('.update-candidate-button');
+        const checkForm = document.getElementById('checkUpdatesForm');
+        const checkButton = document.getElementById('checkUpdatesButton');
+        const checkIcon = document.getElementById('checkUpdatesIcon');
+        const checkLabel = document.getElementById('checkUpdatesLabel');
+        const modeForm = document.getElementById('updateModeForm');
+        const errorBox = document.getElementById('update-error');
+        const errorText = document.getElementById('update-error-text');
+        const successBox = document.getElementById('update-success');
+        const csrfToken = (form && form.querySelector('input[name="csrf_token"]'))
+            ? form.querySelector('input[name="csrf_token"]').value
+            : (checkForm && checkForm.querySelector('input[name="csrf_token"]')
+                ? checkForm.querySelector('input[name="csrf_token"]').value
+                : "{{ csrf_token() }}");
+        const defaultHtml = button ? button.innerHTML : '';
+        const progressUrlTemplate = "{{ url_for('progress', task_id='__TASK_ID__') }}";
+        let pendingMode = null;
+
+        function showError(message) {
+            errorText.textContent = message || '操作失败';
+            errorBox.classList.remove('hidden');
+            errorBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function hideError() {
+            errorBox.classList.add('hidden');
+            errorText.textContent = '';
+        }
+
+        function showSuccess(message) {
+            successBox.innerHTML = `
+                <div class="bg-green-50 border-l-4 border-green-500 p-4 rounded-r animate-fade-in">
+                    <p class="text-sm text-green-800"></p>
+                </div>
+            `;
+            successBox.querySelector('p').textContent = message || '操作成功';
+            successBox.classList.remove('hidden');
+        }
+
+        function focusComicUpdateForm(comicName) {
+            if (!comicSelect) {
+                return;
+            }
+
+            const matchedOption = Array.from(comicSelect.options).find((option) => option.value === comicName);
+            if (!matchedOption) {
+                return;
+            }
+
+            comicSelect.value = comicName;
+            comicSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            comicSelect.classList.add('ring-2', 'ring-amber-300', 'border-amber-400');
+            comicSelect.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            window.setTimeout(() => {
+                comicSelect.classList.remove('ring-2', 'ring-amber-300', 'border-amber-400');
+            }, 1800);
+        }
+
+        function resetUpdateButtonState() {
+            if (!button) {
+                return;
+            }
+            button.disabled = false;
+            button.innerHTML = defaultHtml;
+            button.classList.remove('opacity-80', 'cursor-not-allowed');
+        }
+
+        candidateButtons.forEach((candidateButton) => {
+            candidateButton.addEventListener('click', () => {
+                focusComicUpdateForm(candidateButton.dataset.comicName || '');
+            });
+        });
+
+        if (button) {
+            resetUpdateButtonState();
+            window.requestAnimationFrame(resetUpdateButtonState);
+            window.addEventListener('load', resetUpdateButtonState);
+            window.addEventListener('pageshow', resetUpdateButtonState);
+        }
+
+        if (checkForm && checkButton) {
+            checkForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                if (checkButton.disabled) {
+                    return;
+                }
+                hideError();
+                checkButton.disabled = true;
+                if (checkIcon) {
+                    checkIcon.classList.add('fa-spin');
+                }
+                if (checkLabel) {
+                    checkLabel.textContent = '检查中...';
+                }
+                try {
+                    const result = await window.MangaDockApi.apiV1('POST', '/api/v1/updates/check', {}, { csrfToken });
+                    if (!result.ok) {
+                        showError(result.message || '加入检查队列失败');
+                        return;
+                    }
+                    showSuccess((result.data && result.data.message) || '已加入更新检查队列');
+                    window.setTimeout(() => window.location.reload(), 800);
+                } catch (error) {
+                    console.error(error);
+                    showError('网络错误，请稍后重试');
+                } finally {
+                    checkButton.disabled = false;
+                    if (checkIcon) {
+                        checkIcon.classList.remove('fa-spin');
+                    }
+                    if (checkLabel) {
+                        checkLabel.textContent = '立即检查';
+                    }
+                }
+            });
+        }
+
+        if (modeForm) {
+            modeForm.querySelectorAll('.update-mode-button').forEach((modeButton) => {
+                modeButton.addEventListener('click', () => {
+                    pendingMode = modeButton.value;
+                });
+            });
+
+            modeForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const mode = pendingMode || 'manual';
+                hideError();
+                try {
+                    const result = await window.MangaDockApi.apiV1('PUT', '/api/v1/updates/mode', { mode }, { csrfToken });
+                    if (!result.ok) {
+                        showError(result.message || '切换更新模式失败');
+                        return;
+                    }
+                    showSuccess((result.data && result.data.message) || '更新模式已切换');
+                    window.setTimeout(() => window.location.reload(), 600);
+                } catch (error) {
+                    console.error(error);
+                    showError('网络错误，请稍后重试');
+                }
+            });
+        }
+
+        if (!form || !button) {
+            return;
+        }
+
+        form.addEventListener('submit', async function (e) {
+            e.preventDefault();
+            if (button.disabled) {
+                return;
+            }
+
+            const comicName = comicSelect ? comicSelect.value : '';
+            if (!comicName) {
+                showError('请选择要更新的漫画');
+                return;
+            }
+
+            const formatInput = form.querySelector('input[name="format"]:checked');
+            const format = formatInput ? formatInput.value : '2';
+
+            hideError();
+            button.disabled = true;
+            button.innerHTML = '<i class="fa fa-circle-o-notch fa-spin mr-2"></i> 更新中...';
+            button.classList.add('opacity-80', 'cursor-not-allowed');
+
+            try {
+                const result = await window.MangaDockApi.apiV1('POST', '/api/v1/updates', {
+                    comic_name: comicName,
+                    format: format,
+                }, { csrfToken });
+
+                if (!result.ok || !result.data || !result.data.task_id) {
+                    showError(result.message || '创建更新任务失败');
+                    resetUpdateButtonState();
+                    return;
+                }
+
+                window.location.href = progressUrlTemplate.replace('__TASK_ID__', encodeURIComponent(result.data.task_id));
+            } catch (error) {
+                console.error(error);
+                showError('网络错误，请稍后重试');
+                resetUpdateButtonState();
+            }
+        });
+    });
+</script>
+{% endblock %}

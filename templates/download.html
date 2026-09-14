@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+
+{% block title %}MangaDock - 整本下载{% endblock %}
+
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block extra_head %}
+<style>
+    .source-shortcuts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .source-shortcut {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .source-shortcut-icon {
+        width: 3rem;
+        height: 3rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        border: 1px solid rgba(226, 232, 240, 0.96);
+        background: rgba(248, 250, 252, 0.96);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+    }
+
+    .source-shortcut-label {
+        font-size: 0.75rem;
+        line-height: 1rem;
+        font-weight: 500;
+        color: rgb(75, 85, 99);
+        transition: color 0.18s ease;
+    }
+
+    .source-shortcut.baozi .source-shortcut-icon {
+        border-color: rgba(191, 219, 254, 0.95);
+        background: rgba(239, 246, 255, 0.96);
+        color: rgb(59, 130, 246);
+    }
+
+    .source-shortcut.baozi:hover .source-shortcut-icon {
+        background: rgb(59, 130, 246);
+        color: white;
+    }
+
+    .source-shortcut.mirror .source-shortcut-icon {
+        border-color: rgba(167, 243, 208, 0.95);
+        background: rgba(236, 253, 245, 0.96);
+        color: rgb(16, 185, 129);
+    }
+
+    .source-shortcut.mirror:hover .source-shortcut-icon {
+        background: rgb(16, 185, 129);
+        color: white;
+    }
+
+    .source-shortcut.mxs .source-shortcut-icon {
+        border-color: rgba(221, 214, 254, 0.95);
+        background: rgba(245, 243, 255, 0.96);
+        color: rgb(139, 92, 246);
+    }
+
+    .source-shortcut.mxs:hover .source-shortcut-icon {
+        background: rgb(139, 92, 246);
+        color: white;
+    }
+
+    .source-shortcut:hover .source-shortcut-label {
+        color: rgb(31, 41, 55);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+    <div class="container mx-auto px-0 py-2 md:py-20 max-w-4xl">
+
+        <!-- 错误提示 -->
+        <div id="download-error" class="bg-red-50 border-l-4 border-danger p-4 rounded-r mb-6{% if not error %} hidden{% endif %}">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fa fa-exclamation-circle text-danger"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm text-red-700" id="download-error-text">
+                        {{ error or '' }}
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 下载表单：提交走 /api/v1/downloads -->
+        <div class="bg-white rounded-xl shadow-md p-6 md:p-8 mb-8">
+            <form method="post" action="{{ url_for('download') }}" id="downloadForm" data-api-mode="v1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-6">
+                    <label for="comic_url" class="block text-gray-700 font-medium mb-2">漫画地址</label>
+                    <div class="mb-4">
+                        <div class="flex items-center gap-2 text-sm text-gray-500 mb-3">
+                            <i class="fa fa-external-link text-primary"></i>
+                            <span>快捷打开资源站</span>
+                        </div>
+                        <div class="source-shortcuts">
+                            <a
+                                href="https://baozimh.org/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="source-shortcut baozi action-press"
+                                aria-label="打开包子漫画"
+                                title="打开包子漫画"
+                            >
+                                <span class="source-shortcut-icon">
+                                    <i class="fa fa-book text-lg"></i>
+                                </span>
+                                <span class="source-shortcut-label">包子漫画 org</span>
+                            </a>
+                            <a
+                                href="https://cn.baozimhcn.com/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="source-shortcut mirror action-press"
+                                aria-label="打开包子漫画 CN"
+                                title="打开包子漫画 CN"
+                            >
+                                <span class="source-shortcut-icon">
+                                    <i class="fa fa-clone text-lg"></i>
+                                </span>
+                                <span class="source-shortcut-label">包子漫画 CN</span>
+                            </a>
+                            <a
+                                href="https://mxs12.cc/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="source-shortcut mxs action-press"
+                                aria-label="打开 MXS"
+                                title="打开 MXS"
+                            >
+                                <span class="source-shortcut-icon">
+                                    <i class="fa fa-globe text-lg"></i>
+                                </span>
+                                <span class="source-shortcut-label">漫小肆韩漫</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fa fa-link text-gray-400"></i>
+                        </div>
+                        <input
+                            type="url"
+                            id="comic_url"
+                            name="comic_url"
+                            placeholder="https://baozimh.org/manga/xxx/ 或 https://www.baozimh.com/comic/xxx/"
+                            class="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition duration-200"
+                            required
+                        >
+                    </div>
+                    <p class="mt-2 text-sm text-gray-500">
+                        请输入从 <span class="font-medium">https://baozimh.org/</span>、<span class="font-medium">https://www.baozimh.com/</span>、<span class="font-medium">https://cn.baozimhcn.com/</span> 或 <span class="font-medium">https://mxs12.cc/</span> 获取的漫画详情页 URL
+                    </p>
+                </div>
+
+                <div class="mb-8">
+                    <label class="block text-gray-700 font-medium mb-3">保存格式</label>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label class="flex items-center p-4 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 hover:border-primary/30 transition duration-200">
+                            <input
+                                type="radio"
+                                name="format"
+                                value="1"
+                                class="w-5 h-5 text-primary focus:ring-primary border-gray-300"
+                            >
+                            <div class="ml-3">
+                                <div class="font-medium text-gray-800">PDF格式</div>
+                                <div class="text-sm text-gray-500">适合大多数设备阅读的通用格式</div>
+                            </div>
+                        </label>
+
+                        <label class="flex items-center p-4 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 hover:border-primary/30 transition duration-200">
+                            <input
+                                type="radio"
+                                name="format"
+                                value="2"
+                                class="w-5 h-5 text-primary focus:ring-primary border-gray-300"
+                                checked
+                            >
+                            <div class="ml-3">
+                                <div class="font-medium text-gray-800">CBZ格式</div>
+                                <div class="text-sm text-gray-500">专业漫画阅读软件支持的格式</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-center">
+                    <button
+                        type="submit"
+                        id="downloadButton"
+                        data-default-html="<i class='fa fa-download mr-2'></i><span>开始下载</span>"
+                        data-loading-html="<i class='fa fa-circle-o-notch fa-spin mr-2'></i><span>下载中</span>"
+                        class="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-8 rounded-lg action-press flex items-center shadow-md hover:shadow-lg"
+                    >
+                        <i class="fa fa-download mr-2"></i>
+                        <span>开始下载</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- 注意事项 -->
+        <div class="bg-blue-50 border-l-4 border-primary p-6 rounded-r">
+            <h3 class="text-lg font-medium text-primary mb-2 flex items-center">
+                <i class="fa fa-lightbulb-o mr-2"></i> 注意事项
+            </h3>
+            <ul class="text-gray-700 space-y-2 text-sm">
+                <li class="flex items-start">
+                    <i class="fa fa-check-circle text-primary mt-1 mr-2"></i>
+                    <span>请确保一次同时只下载或更新一部漫画，同时下载多部流量过大有封IP风险</span>
+                </li>
+                <li class="flex items-start">
+                    <i class="fa fa-check-circle text-primary mt-1 mr-2"></i>
+                    <span>大型漫画可能需要较长时间下载，请耐心等待</span>
+                </li>
+                <li class="flex items-start">
+                    <i class="fa fa-check-circle text-primary mt-1 mr-2"></i>
+                    <span>下载过程中可以在进度页实时查看下载状态</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ asset_url('js/api_v1.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('downloadForm');
+        const downloadButton = document.getElementById('downloadButton');
+        const urlInput = document.getElementById('comic_url');
+        const errorBox = document.getElementById('download-error');
+        const errorText = document.getElementById('download-error-text');
+        const csrfToken = form.querySelector('input[name="csrf_token"]').value;
+        const defaultHtml = downloadButton.dataset.defaultHtml;
+        const loadingHtml = downloadButton.dataset.loadingHtml;
+        const progressUrlTemplate = "{{ url_for('progress', task_id='__TASK_ID__') }}";
+
+        function resetButtonState() {
+            downloadButton.disabled = false;
+            downloadButton.classList.remove('bg-primary/70', 'cursor-not-allowed', 'shadow-none');
+            downloadButton.innerHTML = defaultHtml;
+        }
+
+        function showError(message) {
+            errorText.textContent = message || '下载失败';
+            errorBox.classList.remove('hidden');
+            errorBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function hideError() {
+            errorBox.classList.add('hidden');
+            errorText.textContent = '';
+        }
+
+        resetButtonState();
+        window.requestAnimationFrame(resetButtonState);
+        window.addEventListener('load', resetButtonState);
+        window.addEventListener('pageshow', resetButtonState);
+
+        form.addEventListener('submit', async function (e) {
+            e.preventDefault();
+            if (downloadButton.disabled) {
+                return;
+            }
+
+            const comicUrl = (urlInput.value || '').trim();
+            if (!comicUrl) {
+                showError('请输入漫画地址');
+                return;
+            }
+
+            const formatInput = form.querySelector('input[name="format"]:checked');
+            const format = formatInput ? formatInput.value : '2';
+
+            hideError();
+            downloadButton.disabled = true;
+            downloadButton.classList.add('bg-primary/70', 'cursor-not-allowed', 'shadow-none');
+            downloadButton.innerHTML = loadingHtml;
+
+            try {
+                const result = await window.MangaDockApi.apiV1('POST', '/api/v1/downloads', {
+                    url: comicUrl,
+                    format: format,
+                }, { csrfToken });
+
+                if (!result.ok || !result.data || !result.data.task_id) {
+                    showError(result.message || '创建下载任务失败');
+                    resetButtonState();
+                    return;
+                }
+
+                window.location.href = progressUrlTemplate.replace('__TASK_ID__', encodeURIComponent(result.data.task_id));
+            } catch (error) {
+                console.error('下载请求失败:', error);
+                showError('网络错误，请稍后重试');
+                resetButtonState();
+            }
+        });
+    });
+</script>
+{% endblock %}

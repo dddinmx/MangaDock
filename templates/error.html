@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="{{ asset_url('favicon.ico') }}" type="image/x-icon">
+    <title>MangaDock - 错误</title>
+    <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
+    <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
+    <style>
+        .error-page { min-height: 100vh; background: #f9fafb; }
+        .error-card {
+            max-width: 48rem;
+            margin: 0 auto;
+            padding: 4rem 1rem;
+        }
+        .error-panel {
+            background: #fff;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,.1);
+            padding: 2rem;
+            text-align: center;
+        }
+        .error-icon-wrap {
+            width: 4rem; height: 4rem;
+            background: #fee2e2;
+            border-radius: 9999px;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 1.5rem;
+            color: #ef4444; font-size: 1.5rem;
+        }
+        .error-title { font-size: 1.875rem; font-weight: 700; color: #1f2937; margin-bottom: 1rem; }
+        .error-message { color: #4b5563; margin-bottom: 2rem; }
+        .error-home {
+            display: inline-flex; align-items: center;
+            background: #e11d48; color: #fff; font-weight: 500;
+            padding: 0.75rem 2rem; border-radius: 0.5rem; text-decoration: none;
+        }
+        .error-home:hover { background: #be123c; }
+        .error-home i { margin-right: 0.5rem; }
+    </style>
+</head>
+<body class="error-page">
+    <div class="error-card">
+        <div class="error-panel">
+            <div class="error-icon-wrap">
+                <i class="fa fa-exclamation-triangle"></i>
+            </div>
+            <h1 class="error-title">发生错误</h1>
+            <p class="error-message">{{ message }}</p>
+            <a href="{{ url_for('index') }}" class="error-home">
+                <i class="fa fa-home"></i> 返回主页
+            </a>
+        </div>
+    </div>
+</body>
+</html>

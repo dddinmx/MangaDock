@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}小说书架 - MangaDock{% endblock %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+    <div>
+        <h1 class="md-page-title">小说书架</h1>
+        <p class="md-page-sub">共 {{ novels|length }} 本</p>
+    </div>
+</div>
+
+{% if novels %}
+<div class="md-cover-grid">
+    {% for novel in novels %}
+    <a href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" class="md-cover-card" data-app-loader="true">
+        <div class="md-book">
+            <div class="md-book__spine" aria-hidden="true"></div>
+            <div class="md-book__pages" aria-hidden="true"></div>
+            <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="{{ novel.title }}" loading="lazy"></div>
+        </div>
+        <div class="md-cover-card__title">{{ novel.title }}</div>
+        <div class="md-cover-card__meta">
+            {{ novel.author }} · {{ novel.chapter_count }} 章
+            {% if novel.progress %}· 读到 {{ novel.last_chapter + 1 }} 章{% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="md-empty">暂未扫描到 EPUB 小说。</div>
+{% endif %}
+{% endblock %}
