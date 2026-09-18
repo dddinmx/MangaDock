@@ -1,7 +1,7 @@
 services:
   mangadock:
     build: .
-    image: ${MANGADOCK_IMAGE:-dddinmx/mangadock:v2.2.0}
+    image: ${MANGADOCK_IMAGE:-dddinmx/mangadock:v2.2.1}
     container_name: MangaDock
     restart: unless-stopped
     ports:
@@ -10,10 +10,6 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       # Set this before first boot to choose the initial admin password.
       MANGADOCK_ADMIN_PASSWORD: ${MANGADOCK_ADMIN_PASSWORD:-}
-      # Only Fanqie novel/comic traffic uses the private API. Other providers
-      # continue to use MangaDock's existing direct provider logic.
-      MANGADOCK_FANQIE_API_URL: ${MANGADOCK_FANQIE_API_URL:-https://fanqie.dddinmx.cn}
-      MANGADOCK_FANQIE_API_TOKEN: ${MANGADOCK_FANQIE_API_TOKEN:-}
     volumes:
       - ./data/comic:/app/comic
       - ./data/novels:/app/小说

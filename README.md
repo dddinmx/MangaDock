@@ -20,18 +20,19 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 > 番茄漫画目前支持静态图片漫画，不支持漫剧或短视频作品。
 
-## v2.2.0
+## v2.2.1
 
 - 新增番茄小说搜索、下载、更新及阅读入口。
 - 新增番茄图片漫画下载，完成后直接进入漫画书库。
 - 优化番茄搜索页、浅色主题和封面 CDN 回退。
 - 下载进度页支持显示番茄小说封面。
 - 小说首页的长简介支持折叠和展开，兼顾桌面端与手机端阅读。
-- 番茄小说与漫画统一改走独立 API；包子漫画、漫小肆韩漫及本地导入保持原有逻辑。
+- 番茄功能首次使用时自动初始化，无需手动配置。
+- 包子漫画、漫小肆韩漫及本地导入保持原有逻辑。
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:v2.2.0`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.2.0` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:v2.2.1`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.2.1` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 
@@ -48,7 +49,7 @@ printf '{}\n' > data/comic.json
 ```yaml
 services:
   mangadock:
-    image: dddinmx/mangadock:v2.2.0
+    image: dddinmx/mangadock:v2.2.1
     container_name: MangaDock
     restart: unless-stopped
     ports:
@@ -57,9 +58,6 @@ services:
     environment:
       TZ: Asia/Shanghai
       MANGADOCK_ADMIN_PASSWORD: ${MANGADOCK_ADMIN_PASSWORD:-}
-      # 仅番茄小说/漫画使用以下 API 配置。
-      MANGADOCK_FANQIE_API_URL: ${MANGADOCK_FANQIE_API_URL:-https://fanqie.dddinmx.cn}
-      MANGADOCK_FANQIE_API_TOKEN: ${MANGADOCK_FANQIE_API_TOKEN:-}
     volumes:
       - ./data/comic:/app/comic
       - ./data/novels:/app/小说
@@ -78,19 +76,15 @@ volumes:
 
 ```bash
 export MANGADOCK_ADMIN_PASSWORD='请替换为强密码'
-# 番茄功能需要由服务维护者分配的访问令牌；不要提交到 Git。
-export MANGADOCK_FANQIE_API_TOKEN='请替换为你的访问令牌'
 docker compose up -d
 docker compose logs -f mangadock
 ```
 
 访问 `http://127.0.0.1:5001`。管理员用户名为 `admin`；如果首次启动时未设置 `MANGADOCK_ADMIN_PASSWORD`，系统会在容器日志中输出随机密码。
 
-### 番茄 API 配置
+### 番茄功能
 
-番茄功能默认连接 `https://fanqie.dddinmx.cn`，访问令牌通过 `MANGADOCK_FANQIE_API_TOKEN` 注入。令牌为空或无效时，只会停用番茄搜索、下载和更新；包子漫画、MXS、本地漫画与 EPUB 仍按原有方式工作。建议把令牌写入仅保存在部署主机上的 `.env` 文件，并限制文件权限，不要写入镜像、Compose 文件或公开仓库。
-
-首次调用番茄 API 时，MangaDock 会在持久化的 `instance` 数据卷中生成一个随机安装 ID。API 服务会记录该 ID、请求来源公网 IP、Cloudflare 国家代码、MangaDock/Python 版本、操作系统与架构、调用接口、响应状态和调用时间，用于统计部署数量与服务运行情况。调用明细默认保留 90 天。统计模块不会记录主机名、MAC 地址、书库内容、搜索关键词、作品 ID 或下载内容；统计明细仅管理员 Token 可以查看。
+番茄小说与漫画功能已内置，部署时无需填写额外地址或参数。首次使用时会自动完成初始化；请持续挂载 `instance` 数据卷，以便升级或重启后继续使用。
 
 ### 更新
 

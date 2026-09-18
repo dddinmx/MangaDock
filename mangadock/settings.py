@@ -33,6 +33,17 @@ FANQIE_API_BASE_URL = os.environ.get(
     "MANGADOCK_FANQIE_API_URL", "https://fanqie.dddinmx.cn"
 ).strip().rstrip("/")
 FANQIE_API_TOKEN = os.environ.get("MANGADOCK_FANQIE_API_TOKEN", "").strip()
+FANQIE_API_TOKEN_FILE = os.environ.get(
+    "MANGADOCK_FANQIE_API_TOKEN_FILE",
+    os.path.join(BASE_DIR, "instance", "fanqie_api_token"),
+).strip()
+FANQIE_API_REGISTRATION_KEY_FILE = os.environ.get(
+    "MANGADOCK_FANQIE_REGISTRATION_KEY_FILE",
+    os.path.join(BASE_DIR, "instance", "fanqie_registration_key"),
+).strip()
+FANQIE_API_AUTO_REGISTER = os.environ.get(
+    "MANGADOCK_FANQIE_API_AUTO_REGISTER", "true"
+).strip().lower() in {"1", "true", "yes", "on"}
 FANQIE_API_INSTALLATION_ID = os.environ.get(
     "MANGADOCK_FANQIE_INSTALLATION_ID", ""
 ).strip()

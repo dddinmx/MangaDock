@@ -10,28 +10,41 @@ import hashlib
 import os
 import platform
 import re
+import secrets
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import requests
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
+
 from mangadock.settings import (
     APP_VERSION,
     FANQIE_API_ALLOW_ANONYMOUS,
+    FANQIE_API_AUTO_REGISTER,
     FANQIE_API_BASE_URL,
     FANQIE_API_INSTALLATION_ID,
     FANQIE_API_INSTALLATION_ID_FILE,
     FANQIE_API_MAX_ARTIFACT_BYTES,
+    FANQIE_API_REGISTRATION_KEY_FILE,
     FANQIE_API_TOKEN,
+    FANQIE_API_TOKEN_FILE,
 )
 
 
 INSTALLATION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{7,63}")
+TOKEN_RE = re.compile(r"fqk_[A-Za-z0-9_-]{32,128}")
+REGISTRATION_KEY_RE = re.compile(r"fqr_[A-Za-z0-9_-]{32,128}")
 _installation_id_lock = threading.Lock()
 _installation_id_value = ""
+_api_token_lock = threading.Lock()
 
 
 def _fallback_installation_id(token: str) -> str:
@@ -80,6 +93,79 @@ def get_installation_id(token: str = "") -> str:
         return _installation_id_value
 
 
+def _read_persisted_token() -> str:
+    try:
+        token = Path(FANQIE_API_TOKEN_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return token if TOKEN_RE.fullmatch(token) else ""
+
+
+def _write_private_value(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(value + "\n")
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _write_persisted_token(token: str) -> None:
+    if not TOKEN_RE.fullmatch(token):
+        raise FanqieApiError("番茄 API 返回的 Token 格式无效", "INVALID_REGISTRATION_TOKEN")
+    try:
+        _write_private_value(Path(FANQIE_API_TOKEN_FILE), token)
+    except OSError as exc:
+        raise FanqieApiError("无法安全保存番茄 API Token", "TOKEN_WRITE_FAILED") from exc
+
+
+def _get_registration_key() -> str:
+    path = Path(FANQIE_API_REGISTRATION_KEY_FILE)
+    try:
+        existing = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        existing = ""
+    except OSError as exc:
+        raise FanqieApiError("无法读取番茄 API 注册密钥", "REGISTRATION_KEY_READ_FAILED") from exc
+    if existing:
+        if not REGISTRATION_KEY_RE.fullmatch(existing):
+            raise FanqieApiError("番茄 API 注册密钥文件已损坏", "INVALID_REGISTRATION_KEY")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return existing
+    registration_key = "fqr_" + secrets.token_urlsafe(32)
+    try:
+        _write_private_value(path, registration_key)
+    except OSError as exc:
+        raise FanqieApiError("无法安全保存番茄 API 注册密钥", "REGISTRATION_KEY_WRITE_FAILED") from exc
+    return registration_key
+
+
+@contextmanager
+def _registration_file_lock():
+    path = Path(FANQIE_API_TOKEN_FILE + ".lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+", encoding="utf-8") as handle:
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 class FanqieApiError(RuntimeError):
     def __init__(self, message: str, code: str = "API_ERROR", status_code: int | None = None):
         super().__init__(message)
@@ -88,13 +174,19 @@ class FanqieApiError(RuntimeError):
 
 
 def is_configured() -> bool:
-    return bool(FANQIE_API_BASE_URL and (FANQIE_API_TOKEN or FANQIE_API_ALLOW_ANONYMOUS))
+    return bool(FANQIE_API_BASE_URL and (
+        FANQIE_API_TOKEN
+        or _read_persisted_token()
+        or FANQIE_API_AUTO_REGISTER
+        or FANQIE_API_ALLOW_ANONYMOUS
+    ))
 
 
 class FanqieApiClient:
     def __init__(self, base_url: str | None = None, token: str | None = None):
         self.base_url = (base_url or FANQIE_API_BASE_URL).strip().rstrip("/") + "/"
-        self.token = FANQIE_API_TOKEN if token is None else token.strip()
+        configured_token = FANQIE_API_TOKEN if token is None else token.strip()
+        self.token = configured_token or _read_persisted_token()
         self._validate_base_url()
         self.session = requests.Session()
         installation_id = get_installation_id(self.token)
@@ -109,8 +201,69 @@ class FanqieApiClient:
             "X-MangaDock-Version": APP_VERSION,
             "X-MangaDock-System": system_info,
         })
+        self._set_token(self.token)
+
+    def _set_token(self, token: str) -> None:
+        self.token = token.strip()
         if self.token:
             self.session.headers["Authorization"] = f"Bearer {self.token}"
+        else:
+            self.session.headers.pop("Authorization", None)
+
+    def _register_token(self) -> str:
+        registration_key = _get_registration_key()
+        response = None
+        last_error = None
+        for attempt in range(3):
+            try:
+                response = self.session.post(
+                    self._url("/v1/register"),
+                    headers={"X-MangaDock-Registration-Key": registration_key},
+                    timeout=(15, 45),
+                )
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise FanqieApiError("无法连接番茄 API 注册服务", "API_UNAVAILABLE") from exc
+            if response.status_code in {502, 503, 504, 520, 522, 523, 524, 530} and attempt < 2:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            break
+        if response is None:
+            raise FanqieApiError("无法连接番茄 API 注册服务", "API_UNAVAILABLE") from last_error
+        if not response.ok:
+            raise self._error_from_response(response)
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise FanqieApiError("番茄 API 注册响应无效", "INVALID_RESPONSE") from exc
+        data = payload.get("data") if isinstance(payload, dict) and payload.get("ok") is True else None
+        issued_token = str(data.get("token") or "") if isinstance(data, dict) else ""
+        if not TOKEN_RE.fullmatch(issued_token):
+            raise FanqieApiError("番茄 API 注册响应缺少有效 Token", "INVALID_RESPONSE")
+        return issued_token
+
+    def _ensure_token(self) -> None:
+        if self.token or FANQIE_API_ALLOW_ANONYMOUS:
+            return
+        if not FANQIE_API_AUTO_REGISTER:
+            raise FanqieApiError(
+                "尚未配置番茄 API Token，且自动注册已关闭",
+                "API_NOT_CONFIGURED",
+            )
+        with _api_token_lock:
+            if self.token:
+                return
+            with _registration_file_lock():
+                stored = _read_persisted_token()
+                if stored:
+                    self._set_token(stored)
+                    return
+                issued_token = self._register_token()
+                _write_persisted_token(issued_token)
+                self._set_token(issued_token)
 
     def _validate_base_url(self) -> None:
         parsed = urlparse(self.base_url)
@@ -137,6 +290,7 @@ class FanqieApiClient:
         return FanqieApiError(message, code, response.status_code)
 
     def _get_stream_with_retry(self, path: str, *, timeout, unavailable_message: str):
+        self._ensure_token()
         response = None
         last_error = None
         for attempt in range(3):
@@ -156,11 +310,7 @@ class FanqieApiClient:
         raise FanqieApiError(unavailable_message, "API_UNAVAILABLE") from last_error
 
     def request_json(self, method: str, path: str, *, params=None, json=None, timeout=(15, 60)):
-        if not is_configured() and not self.token:
-            raise FanqieApiError(
-                "尚未配置番茄 API Token，请设置 MANGADOCK_FANQIE_API_TOKEN",
-                "API_NOT_CONFIGURED",
-            )
+        self._ensure_token()
         method = method.upper()
         retryable = method == "GET" or path == "/v1/resources/resolve"
         attempts = 3 if retryable else 1
@@ -216,11 +366,6 @@ class FanqieApiClient:
         return data
 
     def fetch_cover(self, book_id: str) -> tuple[bytes, str]:
-        if not is_configured() and not self.token:
-            raise FanqieApiError(
-                "尚未配置番茄 API Token，请设置 MANGADOCK_FANQIE_API_TOKEN",
-                "API_NOT_CONFIGURED",
-            )
         response = self._get_stream_with_retry(
             f"/v1/resources/{book_id}/cover",
             timeout=(15, 45),
