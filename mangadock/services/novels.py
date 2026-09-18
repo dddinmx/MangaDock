@@ -6,6 +6,8 @@ import posixpath
 import re
 from datetime import datetime
 from functools import lru_cache
+from io import BytesIO
+from threading import get_ident
 from zipfile import BadZipFile, ZipFile
 import xml.etree.ElementTree as ET
 
@@ -16,6 +18,7 @@ from mangadock.settings import NOVEL_COVER_ROOT, NOVEL_ROOT, china_tz
 
 
 NOVEL_PROGRESS_PREFIX = "novel:"
+NOVEL_COVER_CACHE_VERSION = 1
 
 
 def novel_progress_key(novel_id):
@@ -126,11 +129,14 @@ def get_novels():
         if not os.path.isfile(file_path):
             continue
         try:
+            file_stat = os.stat(file_path)
             metadata = _metadata(file_path)
         except (OSError, BadZipFile, ET.ParseError, KeyError, StopIteration):
             continue
         file_stem = os.path.splitext(filename)[0]
         fallback_title, _, fallback_author = file_stem.rpartition('_')
+        custom_cover_path = os.path.join(NOVEL_COVER_ROOT, f'{file_stem}.jpg')
+        cover_source_path = custom_cover_path if os.path.isfile(custom_cover_path) else file_path
         novels.append({
             'novel_id': file_stem,
             'title': metadata['title'] or fallback_title or file_stem,
@@ -141,7 +147,8 @@ def get_novels():
             'chapter_count': len(metadata['spine']),
             'file_path': file_path,
             'fanqie_book_id': _fanqie_book_id(metadata),
-            'created_at': datetime.fromtimestamp(os.path.getmtime(file_path), tz=china_tz),
+            'created_at': datetime.fromtimestamp(file_stat.st_mtime, tz=china_tz),
+            'cover_version': f'{NOVEL_COVER_CACHE_VERSION}-{os.stat(cover_source_path).st_mtime_ns}',
         })
     return sorted(novels, key=lambda item: item['created_at'], reverse=True)
 
@@ -235,14 +242,25 @@ def get_novel_chapter(novel_id, chapter_index):
     }
 
 
-def get_novel_cover(novel_id):
+def get_novel_cover_file(novel_id):
+    """Return a local cover file, extracting the EPUB cover only when needed."""
     novel = get_novel(novel_id)
     if not novel:
         return None
     custom_cover_path = os.path.join(NOVEL_COVER_ROOT, f'{novel_id}.jpg')
     if os.path.isfile(custom_cover_path):
-        with open(custom_cover_path, 'rb') as cover_file:
-            return cover_file.read(), 'image/jpeg'
+        return custom_cover_path, 'image/jpeg'
+
+    source_stat = os.stat(novel['file_path'])
+    generated_root = os.path.join(NOVEL_COVER_ROOT, f'.generated-v{NOVEL_COVER_CACHE_VERSION}')
+    generated_cover_path = os.path.join(generated_root, f'{novel_id}.jpg')
+    try:
+        generated_stat = os.stat(generated_cover_path)
+        if generated_stat.st_mtime_ns == source_stat.st_mtime_ns:
+            return generated_cover_path, 'image/jpeg'
+    except OSError:
+        pass
+
     metadata = _metadata(novel['file_path'])
     cover_path = metadata.get('cover_path')
     if not cover_path:
@@ -252,7 +270,49 @@ def get_novel_cover(novel_id):
             content = epub.read(cover_path)
         except KeyError:
             return None
-    return content, metadata.get('cover_mimetype') or 'image/jpeg'
+
+    try:
+        image = Image.open(BytesIO(content))
+        image.load()
+        if image.mode in {'RGBA', 'LA'}:
+            canvas = Image.new('RGB', image.size, 'white')
+            alpha = image.getchannel('A')
+            canvas.paste(image.convert('RGB'), mask=alpha)
+            image = canvas
+        elif image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        if image.width > 720 or image.height > 1080:
+            resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS')
+            image.thumbnail((720, 1080), resample)
+
+        os.makedirs(generated_root, exist_ok=True)
+        temporary_path = f'{generated_cover_path}.{os.getpid()}.{get_ident()}.tmp'
+        try:
+            image.save(temporary_path, 'JPEG', quality=84, optimize=True)
+            os.replace(temporary_path, generated_cover_path)
+            os.utime(
+                generated_cover_path,
+                ns=(source_stat.st_mtime_ns, source_stat.st_mtime_ns),
+            )
+        finally:
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                pass
+    except (OSError, ValueError):
+        return None
+
+    return generated_cover_path, 'image/jpeg'
+
+
+def get_novel_cover(novel_id):
+    cover_file = get_novel_cover_file(novel_id)
+    if not cover_file:
+        return None
+    cover_path, mimetype = cover_file
+    with open(cover_path, 'rb') as cover_handle:
+        return cover_handle.read(), mimetype
 
 
 def save_novel_cover(novel_id, file_storage):

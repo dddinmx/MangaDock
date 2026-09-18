@@ -626,6 +626,26 @@
         {% endif %}
         {% endwith %}
 
+        <div class="mb-7 flex flex-wrap items-end justify-between gap-4">
+            <div>
+                <h1 class="md-page-title">漫画书架</h1>
+                <p class="md-page-sub">
+                    {% if selected_group == '全部' %}按分组浏览，共 {{ group_total_count }} 本{% else %}{{ selected_group }} · 共 {{ selected_group_count }} 本{% endif %}
+                </p>
+            </div>
+            {% if groups %}
+            <div class="library-toolbar" aria-label="书架分组筛选">
+                <select class="md-lib-select" onchange="handleQuickGroupChange(this)" aria-label="切换漫画分组">
+                    <option value="{{ url_for('comics_list', group='全部') }}" {% if selected_group == '全部' %}selected{% endif %}>全部分组</option>
+                    {% for group_name in groups %}
+                    <option value="{{ url_for('comics_list', group=group_name) }}" {% if selected_group == group_name %}selected{% endif %}>{{ group_name }}</option>
+                    {% endfor %}
+                </select>
+                <span class="md-lib-badge">{{ selected_group_count }}</span>
+            </div>
+            {% endif %}
+        </div>
+
         {% if can_manage_library and (hidden_library_count > 0 or show_hidden_library) %}
         <div class="flex justify-start mb-4">
             <a
@@ -656,22 +676,9 @@
         <section class="group-section" data-group-section>
             <div class="group-section-header">
                 <div class="group-section-title">
-                    {% if loop.first %}
-                    <div class="library-toolbar">
-                        <select class="md-lib-select" onchange="handleQuickGroupChange(this)" aria-label="快速切换分组">
-                            <option value="{{ url_for('comics_list', group='全部') }}" {% if selected_group == '全部' %}selected{% endif %}>全部</option>
-                            {% for group_name in groups %}
-                            <option value="{{ url_for('comics_list', group=group_name) }}" {% if group_block.name == group_name %}selected{% endif %}>{{ group_name }}</option>
-                            {% endfor %}
-                        </select>
-                        <span class="md-lib-badge">{{ group_block.tasks|length }}</span>
-                    </div>
-                    {% else %}
                     <h2 class="md-section-title !mb-0">{{ group_block.name }}</h2>
-                    <span class="md-lib-badge">{{ group_block.tasks|length }}</span>
-                    {% endif %}
+                    <span class="md-lib-badge">{{ group_counts.get(group_block.name, group_block.tasks|length) }}</span>
                 </div>
-                {% if selected_group == '全部' or (loop.first and selected_group != '全部') %}
                 <div class="group-section-actions">
                     {% if can_manage_library %}
                     {% set group_is_hidden = group_block.name in hidden_group_names %}
@@ -688,7 +695,7 @@
                         </button>
                     </form>
                     {% endif %}
-                    {% if loop.first and selected_group != '全部' %}
+                    {% if selected_group != '全部' %}
                     <div class="relative md:hidden mobile-columns-control">
                         <button
                             id="columns-toggle-btn"
@@ -719,19 +726,20 @@
                     </div>
                     {% endif %}
                     {% if selected_group == '全部' %}
+                    {% if group_block.tasks|length > 5 %}
                     <button type="button" class="md-lib-rail-nav action-press" aria-label="向左查看 {{ group_block.name }}" onclick="scrollGroupRail('{{ loop.index0 }}', -1)">
                         <i class="fa fa-angle-left"></i>
                     </button>
                     <button type="button" class="md-lib-rail-nav action-press" aria-label="向右查看 {{ group_block.name }}" onclick="scrollGroupRail('{{ loop.index0 }}', 1)">
                         <i class="fa fa-angle-right"></i>
                     </button>
+                    {% endif %}
                     <a href="{{ url_for('comics_list', group=group_block.name) }}" data-app-loader="true" class="md-lib-link action-press">
-                        <span>{{ group_block.tasks|length }}项</span>
+                        <span>查看全部 {{ group_counts.get(group_block.name, group_block.tasks|length) }} 本</span>
                         <i class="fa fa-angle-right"></i>
                     </a>
                     {% endif %}
                 </div>
-                {% endif %}
             </div>
 
             {% if group_block.tasks %}
@@ -744,7 +752,7 @@
                 {% set read_count = (progress.last_chapter + 1) if progress and progress.last_chapter is not none else 0 %}
                 {% set unread_count = available - read_count if available > read_count else 0 %}
                 <div class="group-rail-card w-full">
-                    <a href="{{ url_for('comic_detail', task_id=task.comic_name) }}" data-app-loader="true" class="md-cover-card">
+                    <a href="{{ url_for('comic_detail', task_id=task.comic_name, return_to=library_return_url) }}" data-app-loader="true" class="md-cover-card">
                         <div class="md-book">
                             <div class="md-book__spine" aria-hidden="true"></div>
                             <div class="md-book__pages" aria-hidden="true"></div>
@@ -777,7 +785,7 @@
                 {% set read_count = (progress.last_chapter + 1) if progress and progress.last_chapter is not none else 0 %}
                 {% set unread_count = available - read_count if available > read_count else 0 %}
                 <div>
-                    <a href="{{ url_for('comic_detail', task_id=task.comic_name) }}" data-app-loader="true" class="md-cover-card">
+                    <a href="{{ url_for('comic_detail', task_id=task.comic_name, return_to=library_return_url) }}" data-app-loader="true" class="md-cover-card">
                         <div class="md-book">
                             <div class="md-book__spine" aria-hidden="true"></div>
                             <div class="md-book__pages" aria-hidden="true"></div>
@@ -809,6 +817,27 @@
             {% endif %}
         </section>
         {% endfor %}
+        {% if pagination and pagination.total_pages > 1 %}
+        <nav class="md-pagination" aria-label="漫画书架分页">
+            {% if pagination.has_prev %}
+            <a href="{{ url_for('comics_list', group=selected_group, page=pagination.prev_page, show_hidden='1' if show_hidden_library else none) }}" class="md-pagination-link md-pagination-direction" data-app-loader="true" aria-label="上一页"><i class="fa fa-angle-left"></i><span>上一页</span></a>
+            {% else %}
+            <span class="md-pagination-link md-pagination-direction is-disabled" aria-disabled="true"><i class="fa fa-angle-left"></i><span>上一页</span></span>
+            {% endif %}
+            {% for page_number in pagination.page_links %}
+                {% if page_number %}
+                <a href="{{ url_for('comics_list', group=selected_group, page=page_number, show_hidden='1' if show_hidden_library else none) }}" class="md-pagination-link{% if page_number == pagination.page %} is-active{% endif %}" data-app-loader="true" {% if page_number == pagination.page %}aria-current="page"{% endif %}>{{ page_number }}</a>
+                {% else %}
+                <span class="md-pagination-ellipsis" aria-hidden="true">…</span>
+                {% endif %}
+            {% endfor %}
+            {% if pagination.has_next %}
+            <a href="{{ url_for('comics_list', group=selected_group, page=pagination.next_page, show_hidden='1' if show_hidden_library else none) }}" class="md-pagination-link md-pagination-direction" data-app-loader="true" aria-label="下一页"><span>下一页</span><i class="fa fa-angle-right"></i></a>
+            {% else %}
+            <span class="md-pagination-link md-pagination-direction is-disabled" aria-disabled="true"><span>下一页</span><i class="fa fa-angle-right"></i></span>
+            {% endif %}
+        </nav>
+        {% endif %}
         {% endif %}
     </div>
     </div>

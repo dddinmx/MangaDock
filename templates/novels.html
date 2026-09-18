@@ -6,9 +6,22 @@
 <div class="mb-8 flex flex-wrap items-end justify-between gap-3">
     <div>
         <h1 class="md-page-title">小说书架</h1>
-        <p class="md-page-sub">共 {{ novels|length }} 本</p>
+        <p class="md-page-sub">{% if selected_group == '全部' %}全部分组{% else %}{{ selected_group }}{% endif %} · 共 {{ pagination.total_items }} 本</p>
     </div>
-    <a href="{{ url_for('fanqie_novel_search') }}" class="md-btn-primary" data-app-loader="true"><i class="fa fa-plus mr-2"></i>添加番茄小说</a>
+    <div class="flex flex-wrap items-center gap-2">
+        {% if groups %}
+        <select class="md-lib-select" aria-label="切换小说分组" onchange="window.location.href=this.value">
+            <option value="{{ url_for('novels_list', group='全部') }}" {% if selected_group == '全部' %}selected{% endif %}>全部分组</option>
+            {% for group_name in groups %}
+            <option value="{{ url_for('novels_list', group=group_name) }}" {% if selected_group == group_name %}selected{% endif %}>{{ group_name }}（{{ group_counts.get(group_name, 0) }}）</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+        {% if can_manage_library %}
+        <a href="{{ url_for('novel_group_manager') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-folder-open mr-2"></i>管理分组</a>
+        {% endif %}
+        <a href="{{ url_for('fanqie_novel_search') }}" class="md-btn-primary" data-app-loader="true"><i class="fa fa-plus mr-2"></i>添加番茄小说</a>
+    </div>
 </div>
 
 {% if novels %}
@@ -18,17 +31,39 @@
         <div class="md-book">
             <div class="md-book__spine" aria-hidden="true"></div>
             <div class="md-book__pages" aria-hidden="true"></div>
-            <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="{{ novel.title }}" loading="lazy"></div>
+            <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="{{ novel.title }}" loading="lazy" decoding="async"></div>
         </div>
         <div class="md-cover-card__title">{{ novel.title }}</div>
         <div class="md-cover-card__meta">
             {{ novel.author }} · {{ novel.chapter_count }} 章
+            {% if selected_group == '全部' %}· {{ novel.group }}{% endif %}
             {% if novel.progress %}· 读到 {{ novel.last_chapter + 1 }} 章{% endif %}
         </div>
     </a>
     {% endfor %}
 </div>
+{% if pagination.total_pages > 1 %}
+<nav class="md-pagination" aria-label="小说书架分页">
+    {% if pagination.has_prev %}
+    <a href="{{ url_for('novels_list', group=selected_group, page=pagination.prev_page) }}" class="md-pagination-link md-pagination-direction" data-app-loader="true" aria-label="上一页"><i class="fa fa-angle-left"></i><span>上一页</span></a>
+    {% else %}
+    <span class="md-pagination-link md-pagination-direction is-disabled" aria-disabled="true"><i class="fa fa-angle-left"></i><span>上一页</span></span>
+    {% endif %}
+    {% for page_number in pagination.page_links %}
+        {% if page_number %}
+        <a href="{{ url_for('novels_list', group=selected_group, page=page_number) }}" class="md-pagination-link{% if page_number == pagination.page %} is-active{% endif %}" data-app-loader="true" {% if page_number == pagination.page %}aria-current="page"{% endif %}>{{ page_number }}</a>
+        {% else %}
+        <span class="md-pagination-ellipsis" aria-hidden="true">…</span>
+        {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+    <a href="{{ url_for('novels_list', group=selected_group, page=pagination.next_page) }}" class="md-pagination-link md-pagination-direction" data-app-loader="true" aria-label="下一页"><span>下一页</span><i class="fa fa-angle-right"></i></a>
+    {% else %}
+    <span class="md-pagination-link md-pagination-direction is-disabled" aria-disabled="true"><span>下一页</span><i class="fa fa-angle-right"></i></span>
+    {% endif %}
+</nav>
+{% endif %}
 {% else %}
-<div class="md-empty">暂未扫描到 EPUB 小说。</div>
+<div class="md-empty">{% if selected_group == '全部' %}暂未扫描到 EPUB 小说。{% else %}「{{ selected_group }}」分组暂时没有小说。{% endif %}</div>
 {% endif %}
 {% endblock %}

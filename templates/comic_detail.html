@@ -201,7 +201,7 @@
     <div class="md-detail-hero-shade"></div>
 
     <div class="md-detail-topbar">
-        <a href="{{ url_for('index') }}" class="md-detail-icon-btn action-press" data-app-loader="true" aria-label="返回首页">
+        <a href="{{ library_return_url }}" class="md-detail-icon-btn action-press" data-app-loader="true" aria-label="返回书架">
             <i class="fa fa-arrow-left"></i>
         </a>
         {% if can_manage_library %}
@@ -345,21 +345,21 @@
                 {# 桌面端主按钮（移动端用吸底） #}
                 <div class="md-detail-desktop-cta">
                     {% if progress %}
-                    <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}"
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url) }}"
                        class="md-btn-primary reader-entry-btn action-press"
                        data-reader-entry="true">
                         <span class="btn-label">继续阅读 第 {{ progress.last_chapter + 1 }} 章</span>
                         <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
                     </a>
                     {% else %}
-                    <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}"
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url) }}"
                        class="md-btn-primary reader-entry-btn action-press"
                        data-reader-entry="true">
                         <span class="btn-label">开始阅读</span>
                         <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
                     </a>
                     {% endif %}
-                    <a href="{{ url_for('index') }}" class="md-btn-ghost action-press" data-app-loader="true">返回首页</a>
+                    <a href="{{ library_return_url }}" class="md-btn-ghost action-press" data-app-loader="true">返回书架</a>
                 </div>
             </div>
         </header>
@@ -384,7 +384,7 @@
 
             <div id="chapter-list" class="md-chapter-list">
                 {% for chapter in chapters %}
-                <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}?start_chapter={{ loop.index0 }}"
+                <a href="{{ url_for('comic_reader', task_id=task.comic_name, start_chapter=loop.index0, return_to=library_return_url) }}"
                    class="chapter-item md-chapter-item"
                    data-chapter="{{ chapter.number }}">
                     <div class="min-w-0 flex-1">
@@ -404,14 +404,14 @@
     {# 吸底主 CTA（详情页内，非全局 Dock） #}
     <div class="md-detail-sticky-cta">
         {% if progress %}
-        <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}"
+        <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url) }}"
            class="md-btn-primary reader-entry-btn action-press md-detail-sticky-btn"
            data-reader-entry="true">
             <span class="btn-label">继续阅读 第 {{ progress.last_chapter + 1 }} 章</span>
             <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
         </a>
         {% else %}
-        <a href="{{ url_for('comic_reader', task_id=task.comic_name) }}"
+        <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url) }}"
            class="md-btn-primary reader-entry-btn action-press md-detail-sticky-btn"
            data-reader-entry="true">
             <span class="btn-label">开始阅读</span>

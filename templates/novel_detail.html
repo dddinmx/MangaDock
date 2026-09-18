@@ -29,7 +29,7 @@
 <div class="md-main--flush app-main-content">
 <article class="md-detail">
     <div class="md-detail-hero-media" aria-hidden="true">
-        <img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="">
+        <img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="">
     </div>
     <div class="md-detail-hero-shade"></div>
     <div class="md-detail-topbar">
@@ -46,7 +46,7 @@
         {% endwith %}
         <header class="md-detail-head">
             <div class="md-detail-cover">
-                <img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="{{ novel.title }}封面">
+                <img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="{{ novel.title }}封面" decoding="async">
             </div>
             <div class="md-detail-meta">
                 <div class="md-detail-tags">

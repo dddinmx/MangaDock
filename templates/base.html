@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <link rel="shortcut icon" href="{{ asset_url('favicon.ico') }}" type="image/x-icon">
+    <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
+    <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
     <!-- PWA Meta Tags -->
     <link rel="manifest" href="{{ asset_url('manifest.json') }}">
     <meta id="theme-color-meta" name="theme-color" content="#0B0B0F">
@@ -903,6 +904,7 @@
     {% set is_novel_mode = current_library_mode == 'novel' %}
     {% set mode_home_endpoint = 'novel_index' if is_novel_mode else 'index' %}
     {% set mode_library_endpoint = 'novels_list' if is_novel_mode else 'comics_list' %}
+    {% set mode_library_url = url_for('novels_list', group='全部') if is_novel_mode else url_for('comics_list', group='全部') %}
     {% set mode_history_endpoint = 'novel_history' if is_novel_mode else 'history_page' %}
     {% set mode_search_endpoint = 'novel_search' if is_novel_mode else 'search_page' %}
     {% set mode_content_name = '小说' if is_novel_mode else '漫画' %}
@@ -913,7 +915,7 @@
         <div class="md-topnav-inner">
             <div class="md-mode-switcher" id="mode-switcher">
                 <button type="button" class="md-logo" id="mode-switcher-toggle" aria-expanded="false" aria-haspopup="menu">
-                    <span class="md-logo-mark">{{ 'N' if is_novel_mode else 'M' }}</span>
+                    <img class="md-logo-mark" src="{{ asset_url('logo-192.png') }}" alt="">
                     <span class="md-logo-name">MangaDock</span>
                     <i class="fa fa-angle-down md-logo-chevron"></i>
                 </button>
@@ -930,7 +932,7 @@
             {% if session.get('user_id') %}
             <nav class="hidden items-center gap-1 md:flex" aria-label="主导航">
                 <a href="{{ url_for(mode_home_endpoint) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_home_endpoint %} is-active{% endif %}">首页</a>
-                <a href="{{ url_for(mode_library_endpoint) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">{{ mode_library_label }}</a>
+                <a href="{{ mode_library_url }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">{{ mode_library_label }}</a>
                 <a href="{{ url_for(mode_history_endpoint) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_history_endpoint %} is-active{% endif %}">历史</a>
                 <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == 'statistics' %} is-active{% endif %}">统计</a>
                 <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'users', 'change_password', 'download', 'update', 'tasks'] %} is-active{% endif %}">我的</a>
@@ -997,7 +999,7 @@
         <a href="{{ url_for(mode_home_endpoint) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == mode_home_endpoint %} is-active{% endif %}">
             <i class="fa fa-home"></i><span>首页</span>
         </a>
-        <a href="{{ url_for(mode_library_endpoint) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">
+        <a href="{{ mode_library_url }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">
             <i class="fa fa-book"></i><span>{{ mode_library_label }}</span>
         </a>
         <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == 'statistics' %} is-active{% endif %}">

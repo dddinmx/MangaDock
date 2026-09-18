@@ -20,19 +20,20 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 > 番茄漫画目前支持静态图片漫画，不支持漫剧或短视频作品。
 
-## v2.2.1
+## v2.3.0
 
-- 新增番茄小说搜索、下载、更新及阅读入口。
-- 新增番茄图片漫画下载，完成后直接进入漫画书库。
-- 优化番茄搜索页、浅色主题和封面 CDN 回退。
-- 下载进度页支持显示番茄小说封面。
-- 小说首页的长简介支持折叠和展开，兼顾桌面端与手机端阅读。
-- 番茄功能首次使用时自动初始化，无需手动配置。
-- 包子漫画、漫小肆韩漫及本地导入保持原有逻辑。
+- 小说书架新增分页、分组筛选和批量归组管理。
+- 优化漫画书架的分页、分组、筛选及操作体验。
+- 小说与漫画封面增加本地缓存，减少重复加载。
+- 小说阅读器新增字体间距、行间距、段间距和标题字号设置。
+- 登录页升级为固定高清小说封面墙与整高侧栏布局，所有部署保持一致并适配手机端。
+- 修复小说书架异常、下载中封面缺失及多处浅色/深色主题显示问题。
+- 新增完整的 PWA 图标和浏览器标签页图标。
+- 番茄小说、番茄漫画、包子漫画、漫小肆及本地导入继续沿用现有逻辑。
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:v2.2.1`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.2.1` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:v2.3.0`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.3.0` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 
@@ -49,7 +50,7 @@ printf '{}\n' > data/comic.json
 ```yaml
 services:
   mangadock:
-    image: dddinmx/mangadock:v2.2.1
+    image: dddinmx/mangadock:v2.3.0
     container_name: MangaDock
     restart: unless-stopped
     ports:
@@ -70,7 +71,7 @@ volumes:
   mangadock_instance:
 ```
 
-漫画章节、封面、EPUB、来源映射、SQLite 数据库和会话都保存在宿主机目录或 Docker 数据卷中，不会进入公开镜像。
+漫画章节、用户书库封面、EPUB、来源映射、SQLite 数据库和会话都保存在宿主机目录或 Docker 数据卷中，不会进入公开镜像。镜像仅包含登录页使用的 24 张编号装饰封面，不包含对应书库、路径或阅读数据。
 
 ### 3. 启动
 

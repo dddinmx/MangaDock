@@ -8,7 +8,7 @@
     {% if spotlight %}
     <section class="md-hero">
         <div class="md-hero-media" aria-hidden="true">
-            <img class="md-hero-media-img is-soft" src="{{ url_for('novel_cover', novel_id=spotlight.novel_id) }}" alt="">
+            <img class="md-hero-media-img is-soft" src="{{ url_for('novel_cover', novel_id=spotlight.novel_id, v=spotlight.cover_version) }}" alt="">
         </div>
         <div class="md-hero-shade"></div>
         <div class="md-hero-inner">
@@ -42,7 +42,7 @@
                 </div>
             </div>
             <div class="md-hero-art">
-                <img src="{{ url_for('novel_cover', novel_id=spotlight.novel_id) }}" alt="{{ spotlight.title }}" loading="eager" decoding="async">
+                <img src="{{ url_for('novel_cover', novel_id=spotlight.novel_id, v=spotlight.cover_version) }}" alt="{{ spotlight.title }}" loading="eager" decoding="async">
             </div>
         </div>
     </section>
@@ -61,19 +61,19 @@
 
     <div class="md-main md-home-sections">
         <section class="md-section !py-8">
-            <div class="md-fanqie-panel rounded-2xl p-5 md:flex md:items-center md:justify-between md:gap-6">
+            <div class="md-fanqie-panel md-fanqie-home-panel rounded-2xl p-5 md:flex md:items-center md:justify-between md:gap-6">
                 <div>
                     <h2 class="md-fanqie-title text-xl font-semibold">从番茄小说添加</h2>
                     <p class="md-fanqie-muted mt-2 text-sm">搜索书名或作者，也可以粘贴番茄链接。</p>
                 </div>
-                <a href="{{ url_for('fanqie_novel_search') }}" class="md-btn-primary mt-4 md:mt-0" data-app-loader="true"><i class="fa fa-search mr-2"></i>搜索与下载</a>
+                <a href="{{ url_for('fanqie_novel_search') }}" class="md-btn-primary md-fanqie-home-action" data-app-loader="true"><i class="fa fa-search" aria-hidden="true"></i><span>搜索与下载</span></a>
             </div>
         </section>
         {% if latest_novels %}
         <section class="md-section !py-8">
             <div class="mb-5 flex items-end justify-between gap-3">
                 <h2 class="md-section-title !mb-0">最近入库</h2>
-                <a href="{{ url_for('novels_list') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部书架</a>
+                <a href="{{ url_for('novels_list', group='全部') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部书架</a>
             </div>
             <div class="md-cover-grid">
                 {% for novel in latest_novels %}
@@ -81,7 +81,7 @@
                     <div class="md-book">
                         <div class="md-book__spine" aria-hidden="true"></div>
                         <div class="md-book__pages" aria-hidden="true"></div>
-                        <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="{{ novel.title }}"></div>
+                        <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="{{ novel.title }}" loading="lazy" decoding="async"></div>
                     </div>
                     <div class="md-cover-card__title">{{ novel.title }}</div>
                     <div class="md-cover-card__meta">{{ novel.author }}</div>

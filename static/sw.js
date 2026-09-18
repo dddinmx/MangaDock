@@ -1,10 +1,10 @@
-const STATIC_CACHE_NAME = 'mangadock-static-v6';
+const STATIC_CACHE_NAME = 'mangadock-static-v7';
 const PAGE_CACHE_NAME = 'mangadock-pages-v13';
 const NAVIGATION_TIMEOUT_MS = 1200;
 
 const PRECACHE_URLS = [
-  '/static/icon.png',
-  '/static/favicon.ico',
+  '/static/favicon.png',
+  '/static/logo-192.png',
   '/static/css/app.generated.css',
   '/static/css/font-awesome.min.css',
 ];

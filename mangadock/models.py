@@ -85,6 +85,23 @@ class ComicGroupMembership(db.Model):
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz), onupdate=lambda: datetime.now(china_tz))
 
 
+class NovelGroup(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
+
+
+class NovelGroupMembership(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    novel_id = db.Column(db.String(255), unique=True, nullable=False)
+    group_name = db.Column(db.String(255), nullable=False, default='默认分组')
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(china_tz),
+        onupdate=lambda: datetime.now(china_tz),
+    )
+
+
 class UserGroupPermission(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=False, index=True)
@@ -239,6 +256,10 @@ def initialize_database():
 
         if not ComicGroup.query.filter_by(name='默认分组').first():
             db.session.add(ComicGroup(name='默认分组'))
+            db.session.commit()
+
+        if not NovelGroup.query.filter_by(name='默认分组').first():
+            db.session.add(NovelGroup(name='默认分组'))
             db.session.commit()
 
         admin_user = User.query.filter_by(username="admin").first()

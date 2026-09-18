@@ -40,6 +40,7 @@ from mangadock.models import (
     User,
     UserGroupPermission,
 )
+from mangadock.pagination import paginate_sequence
 from mangadock.services.download import (
     is_supported_comic_url,
     load_comic_source,
@@ -843,17 +844,22 @@ def comics_list():
 
     grouped_tasks = []
     if group_filter == '全部':
+        selected_comics = display_comics
+        page_comics = display_comics
+        pagination = None
         for group_name in group_names:
-            comics_in_group = grouped_lookup.get(group_name, [])
+            comics_in_group = grouped_lookup.get(group_name, [])[:10]
             if comics_in_group:
                 grouped_tasks.append({
                     'name': group_name,
                     'tasks': comics_in_group
                 })
     else:
+        selected_comics = grouped_lookup.get(group_filter, [])
+        page_comics, pagination = paginate_sequence(selected_comics, request.args.get('page'))
         grouped_tasks.append({
             'name': group_filter,
-            'tasks': grouped_lookup.get(group_filter, [])
+            'tasks': page_comics
         })
 
     recent_comic = None
@@ -867,7 +873,7 @@ def comics_list():
 
     return render_template(
         'comics.html',
-        tasks=display_comics,
+        tasks=page_comics,
         grouped_tasks=grouped_tasks,
         recent_comic=recent_comic,
         recent_progress=recent_progress,
@@ -875,7 +881,10 @@ def comics_list():
         groups=group_names,
         group_counts=group_counts,
         group_total_count=len(display_comics),
+        selected_group_count=len(selected_comics),
+        pagination=pagination,
         selected_group=group_filter,
+        library_return_url=request.full_path.rstrip('?'),
         show_group_menu=bool(group_names),
         group_menu_return_to='comics',
         show_hidden_library=show_hidden_library,
@@ -1088,7 +1097,10 @@ def statistics():
                 'title': novel['title'] if novel else novel_id,
                 'subtitle': novel['author'] if novel else '小说',
                 'media_type': '小说',
-                'cover_url': url_for('novel_cover', novel_id=novel_id) if novel else '',
+                'cover_url': (
+                    url_for('novel_cover', novel_id=novel_id, v=novel['cover_version'])
+                    if novel else ''
+                ),
             })
         ranking_items.append(item)
 
@@ -1262,6 +1274,10 @@ def comic_detail(task_id):
         # 旧书库补全：有源站映射时按需抓取一次简介
         comic_description = refresh_comic_description(task.comic_name) or ''
 
+    library_return_url = request.args.get('return_to')
+    if not is_safe_next_target(library_return_url) or not library_return_url.startswith('/comics'):
+        library_return_url = url_for('comics_list', group=current_group)
+
     return render_template(
         'comic_detail.html',
         task=task,
@@ -1280,7 +1296,8 @@ def comic_detail(task_id):
         is_current_comic_hidden=is_current_comic_hidden,
         is_current_comic_directly_hidden=is_current_comic_directly_hidden,
         is_current_group_hidden=is_current_group_hidden,
-        hidden_group_names=hidden_group_names
+        hidden_group_names=hidden_group_names,
+        library_return_url=library_return_url,
     )
 
 
@@ -1373,7 +1390,18 @@ def comic_reader(task_id):
     # 确定文件扩展名
     file_ext = 'pdf' if task.comic_format == 1 else 'cbz'
 
-    return render_template('reader.html', task=task, file_ext=file_ext, start_chapter=start_chapter, start_page=start_page)
+    library_return_url = request.args.get('return_to')
+    if not is_safe_next_target(library_return_url) or not library_return_url.startswith('/comics'):
+        library_return_url = url_for('comics_list', group=current_group)
+
+    return render_template(
+        'reader.html',
+        task=task,
+        file_ext=file_ext,
+        start_chapter=start_chapter,
+        start_page=start_page,
+        library_return_url=library_return_url,
+    )
 
 @app.route('/save_progress', methods=['POST'])
 @login_required

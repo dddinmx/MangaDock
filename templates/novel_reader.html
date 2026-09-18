@@ -7,7 +7,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>{{ novel.title }} - 阅读</title>
-    <link rel="shortcut icon" href="{{ asset_url('favicon.ico') }}" type="image/x-icon">
+    <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
+    <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
     <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
     <script>
         (() => {
@@ -22,7 +23,7 @@
     </script>
     <style>
         @font-face { font-family: "MangaDock Kai"; src: url("{{ asset_url('fonts/LXGWWenKai-Regular.ttf') }}") format("truetype"); font-display: swap; }
-        :root { --reader-size: 22px; --reader-leading: 2.15; --reader-width: 796px; --reader-margin: 18px; --reader-page-gap: 36px; --reader-font: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif; --reader-bg: #0b0b0f; --reader-text: #dcdce5; --reader-title: #ffffff; --reader-muted: #626273; --reader-brand: #e11d48; --reader-brand-rgb: 225, 29, 72; }
+        :root { --reader-size: 22px; --reader-title-size: 36px; --reader-leading: 2.15; --reader-letter-spacing: .025em; --reader-paragraph-spacing: .9em; --reader-width: 796px; --reader-margin: 18px; --reader-page-gap: 36px; --reader-font: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif; --reader-bg: #0b0b0f; --reader-text: #dcdce5; --reader-title: #ffffff; --reader-muted: #626273; --reader-brand: #e11d48; --reader-brand-rgb: 225, 29, 72; }
         html[data-accent="pink-blue"] { --reader-brand: #60a5fa; --reader-brand-rgb: 96, 165, 250; }
         html[data-accent="pink-green"] { --reader-brand: #34d399; --reader-brand-rgb: 52, 211, 153; }
         html[data-accent="gray"] { --reader-brand: #64748b; --reader-brand-rgb: 100, 116, 139; }
@@ -51,16 +52,16 @@
         .novel-reader-flow { position: absolute; top: 0; left: 0; width: calc(100% - var(--reader-page-gap)); height: 100%; margin-left: var(--reader-margin); column-width: var(--reader-page-width, 760px); column-gap: var(--reader-page-gap); column-fill: auto; transform: translate3d(0,0,0); transition: none; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
         .novel-reader-layer.is-motion-hinted, .novel-reader-flow.is-motion-hinted { will-change: transform; }
         .novel-reader-flow.is-dragging { transition: none !important; }
-        .novel-reader-title { margin: 0 0 1.7rem; color: var(--reader-title); font-size: clamp(1.65rem, 5vw, 2.4rem); line-height: 1.35; text-align: center; }
-        .novel-reader-content { font-size: var(--reader-size); line-height: var(--reader-leading); letter-spacing: .025em; }
-        .novel-reader-content p { margin: 0 0 .9em; text-align: justify; text-indent: 2em; overflow-wrap: anywhere; }
+        .novel-reader-title { margin: 0 0 1.7rem; color: var(--reader-title); font-size: var(--reader-title-size); line-height: 1.35; text-align: center; }
+        .novel-reader-content { font-size: var(--reader-size); line-height: var(--reader-leading); letter-spacing: var(--reader-letter-spacing); }
+        .novel-reader-content p { margin: 0 0 var(--reader-paragraph-spacing); text-align: justify; text-indent: 2em; overflow-wrap: anywhere; }
         .novel-reader-controls { position: fixed; z-index: 20; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 5px; padding: 7px; border: 1px solid rgba(255,255,255,.1); border-radius: 999px; background: rgba(12,12,18,.94); box-shadow: 0 18px 45px rgba(0,0,0,.55); backdrop-filter: blur(18px); transform: translateX(-50%); transition: transform .25s, opacity .25s; }
         .novel-reader-controls.is-hidden { transform: translate(-50%, calc(100% + 30px)); opacity: 0; }
         .novel-control { min-width: 42px; height: 38px; padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: #b7b7c6; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
         .novel-control:hover { color: #fff; background: rgba(255,255,255,.08); }
         .novel-control.is-primary { background: var(--reader-brand); color: #fff; }
         .novel-control.is-disabled { opacity: .28; pointer-events: none; }
-        .novel-background-panel { position: fixed; z-index: 21; left: 50%; bottom: max(76px, calc(env(safe-area-inset-bottom) + 66px)); width: min(280px, calc(100vw - 32px)); padding: 14px; border: 1px solid rgba(255,255,255,.12); border-radius: 18px; background: rgba(18,18,25,.97); color: #ededf2; box-shadow: 0 18px 45px rgba(0,0,0,.55); transform: translateX(-50%); backdrop-filter: blur(18px); }
+        .novel-background-panel { position: fixed; z-index: 21; left: 50%; bottom: max(76px, calc(env(safe-area-inset-bottom) + 66px)); width: min(320px, calc(100vw - 32px)); max-height: calc(100dvh - 160px); overflow-y: auto; overscroll-behavior: contain; padding: 14px; border: 1px solid rgba(255,255,255,.12); border-radius: 18px; background: rgba(18,18,25,.97); color: #ededf2; box-shadow: 0 18px 45px rgba(0,0,0,.55); transform: translateX(-50%); backdrop-filter: blur(18px); scrollbar-width: thin; }
         .novel-background-panel[hidden] { display: none; }
         .novel-background-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 650; }
         .novel-background-picker { width: 42px; height: 30px; padding: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; background: transparent; cursor: pointer; }
@@ -71,10 +72,11 @@
         .novel-font-option { height: 42px; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; background: rgba(255,255,255,.04); color: #d7d7e1; cursor: pointer; }
         .novel-font-option:hover { background: rgba(255,255,255,.09); color: #fff; }
         .novel-font-option.is-active { border-color: rgba(var(--reader-brand-rgb),.65); background: rgba(var(--reader-brand-rgb),.18); color: #fff; }
-        .novel-margin-setting { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
+        .novel-margin-setting { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.1); }
+        .novel-margin-setting + .novel-margin-setting { margin-top: 0; }
         .novel-margin-value { color: #a9a9b8; font-size: 12px; font-weight: 500; }
         .novel-margin-slider { width: 100%; height: 30px; margin-top: 8px; accent-color: var(--reader-brand); cursor: pointer; }
-        @media (max-width: 600px) { :root { --reader-size: 21px; --reader-leading: 2.2; --reader-margin: 16px; } .novel-reader-main { padding-top: 52px; padding-bottom: 42px; } .novel-control span { display: none; } }
+        @media (max-width: 600px) { :root { --reader-size: 21px; --reader-title-size: 32px; --reader-leading: 2.2; --reader-margin: 16px; } .novel-reader-main { padding-top: 52px; padding-bottom: 42px; } .novel-control span { display: none; } }
     </style>
 </head>
 <body>
@@ -123,6 +125,22 @@
         <div class="novel-margin-setting">
             <label class="novel-background-title" for="margin-slider"><span>左右边距</span><output class="novel-margin-value" id="margin-value">18px</output></label>
             <input class="novel-margin-slider" id="margin-slider" type="range" min="8" max="80" step="2" value="18" aria-label="调整小说正文左右边距">
+        </div>
+        <div class="novel-margin-setting">
+            <label class="novel-background-title" for="letter-spacing-slider"><span>字体间距</span><output class="novel-margin-value" id="letter-spacing-value">0.025em</output></label>
+            <input class="novel-margin-slider" id="letter-spacing-slider" type="range" min="0" max="0.12" step="0.005" value="0.025" aria-label="调整小说正文字体间距">
+        </div>
+        <div class="novel-margin-setting">
+            <label class="novel-background-title" for="line-height-slider"><span>行间距</span><output class="novel-margin-value" id="line-height-value">2.15</output></label>
+            <input class="novel-margin-slider" id="line-height-slider" type="range" min="1.4" max="3" step="0.05" value="2.15" aria-label="调整小说正文行间距">
+        </div>
+        <div class="novel-margin-setting">
+            <label class="novel-background-title" for="paragraph-spacing-slider"><span>段间距</span><output class="novel-margin-value" id="paragraph-spacing-value">0.9em</output></label>
+            <input class="novel-margin-slider" id="paragraph-spacing-slider" type="range" min="0" max="2" step="0.1" value="0.9" aria-label="调整小说正文段间距">
+        </div>
+        <div class="novel-margin-setting">
+            <label class="novel-background-title" for="title-size-slider"><span>标题字体大小</span><output class="novel-margin-value" id="title-size-value">36px</output></label>
+            <input class="novel-margin-slider" id="title-size-slider" type="range" min="22" max="54" step="1" value="36" aria-label="调整小说章节标题字体大小">
         </div>
     </div>
 
@@ -179,6 +197,14 @@
         const backgroundPicker = document.getElementById('background-picker');
         const marginSlider = document.getElementById('margin-slider');
         const marginValue = document.getElementById('margin-value');
+        const letterSpacingSlider = document.getElementById('letter-spacing-slider');
+        const letterSpacingValue = document.getElementById('letter-spacing-value');
+        const lineHeightSlider = document.getElementById('line-height-slider');
+        const lineHeightValue = document.getElementById('line-height-value');
+        const paragraphSpacingSlider = document.getElementById('paragraph-spacing-slider');
+        const paragraphSpacingValue = document.getElementById('paragraph-spacing-value');
+        const titleSizeSlider = document.getElementById('title-size-slider');
+        const titleSizeValue = document.getElementById('title-size-value');
         const fontFamilies = {
             default: '-apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif',
             song: '"Songti SC", STSong, serif',
@@ -198,6 +224,10 @@
         let pageStep = 1;
         let fontSize = Number(localStorage.getItem('mangadock-novel-font-size') || (matchMedia('(max-width: 600px)').matches ? 21 : 22));
         let readerMargin = Number(localStorage.getItem('mangadock-novel-margin') || (matchMedia('(max-width: 600px)').matches ? 16 : 18));
+        let letterSpacing = Number(localStorage.getItem('mangadock-novel-letter-spacing') || 0.025);
+        let lineHeight = Number(localStorage.getItem('mangadock-novel-line-height') || (matchMedia('(max-width: 600px)').matches ? 2.2 : 2.15));
+        let paragraphSpacing = Number(localStorage.getItem('mangadock-novel-paragraph-spacing') || 0.9);
+        let titleSize = Number(localStorage.getItem('mangadock-novel-title-size') || (matchMedia('(max-width: 600px)').matches ? 32 : 36));
         let saveTimer = null;
         let paginationTimer = null;
         let resizeTimer = null;
@@ -277,6 +307,49 @@
             marginSlider.value = readerMargin;
             marginValue.textContent = `${readerMargin}px`;
             localStorage.setItem('mangadock-novel-margin', String(readerMargin));
+            invalidatePreparedChapterViews();
+            schedulePagination();
+        }
+        function clampReaderSetting(value, minimum, maximum, fallback) {
+            const parsed = Number(value);
+            return Math.max(minimum, Math.min(Number.isFinite(parsed) ? parsed : fallback, maximum));
+        }
+        function formatReaderDecimal(value, digits = 3) {
+            return Number(value.toFixed(digits)).toString();
+        }
+        function applyLetterSpacing(value = letterSpacing) {
+            letterSpacing = clampReaderSetting(value, 0, 0.12, 0.025);
+            root.style.setProperty('--reader-letter-spacing', `${letterSpacing}em`);
+            letterSpacingSlider.value = letterSpacing;
+            letterSpacingValue.textContent = `${formatReaderDecimal(letterSpacing)}em`;
+            localStorage.setItem('mangadock-novel-letter-spacing', String(letterSpacing));
+            invalidatePreparedChapterViews();
+            schedulePagination();
+        }
+        function applyLineHeight(value = lineHeight) {
+            lineHeight = clampReaderSetting(value, 1.4, 3, 2.15);
+            root.style.setProperty('--reader-leading', String(lineHeight));
+            lineHeightSlider.value = lineHeight;
+            lineHeightValue.textContent = formatReaderDecimal(lineHeight, 2);
+            localStorage.setItem('mangadock-novel-line-height', String(lineHeight));
+            invalidatePreparedChapterViews();
+            schedulePagination();
+        }
+        function applyParagraphSpacing(value = paragraphSpacing) {
+            paragraphSpacing = clampReaderSetting(value, 0, 2, 0.9);
+            root.style.setProperty('--reader-paragraph-spacing', `${paragraphSpacing}em`);
+            paragraphSpacingSlider.value = paragraphSpacing;
+            paragraphSpacingValue.textContent = `${formatReaderDecimal(paragraphSpacing, 1)}em`;
+            localStorage.setItem('mangadock-novel-paragraph-spacing', String(paragraphSpacing));
+            invalidatePreparedChapterViews();
+            schedulePagination();
+        }
+        function applyTitleSize(value = titleSize) {
+            titleSize = clampReaderSetting(value, 22, 54, 36);
+            root.style.setProperty('--reader-title-size', `${titleSize}px`);
+            titleSizeSlider.value = titleSize;
+            titleSizeValue.textContent = `${titleSize}px`;
+            localStorage.setItem('mangadock-novel-title-size', String(titleSize));
             invalidatePreparedChapterViews();
             schedulePagination();
         }
@@ -1181,6 +1254,10 @@
         document.getElementById('font-toggle').addEventListener('click', () => { fontPanel.hidden = !fontPanel.hidden; backgroundPanel.hidden = true; });
         document.getElementById('background-toggle').addEventListener('click', () => { backgroundPanel.hidden = !backgroundPanel.hidden; fontPanel.hidden = true; });
         marginSlider.addEventListener('input', () => applyReaderMargin(marginSlider.value));
+        letterSpacingSlider.addEventListener('input', () => applyLetterSpacing(letterSpacingSlider.value));
+        lineHeightSlider.addEventListener('input', () => applyLineHeight(lineHeightSlider.value));
+        paragraphSpacingSlider.addEventListener('input', () => applyParagraphSpacing(paragraphSpacingSlider.value));
+        titleSizeSlider.addEventListener('input', () => applyTitleSize(titleSizeSlider.value));
         backgroundPicker.addEventListener('input', () => applyBackground(backgroundPicker.value));
         document.querySelectorAll('[data-reader-font]').forEach((button) => button.addEventListener('click', () => applyFont(button.dataset.readerFont)));
         document.querySelectorAll('[data-reader-background]').forEach((button) => button.addEventListener('click', () => applyBackground(button.dataset.readerBackground)));
@@ -1381,6 +1458,10 @@
             applyFont(localStorage.getItem('mangadock-novel-font') || 'default');
             applyBackground(localStorage.getItem('mangadock-novel-background') || '#0b0b0f');
             applyReaderMargin();
+            applyLetterSpacing();
+            applyLineHeight();
+            applyParagraphSpacing();
+            applyTitleSize();
             setReaderChromeHidden(true);
             updateClock();
             requestAnimationFrame(() => recalculatePagination(false, savedPage));

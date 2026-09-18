@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}小说分组管理 - MangaDock{% endblock %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+    <div>
+        <h1 class="md-page-title">小说分组管理</h1>
+        <p class="md-page-sub">新建分组后，勾选多本小说批量移动</p>
+    </div>
+    <a href="{{ url_for('novels_list', group='全部') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-arrow-left mr-2"></i>返回小说书架</a>
+</div>
+
+{% with messages = get_flashed_messages() %}
+{% if messages %}
+<div class="mb-5 space-y-2">
+    {% for message in messages %}
+    <div class="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<section class="md-novel-group-panel">
+    <div>
+        <h2 class="md-section-title !mb-1">分组</h2>
+        <p class="md-page-sub">删除分组不会删除小说，分组内小说会回到默认分组。</p>
+    </div>
+    <form method="post" action="{{ url_for('create_novel_group') }}" class="md-novel-group-create">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" name="group_name" class="md-input" maxlength="50" placeholder="输入新分组名称" required>
+        <button type="submit" class="md-btn-primary action-press"><i class="fa fa-plus mr-2"></i>新建分组</button>
+    </form>
+    <div class="md-novel-group-list">
+        {% for group_name in groups %}
+        <div class="md-novel-group-chip">
+            <a href="{{ url_for('novels_list', group=group_name) }}" data-app-loader="true">
+                <span>{{ group_name }}</span>
+                <strong>{{ group_counts.get(group_name, 0) }}</strong>
+            </a>
+            {% if group_name != '默认分组' %}
+            <form method="post" action="{{ url_for('remove_novel_group') }}" onsubmit="return confirm('删除这个分组？其中小说会移回默认分组。')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="group_name" value="{{ group_name }}">
+                <button type="submit" aria-label="删除分组 {{ group_name }}"><i class="fa fa-times"></i></button>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<form method="post" action="{{ url_for('batch_assign_novel_group') }}" id="novel-batch-form" class="mt-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="md-novel-batch-toolbar">
+        <div class="md-novel-batch-search">
+            <i class="fa fa-search"></i>
+            <input id="novel-group-search" type="search" class="md-input" placeholder="搜索书名、作者或当前分组" aria-label="搜索小说">
+        </div>
+        <button type="button" class="md-chip action-press" onclick="selectVisibleNovels(true)">全选当前结果</button>
+        <button type="button" class="md-chip action-press" onclick="selectVisibleNovels(false)">清空选择</button>
+        <select name="group_name" class="md-lib-select" required aria-label="目标小说分组">
+            <option value="">选择目标分组</option>
+            {% for group_name in groups %}<option value="{{ group_name }}">{{ group_name }}</option>{% endfor %}
+        </select>
+        <button id="novel-batch-submit" type="submit" class="md-btn-primary action-press" disabled>移动所选小说 <span id="novel-selected-count">0</span></button>
+    </div>
+
+    {% if novels %}
+    <div class="md-novel-batch-grid" id="novel-batch-grid">
+        {% for novel in novels %}
+        <label class="md-novel-select-item" data-search="{{ (novel.title ~ ' ' ~ novel.author ~ ' ' ~ novel.group)|lower }}">
+            <input type="checkbox" name="novel_ids" value="{{ novel.novel_id }}" onchange="syncNovelSelection()">
+            <span class="md-novel-select-card">
+                <img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="" loading="lazy" decoding="async">
+                <span class="md-novel-select-copy">
+                    <strong>{{ novel.title }}</strong>
+                    <small>{{ novel.author }}</small>
+                    <em><i class="fa fa-folder-o"></i>{{ novel.group }}</em>
+                </span>
+                <span class="md-novel-select-check"><i class="fa fa-check"></i></span>
+            </span>
+        </label>
+        {% endfor %}
+    </div>
+    <div id="novel-group-empty" class="md-empty mt-5" hidden>没有匹配的小说。</div>
+    {% else %}
+    <div class="md-empty mt-5">暂未扫描到 EPUB 小说。</div>
+    {% endif %}
+</form>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const novelSearchInput = document.getElementById('novel-group-search');
+    const novelItems = Array.from(document.querySelectorAll('.md-novel-select-item'));
+
+    function syncNovelSelection() {
+        const selectedCount = novelItems.filter((item) => item.querySelector('input[type="checkbox"]').checked).length;
+        document.getElementById('novel-selected-count').textContent = selectedCount;
+        document.getElementById('novel-batch-submit').disabled = selectedCount === 0;
+    }
+
+    function filterNovelItems() {
+        const term = (novelSearchInput?.value || '').trim().toLowerCase();
+        let visibleCount = 0;
+        novelItems.forEach((item) => {
+            const visible = !term || item.dataset.search.includes(term);
+            item.hidden = !visible;
+            if (visible) visibleCount += 1;
+        });
+        const empty = document.getElementById('novel-group-empty');
+        if (empty) empty.hidden = visibleCount !== 0;
+    }
+
+    function selectVisibleNovels(checked) {
+        novelItems.forEach((item) => {
+            if (!item.hidden) item.querySelector('input[type="checkbox"]').checked = checked;
+        });
+        syncNovelSelection();
+    }
+
+    novelSearchInput?.addEventListener('input', filterNovelItems);
+    syncNovelSelection();
+</script>
+{% endblock %}

@@ -83,7 +83,7 @@
                     {% if can_manage_library %}
                     <a href="{{ url_for('download') }}" class="md-btn-primary action-press" data-app-loader="true">去下载</a>
                     {% endif %}
-                    <a href="{{ url_for('comics_list') }}" class="md-btn-ghost action-press" data-app-loader="true">打开书架</a>
+                    <a href="{{ url_for('comics_list', group='全部') }}" class="md-btn-ghost action-press" data-app-loader="true">打开书架</a>
                 </div>
             </div>
         </div>
@@ -95,7 +95,7 @@
         <section class="md-section !py-8">
             <div class="mb-5 flex items-end justify-between gap-3">
                 <h2 class="md-section-title !mb-0">最近入库</h2>
-                <a href="{{ url_for('comics_list') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部书架</a>
+                <a href="{{ url_for('comics_list', group='全部') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部书架</a>
             </div>
             <div class="md-cover-grid">
                 {% for comic in latest_comics[:10] %}

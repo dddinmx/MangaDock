@@ -7,13 +7,24 @@ from flask import abort, flash, jsonify, redirect, render_template, request, sen
 from mangadock.auth import admin_required, get_current_user, login_required
 from mangadock.core import app
 from mangadock.models import DownloadTask
+from mangadock.pagination import paginate_sequence
+from mangadock.services.groups import normalize_group_name
+from mangadock.services.novel_groups import (
+    assign_novels_to_group,
+    delete_novel_group,
+    enrich_novels_with_groups,
+    ensure_novel_group,
+    get_all_novel_groups,
+    get_saved_novel_group_filter,
+    save_novel_group_filter,
+)
 from mangadock.services.novels import (
     NOVEL_PROGRESS_PREFIX,
     get_novel,
     get_novel_by_fanqie_id,
     get_novel_chapter,
     get_novel_chapters,
-    get_novel_cover,
+    get_novel_cover_file,
     get_novels,
     novel_progress_key,
     save_novel_cover,
@@ -81,18 +92,106 @@ def novel_index():
 def novels_list():
     progresses = _novel_progress_lookup(session.get('user_id'))
     novels = [_novel_with_progress(novel, progresses.get(novel['novel_id'])) for novel in get_novels()]
+    novels, group_names, group_counts, grouped_lookup = enrich_novels_with_groups(novels)
     novels.sort(
         key=lambda novel: (
             0 if novel['progress'] else 1,
             -(novel['last_read_at'].timestamp() if novel['last_read_at'] else novel['created_at'].timestamp()),
         )
     )
+    requested_group = request.args.get('group')
+    if requested_group is None:
+        selected_group = get_saved_novel_group_filter(session.get('user_id'))
+    else:
+        selected_group = normalize_group_name(requested_group) or '全部'
+    if selected_group != '全部' and selected_group not in grouped_lookup:
+        selected_group = '全部'
+    save_novel_group_filter(selected_group, session.get('user_id'))
+
+    selected_novels = novels if selected_group == '全部' else [
+        novel for novel in novels if novel.get('group') == selected_group
+    ]
+    novels, pagination = paginate_sequence(selected_novels, request.args.get('page'))
     return render_template(
         'novels.html',
         library_mode='novel',
         novels=novels,
+        pagination=pagination,
+        groups=group_names,
+        group_counts=group_counts,
+        selected_group=selected_group,
         current_user=get_current_user(),
     )
+
+
+@app.route('/novels/groups')
+@login_required
+@admin_required
+def novel_group_manager():
+    novels, groups, group_counts, _ = enrich_novels_with_groups(get_novels())
+    novels.sort(key=lambda item: (item.get('group') or '', item.get('title') or ''))
+    return render_template(
+        'novel_groups.html',
+        library_mode='novel',
+        novels=novels,
+        groups=groups,
+        group_counts=group_counts,
+        current_user=get_current_user(),
+    )
+
+
+@app.route('/novels/groups/create', methods=['POST'])
+@login_required
+@admin_required
+def create_novel_group():
+    group_name = normalize_group_name(request.form.get('group_name'))
+    if not group_name:
+        flash('分组名称不能为空')
+    elif group_name == '全部':
+        flash('“全部”是系统筛选项，不能作为分组名称')
+    elif group_name in set(get_all_novel_groups()):
+        flash('分组已存在')
+    elif ensure_novel_group(group_name):
+        flash(f'已创建小说分组：{group_name}')
+    else:
+        flash('创建分组失败，请重试')
+    return redirect(url_for('novel_group_manager'))
+
+
+@app.route('/novels/groups/assign', methods=['POST'])
+@login_required
+@admin_required
+def batch_assign_novel_group():
+    group_name = normalize_group_name(request.form.get('group_name'))
+    selected_ids = request.form.getlist('novel_ids')
+    valid_ids = {novel['novel_id'] for novel in get_novels()}
+    if group_name not in set(get_all_novel_groups()):
+        flash('请选择有效的目标分组')
+    elif not selected_ids:
+        flash('请至少选择一本小说')
+    else:
+        assigned_count = assign_novels_to_group(selected_ids, group_name, valid_ids)
+        if assigned_count:
+            flash(f'已将 {assigned_count} 本小说加入「{group_name}」')
+        else:
+            flash('没有可分配的小说，请重新选择')
+    return redirect(url_for('novel_group_manager'))
+
+
+@app.route('/novels/groups/delete', methods=['POST'])
+@login_required
+@admin_required
+def remove_novel_group():
+    group_name = normalize_group_name(request.form.get('group_name'))
+    if not group_name:
+        flash('请选择要删除的分组')
+    elif group_name == '默认分组':
+        flash('默认分组不能删除')
+    elif delete_novel_group(group_name):
+        flash(f'已删除分组「{group_name}」，其中小说已移回默认分组')
+    else:
+        flash('分组不存在或删除失败')
+    return redirect(url_for('novel_group_manager'))
 
 
 @app.route('/novels/search')
@@ -280,16 +379,22 @@ def novel_chapter_data(novel_id, chapter_index):
 @app.route('/novel/<path:novel_id>/cover')
 @login_required
 def novel_cover(novel_id):
-    cover = get_novel_cover(novel_id)
+    cover = get_novel_cover_file(novel_id)
     if not cover:
         return app.send_static_file('cover/cover.png')
-    content, mimetype = cover
-    return send_file(
-        BytesIO(content),
+    cover_path, mimetype = cover
+    response = send_file(
+        cover_path,
         mimetype=mimetype,
-        max_age=0,
+        conditional=True,
+        etag=True,
+        max_age=31536000,
         download_name=f'{novel_id}.jpg',
     )
+    response.cache_control.public = False
+    response.cache_control.private = True
+    response.cache_control.immutable = True
+    return response
 
 
 @app.route('/novel/<path:novel_id>/cover', methods=['POST'])

@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <link rel="shortcut icon" href="{{ asset_url('favicon.ico') }}" type="image/x-icon">
+    <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
+    <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
     <title>{{ task.comic_name }} - 阅读</title>
     <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
     <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
@@ -769,7 +770,7 @@
     <!-- 移动端顶部标题栏 -->
     <div class="mobile-header" id="mobile-header">
         <div class="mobile-header-left">
-            <a href="{{ url_for('comic_detail', task_id=task.id) }}" class="back-btn">
+            <a href="{{ url_for('comic_detail', task_id=task.id, return_to=library_return_url) }}" class="back-btn">
                 <i class="fa fa-arrow-left"></i>
             </a>
             <div>
@@ -780,7 +781,7 @@
     </div>
     
     <!-- 桌面端返回按钮 -->
-    <a href="{{ url_for('comic_detail', task_id=task.id) }}" class="back-btn" style="display: none;" id="desktop-back-btn">
+    <a href="{{ url_for('comic_detail', task_id=task.id, return_to=library_return_url) }}" class="back-btn" style="display: none;" id="desktop-back-btn">
         <i class="fa fa-arrow-left"></i>
     </a>
 

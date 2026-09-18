@@ -11,7 +11,7 @@
             {% else %}可按书名或作者搜索本地小说{% endif %}
         </p>
     </div>
-    <a href="{{ url_for('novels_list') }}" class="md-fanqie-back text-sm" data-app-loader="true">返回书架</a>
+    <a href="{{ url_for('novels_list', group='全部') }}" class="md-fanqie-back text-sm" data-app-loader="true">返回书架</a>
 </div>
 
 {% if query and novels %}
@@ -20,7 +20,7 @@
     <a href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" class="md-cover-card" data-app-loader="true">
         <div class="md-book">
             <div class="md-book__spine" aria-hidden="true"></div><div class="md-book__pages" aria-hidden="true"></div>
-            <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id) }}" alt="{{ novel.title }}"></div>
+            <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="{{ novel.title }}" loading="lazy" decoding="async"></div>
         </div>
         <div class="md-cover-card__title">{{ novel.title }}</div>
         <div class="md-cover-card__meta">{{ novel.author }} · {{ novel.chapter_count }} 章</div>
