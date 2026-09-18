@@ -97,6 +97,8 @@ def _metadata_for_file(file_path, modified_ns):
         return {
             'title': _first_text(package, 'title'),
             'author': _first_text(package, 'creator'),
+            'identifier': _first_text(package, 'identifier'),
+            'source': _first_text(package, 'source'),
             'description': _clean_text(_first_text(package, 'description')),
             'publisher': _first_text(package, 'publisher'),
             'language': _first_text(package, 'language'),
@@ -138,6 +140,7 @@ def get_novels():
             'language': metadata['language'],
             'chapter_count': len(metadata['spine']),
             'file_path': file_path,
+            'fanqie_book_id': _fanqie_book_id(metadata),
             'created_at': datetime.fromtimestamp(os.path.getmtime(file_path), tz=china_tz),
         })
     return sorted(novels, key=lambda item: item['created_at'], reverse=True)
@@ -147,6 +150,19 @@ def get_novel(novel_id):
     if not novel_id or '/' in novel_id or '\\' in novel_id:
         return None
     return next((novel for novel in get_novels() if novel['novel_id'] == novel_id), None)
+
+
+def _fanqie_book_id(metadata):
+    for value in (metadata.get('source'), metadata.get('identifier')):
+        match = re.search(r'(?:fanqie-|/page/)(\d{8,24})', str(value or ''))
+        if match:
+            return match.group(1)
+    return ''
+
+
+def get_novel_by_fanqie_id(book_id):
+    book_id = str(book_id or '')
+    return next((novel for novel in get_novels() if novel.get('fanqie_book_id') == book_id), None)
 
 
 @lru_cache(maxsize=64)

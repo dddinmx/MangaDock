@@ -15,10 +15,21 @@
             <div class="md-hero-copy">
                 <div class="md-hero-tags">小说 · EPUB · {{ spotlight.chapter_count }} 章</div>
                 <h1 class="md-hero-title">{{ spotlight.title }}</h1>
-                <p class="md-hero-desc">
-                    {% if spotlight.description %}{{ spotlight.description }}
-                    {% else %}{{ spotlight.author }} 著。本地 EPUB 已入库，阅读进度会自动保存在当前账号下。{% endif %}
-                </p>
+                <div class="md-hero-desc-wrap" data-hero-description>
+                    <p class="md-hero-desc md-hero-desc--collapsible" id="hero-novel-description">
+                        {% if spotlight.description %}{{ spotlight.description }}
+                        {% else %}{{ spotlight.author }} 著。本地 EPUB 已入库，阅读进度会自动保存在当前账号下。{% endif %}
+                    </p>
+                    <button type="button"
+                            class="md-hero-desc-toggle"
+                            data-hero-description-toggle
+                            aria-expanded="false"
+                            aria-controls="hero-novel-description"
+                            hidden>
+                        <span data-hero-description-label>展开简介</span>
+                        <i class="fa fa-angle-down" aria-hidden="true"></i>
+                    </button>
+                </div>
                 {% if spotlight.progress %}
                 <p class="md-hero-progress-hint">上次读到第 {{ spotlight.last_chapter + 1 }} 章</p>
                 {% endif %}
@@ -49,6 +60,15 @@
     {% endif %}
 
     <div class="md-main md-home-sections">
+        <section class="md-section !py-8">
+            <div class="md-fanqie-panel rounded-2xl p-5 md:flex md:items-center md:justify-between md:gap-6">
+                <div>
+                    <h2 class="md-fanqie-title text-xl font-semibold">从番茄小说添加</h2>
+                    <p class="md-fanqie-muted mt-2 text-sm">搜索书名或作者，也可以粘贴番茄链接。</p>
+                </div>
+                <a href="{{ url_for('fanqie_novel_search') }}" class="md-btn-primary mt-4 md:mt-0" data-app-loader="true"><i class="fa fa-search mr-2"></i>搜索与下载</a>
+            </div>
+        </section>
         {% if latest_novels %}
         <section class="md-section !py-8">
             <div class="mb-5 flex items-end justify-between gap-3">
@@ -72,4 +92,42 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    (() => {
+        const description = document.getElementById('hero-novel-description');
+        const toggle = document.querySelector('[data-hero-description-toggle]');
+        if (!description || !toggle) return;
+
+        const label = toggle.querySelector('[data-hero-description-label]');
+        const icon = toggle.querySelector('i');
+
+        const syncOverflow = () => {
+            if (description.classList.contains('is-expanded')) return;
+            toggle.hidden = description.scrollHeight <= description.clientHeight + 1;
+        };
+
+        toggle.addEventListener('click', () => {
+            const expanded = description.classList.toggle('is-expanded');
+            toggle.setAttribute('aria-expanded', String(expanded));
+            label.textContent = expanded ? '收起简介' : '展开简介';
+            icon.className = expanded ? 'fa fa-angle-up' : 'fa fa-angle-down';
+            if (!expanded) {
+                requestAnimationFrame(syncOverflow);
+            }
+        });
+
+        requestAnimationFrame(syncOverflow);
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(syncOverflow);
+        }
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            window.clearTimeout(resizeTimer);
+            resizeTimer = window.setTimeout(syncOverflow, 120);
+        }, { passive: true });
+    })();
+</script>
 {% endblock %}

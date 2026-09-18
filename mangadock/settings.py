@@ -29,6 +29,27 @@ COMIC_ROOT = os.path.join(BASE_DIR, "comic")
 NOVEL_ROOT = os.path.join(BASE_DIR, "小说")
 COVER_ROOT = os.path.join(BASE_DIR, "static", "cover")
 NOVEL_COVER_ROOT = os.path.join(COVER_ROOT, "novels")
+FANQIE_API_BASE_URL = os.environ.get(
+    "MANGADOCK_FANQIE_API_URL", "https://fanqie.dddinmx.cn"
+).strip().rstrip("/")
+FANQIE_API_TOKEN = os.environ.get("MANGADOCK_FANQIE_API_TOKEN", "").strip()
+FANQIE_API_INSTALLATION_ID = os.environ.get(
+    "MANGADOCK_FANQIE_INSTALLATION_ID", ""
+).strip()
+FANQIE_API_INSTALLATION_ID_FILE = os.environ.get(
+    "MANGADOCK_FANQIE_INSTALLATION_ID_FILE",
+    os.path.join(BASE_DIR, "instance", "fanqie_installation_id"),
+).strip()
+FANQIE_API_ALLOW_ANONYMOUS = os.environ.get(
+    "MANGADOCK_FANQIE_API_ALLOW_ANONYMOUS", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
+FANQIE_API_POLL_INTERVAL = max(
+    1.0, float(os.environ.get("MANGADOCK_FANQIE_API_POLL_INTERVAL", "2"))
+)
+FANQIE_API_MAX_ARTIFACT_BYTES = max(
+    64 * 1024 * 1024,
+    int(os.environ.get("MANGADOCK_FANQIE_API_MAX_ARTIFACT_MB", "2048")) * 1024 * 1024,
+)
 COMIC_MAPPING_FILE = os.path.join(BASE_DIR, "comic.json")
 TEMPLATE_FOLDER = os.path.join(BASE_DIR, "templates")
 STATIC_FOLDER = os.path.join(BASE_DIR, "static")

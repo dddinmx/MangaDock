@@ -5,13 +5,13 @@
 {% block content %}
 <div class="mb-8 flex flex-wrap items-end justify-between gap-3">
     <div>
-        <h1 class="text-2xl font-bold text-white md:text-3xl">搜索结果</h1>
-        <p class="mt-2 text-sm text-ink-300">
-            {% if query %}「{{ query }}」共 <span class="font-semibold text-white">{{ result_count }}</span> 个结果
+        <h1 class="md-page-title">搜索结果</h1>
+        <p class="md-page-sub">
+            {% if query %}「{{ query }}」共 <span class="md-fanqie-title font-semibold">{{ result_count }}</span> 个结果
             {% else %}可按书名或作者搜索本地小说{% endif %}
         </p>
     </div>
-    <a href="{{ url_for('novels_list') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">返回书架</a>
+    <a href="{{ url_for('novels_list') }}" class="md-fanqie-back text-sm" data-app-loader="true">返回书架</a>
 </div>
 
 {% if query and novels %}

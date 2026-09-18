@@ -449,7 +449,7 @@ def download():
         comic_format = int(request.form.get('format', 2))
 
         if not is_supported_comic_url(comic_url):
-            return render_template('download.html', error='请输入有效的漫画详情页URL（支持 baozimh.com、baozimhcn.com、baozimh.org 或 mxs12.cc）')
+            return render_template('download.html', error='请输入有效的漫画链接或 ID（支持包子漫画、MXS 和番茄图片漫画）')
 
         # 启动下载线程并获取任务ID
         task_id = start_download_task(comic_url, comic_format)
@@ -569,7 +569,18 @@ def progress(task_id):
     task = get_task(task_id)
     if not task:
         return render_template('error.html', message="任务不存在或已过期"), 404
-    return render_template('progress.html', task_id=task_id)
+    from mangadock.services.fanqie import book_id_from_task_url
+
+    novel_book_id = book_id_from_task_url(task.url)
+    return render_template(
+        'progress.html',
+        task_id=task_id,
+        is_novel_task=bool(novel_book_id),
+        novel_cover_url=(
+            url_for('fanqie_novel_book_cover', book_id=novel_book_id)
+            if novel_book_id else ''
+        ),
+    )
 
 @app.route('/task_status/<task_id>')
 @login_required

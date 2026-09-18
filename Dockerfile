@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -27,7 +27,6 @@ RUN mkdir -p /app/comic /app/小说 /app/static/cover /app/instance \
 
 ENV PYTHONPATH=/app \
     FLASK_APP=app.py \
-    FLASK_ENV=production \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai \
     MANGADOCK_BIND=0.0.0.0:5001

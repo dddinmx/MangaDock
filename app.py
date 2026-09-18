@@ -108,8 +108,8 @@ def main():
 
     worker_count = max(2, min(4, os.cpu_count() or 2))
     gunicorn_options = {
-        # Docker requires the process to listen on all container interfaces.
-        # A host deployment can still override this (for example, 127.0.0.1).
+        # Docker listens on all container interfaces. Host deployments can
+        # override this with MANGADOCK_BIND=127.0.0.1:5001.
         'bind': os.environ.get('MANGADOCK_BIND', '0.0.0.0:5001'),
         'workers': worker_count,
         'threads': 4,

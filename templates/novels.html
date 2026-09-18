@@ -8,6 +8,7 @@
         <h1 class="md-page-title">小说书架</h1>
         <p class="md-page-sub">共 {{ novels|length }} 本</p>
     </div>
+    <a href="{{ url_for('fanqie_novel_search') }}" class="md-btn-primary" data-app-loader="true"><i class="fa fa-plus mr-2"></i>添加番茄小说</a>
 </div>
 
 {% if novels %}

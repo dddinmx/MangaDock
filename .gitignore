@@ -14,13 +14,11 @@ env/
 # Runtime libraries and personal data
 data/comic/**
 !data/comic/.gitkeep
-data/cover/**
-!data/cover/.gitkeep
 data/novels/**
 !data/novels/.gitkeep
-data/instance/**
-!data/instance/.gitkeep
 instance/
+/comic/
+/小说/
 *.db
 *.sqlite
 *.sqlite3
@@ -32,3 +30,14 @@ static/cover/*
 !static/cover/cover.png
 
 node_modules/
+*.epub
+*.pdf
+*.cbz
+
+# The private Fanqie implementation and service runtime never belong in this
+# public repository.
+**/fanqie_download.py
+**/fanqie_download.pyc
+mangadock/vendor/
+private/
+fanqie-api/

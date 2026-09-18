@@ -83,6 +83,13 @@
                         {{ '继续阅读 第 ' ~ (progress.last_chapter + 1) ~ ' 章' if progress else '开始阅读' }}
                     </a>
                     <a href="{{ url_for('novel_index') }}" class="md-btn-ghost action-press" data-app-loader="true">返回首页</a>
+                    {% if novel.fanqie_book_id and current_user and current_user.is_admin %}
+                    <form method="post" action="{{ url_for('fanqie_novel_download') }}" class="inline-flex">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="book_id" value="{{ novel.fanqie_book_id }}">
+                        <button type="submit" class="md-btn-ghost action-press"><i class="fa fa-refresh mr-2"></i>更新小说</button>
+                    </form>
+                    {% endif %}
                 </div>
             </div>
         </header>

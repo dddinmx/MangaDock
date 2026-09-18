@@ -91,6 +91,7 @@ def _serialize_task(task):
         'id': task.id,
         'comic_name': task.comic_name,
         'url': task.url,
+        'media_type': 'novel' if str(task.url or '').startswith('fanqie://') else 'comic',
         'status': task.status,
         'progress_percent': task.progress_percent or 0,
         'total_chapters': task.total_chapters or 0,
@@ -331,7 +332,7 @@ def register_routes(bp):
         if not is_supported_comic_url(comic_url):
             return api_fail(
                 'UNSUPPORTED_URL',
-                '请输入有效的漫画详情页 URL（支持 baozimh.com、baozimhcn.com、baozimh.org 或 mxs12.cc）',
+                '请输入有效的漫画链接或 ID（支持包子漫画、MXS 和番茄图片漫画）',
             )
 
         task_id = start_download_task(comic_url, comic_format)

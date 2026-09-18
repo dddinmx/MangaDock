@@ -138,6 +138,9 @@ def decode_baozimh_org_image_payload(encoded_images):
 
 
 def detect_source_provider(url):
+    from mangadock.services.fanqie_comics import is_fanqie_comic_target
+    if is_fanqie_comic_target(url):
+        return 'fanqie'
     host = urlparse(url).netloc.lower()
     if 'mxs12.cc' in host or 'wzd1.cc' in host:
         return 'mxs'
@@ -199,6 +202,9 @@ def extract_description_from_html(html_content, soup=None):
 
 
 def is_supported_comic_url(url):
+    from mangadock.services.fanqie_comics import is_fanqie_comic_target
+    if is_fanqie_comic_target(url):
+        return True
     patterns = [
         r'^https://(?:cn\.baozimhcn\.com|(?:www\.)?baozimh\.com)/comic/[^/?#]+/?$',
         r'^https://(?:www\.)?baozimh\.org/manga/[^/?#]+/?$',
@@ -369,6 +375,9 @@ def load_baozimhcn_source(url):
 
 def load_comic_source(url):
     provider = detect_source_provider(url)
+    if provider == 'fanqie':
+        from mangadock.services.fanqie_comics import load_fanqie_comic_source
+        return load_fanqie_comic_source(url)
     if provider == 'mxs':
         return load_mxs_source(url)
     if provider == 'baozimh_org':

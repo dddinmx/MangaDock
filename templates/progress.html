@@ -153,7 +153,7 @@
                 </div>
                 <!-- 封面图片（src 由脚本设置，避免相对路径与缓存问题） -->
                 <img id="comic-cover" class="comic-cover hidden w-48 h-64 object-cover rounded-md shadow-md transition-all duration-300 hover:shadow-lg"
-                     alt="漫画封面图"
+                     alt="{{ '小说' if is_novel_task else '漫画' }}封面图"
                      style="display: none;">
             </div>
             
@@ -254,14 +254,23 @@
         <div id="completed-actions" class="hidden bg-green-50 rounded-xl p-6 text-center mb-8">
             <i class="fa fa-check-circle text-5xl text-secondary mb-4"></i>
             <h2 class="text-2xl font-bold text-gray-800 mb-2">操作完成!</h2>
-            <p class="text-gray-600 mb-6">漫画已成功下载或更新完成</p>
+            <p class="text-gray-600 mb-6">{{ '小说已成功下载或更新，并已加入书架' if is_novel_task else '漫画已成功下载或更新完成' }}</p>
             <div class="flex flex-col sm:flex-row justify-center gap-4">
+                {% if is_novel_task %}
+                <a href="{{ url_for('fanqie_novel_search') }}" class="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-6 rounded-lg transition duration-200">
+                    <i class="fa fa-search mr-2"></i> 添加其他小说
+                </a>
+                <a href="{{ url_for('novels_list') }}" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-3 px-6 rounded-lg transition duration-200">
+                    <i class="fa fa-book mr-2"></i> 打开小说书架
+                </a>
+                {% else %}
                 <a href="{{ url_for('download') }}" class="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-6 rounded-lg transition duration-200">
                     <i class="fa fa-download mr-2"></i> 下载其他漫画
                 </a>
                 <a href="{{ url_for('update') }}" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-3 px-6 rounded-lg transition duration-200">
                     <i class="fa fa-refresh mr-2"></i> 更新其他漫画
                 </a>
+                {% endif %}
                 <a href="{{ url_for('index') }}" class="bg-gray-600 hover:bg-gray-700 text-white font-medium py-3 px-6 rounded-lg transition duration-200">
                     <i class="fa fa-home mr-2"></i> 返回主页
                 </a>
@@ -316,6 +325,8 @@
         const taskId = "{{ task_id }}";
         const csrfToken = "{{ csrf_token() }}";
         const coverBaseUrl = "{{ url_for('static', filename='cover') }}";
+        const novelCoverUrl = {{ novel_cover_url|default('', true)|tojson }};
+        const isNovelTask = {{ is_novel_task|default(false)|tojson }};
         let updateInterval;
         let quickCheckInterval = null;
         let initialLoadComplete = false;
@@ -442,7 +453,7 @@
                     
                     updateUI(data);
                     
-                    // 封面可能在任务中途才下载完成：轮询期间持续尝试（带节流与防缓存）
+                    // 漫画封面可能中途才写入；番茄小说封面则通过书籍 ID 获取。
                     if (data.comic_name) {
                         maybeLoadCoverImage(data.comic_name);
                     }
@@ -516,8 +527,10 @@
             lastCoverComicName = comicName;
 
             // 绝对路径 + 防缓存：封面在任务中途生成时，避免浏览器沿用 404 缓存
-            const imageUrl = `${coverBaseUrl}/${encodeURIComponent(comicName)}.jpg?t=${Date.now()}`;
-            imgElement.alt = `${comicName}的封面图`;
+            const imageUrl = isNovelTask && novelCoverUrl
+                ? `${novelCoverUrl}?t=${Date.now()}`
+                : `${coverBaseUrl}/${encodeURIComponent(comicName)}.jpg?t=${Date.now()}`;
+            imgElement.alt = `${comicName}的${isNovelTask ? '小说' : '漫画'}封面`;
 
             const onLoad = function () {
                 if (lastCoverComicName !== comicName) {

@@ -9,3 +9,4 @@ natsort==8.4.0
 flask-sqlalchemy==2.5.1
 sqlalchemy==1.4.54
 Flask-WTF==1.2.2
+EbookLib==0.19

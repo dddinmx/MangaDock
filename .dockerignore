@@ -1,9 +1,17 @@
 .git
 .gitignore
+.github/
 **/__pycache__/
 **/*.py[cod]
 **/._*
 .DS_Store
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.env
+.env.*
 
 # Never bake personal libraries, covers, databases, sessions, logs, or locks
 # into a public image. docker-compose mounts these directories at runtime.
@@ -16,9 +24,25 @@ static/cover/*
 
 node_modules/
 tests/
+old/
+scripts/
+tools/
+
+# The private Fanqie implementation is deployed separately and must never be
+# copied into a public source package or image build context.
+**/fanqie_download.py
+**/fanqie_download.pyc
+mangadock/vendor/
+private/
+fanqie-api/
+github-mangadock/
+dockerhub-src/
 *.db
 *.sqlite
 *.sqlite3
 *.log
 *.lock
 *.before-*
+*.epub
+*.pdf
+*.cbz

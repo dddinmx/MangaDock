@@ -81,6 +81,14 @@ def execute_download_task(task_id):
     if task.status == 'cancelled':
         return False
 
+    from mangadock.services.fanqie_comics import is_fanqie_comic_target, execute_fanqie_comic_task
+    if is_fanqie_comic_target(task.url):
+        return execute_fanqie_comic_task(task_id)
+
+    from mangadock.services.fanqie import book_id_from_task_url, execute_fanqie_task
+    if book_id_from_task_url(task.url):
+        return execute_fanqie_task(task_id)
+
     if task.is_update:
         with app.app_context():
             running_same_comic_tasks = DownloadTask.query.filter(

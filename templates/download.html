@@ -73,6 +73,17 @@
         color: white;
     }
 
+    .source-shortcut.fanqie .source-shortcut-icon {
+        border-color: rgba(254, 202, 202, 0.95);
+        background: rgba(254, 242, 242, 0.96);
+        color: rgb(239, 68, 68);
+    }
+
+    .source-shortcut.fanqie:hover .source-shortcut-icon {
+        background: rgb(239, 68, 68);
+        color: white;
+    }
+
     .source-shortcut:hover .source-shortcut-label {
         color: rgb(31, 41, 55);
     }
@@ -147,6 +158,19 @@
                                 </span>
                                 <span class="source-shortcut-label">漫小肆韩漫</span>
                             </a>
+                            <a
+                                href="https://fanqienovel.com/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="source-shortcut fanqie action-press"
+                                aria-label="打开番茄小说"
+                                title="打开番茄小说"
+                            >
+                                <span class="source-shortcut-icon">
+                                    <i class="fa fa-leaf text-lg"></i>
+                                </span>
+                                <span class="source-shortcut-label">番茄漫画</span>
+                            </a>
                         </div>
                     </div>
                     <div class="relative">
@@ -154,16 +178,16 @@
                             <i class="fa fa-link text-gray-400"></i>
                         </div>
                         <input
-                            type="url"
+                            type="text"
                             id="comic_url"
                             name="comic_url"
-                            placeholder="https://baozimh.org/manga/xxx/ 或 https://www.baozimh.com/comic/xxx/"
+                            placeholder="漫画详情页、番茄分享链接或番茄书籍 ID"
                             class="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition duration-200"
                             required
                         >
                     </div>
                     <p class="mt-2 text-sm text-gray-500">
-                        请输入从 <span class="font-medium">https://baozimh.org/</span>、<span class="font-medium">https://www.baozimh.com/</span>、<span class="font-medium">https://cn.baozimhcn.com/</span> 或 <span class="font-medium">https://mxs12.cc/</span> 获取的漫画详情页 URL
+                        支持包子漫画、MXS，以及番茄图片漫画的详情页、分享链接或书籍 ID；番茄漫剧/短剧视频不属于图片漫画。
                     </p>
                 </div>
 
@@ -231,6 +255,10 @@
                 <li class="flex items-start">
                     <i class="fa fa-check-circle text-primary mt-1 mr-2"></i>
                     <span>下载过程中可以在进度页实时查看下载状态</span>
+                </li>
+                <li class="flex items-start">
+                    <i class="fa fa-check-circle text-primary mt-1 mr-2"></i>
+                    <span>番茄漫画支持 PDF 与 CBZ，下载后会自动进入 MangaDock 漫画书库</span>
                 </li>
             </ul>
         </div>
