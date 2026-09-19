@@ -576,9 +576,14 @@ def images_to_cbz(folder_path):
     try:
         images = []
         for fname in os.listdir(folder_path):
+            # SMB 挂载会为每个文件生成 AppleDouble 元数据文件（._xxx）。
+            # 不排除的话它们会被打进 cbz，前端 Safari 排序后将其排在首位，
+            # 解码失败会导致整章报「章节图片加载失败」（Chrome 嗅探排序侥幸正常）。
+            if fname.startswith('.'):
+                continue
             if fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                 images.append(os.path.join(folder_path, fname))
-        
+
         # 排序
         images = natsorted(images)
         if not images:
@@ -617,9 +622,10 @@ def images_to_pdf(folder_path):
     try:
         images = []
         for fname in os.listdir(folder_path):
+            if fname.startswith('.'):
+                continue
             if fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                 images.append(os.path.join(folder_path, fname))
-
         images = natsorted(images)
         if not images:
             return False, f"文件夹 {folder_path} 中没有图片"
