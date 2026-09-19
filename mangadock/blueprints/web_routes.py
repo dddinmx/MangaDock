@@ -41,7 +41,12 @@ from mangadock.models import (
     UserGroupPermission,
 )
 from mangadock.pagination import paginate_sequence
+from mangadock.services.adult_content import (
+    is_adult_content_enabled,
+    set_adult_content_enabled,
+)
 from mangadock.services.download import (
+    is_adult_content_blocked,
     is_supported_comic_url,
     load_comic_source,
     refresh_comic_description,
@@ -116,6 +121,7 @@ from mangadock.services.updates import (
 )
 from mangadock.services.workers import start_download_task, start_update_task
 from mangadock.settings import (
+    ADULT_CONTENT_DISABLED_MESSAGE,
     COMIC_ROOT,
     COMIC_UPDATE_MODE_AUTO,
     COMIC_UPDATE_MODE_MANUAL,
@@ -450,7 +456,20 @@ def download():
         comic_format = int(request.form.get('format', 2))
 
         if not is_supported_comic_url(comic_url):
-            return render_template('download.html', error='请输入有效的漫画链接或 ID（支持包子漫画、MXS 和番茄图片漫画）')
+            return render_template(
+                'download.html',
+                error='请输入有效的漫画链接或 ID（支持包子漫画、番茄图片漫画'
+                      + ('、MXS' if is_adult_content_enabled() else '')
+                      + '）',
+                adult_content_enabled=is_adult_content_enabled(),
+            )
+
+        if is_adult_content_blocked(comic_url):
+            return render_template(
+                'download.html',
+                error=ADULT_CONTENT_DISABLED_MESSAGE,
+                adult_content_enabled=is_adult_content_enabled(),
+            )
 
         # 启动下载线程并获取任务ID
         task_id = start_download_task(comic_url, comic_format)
@@ -458,7 +477,7 @@ def download():
         # 重定向到进度页
         return redirect(url_for('progress', task_id=task_id))
 
-    return render_template('download.html')
+    return render_template('download.html', adult_content_enabled=is_adult_content_enabled())
 
 @app.route('/update', methods=['GET', 'POST'])
 @login_required
@@ -1559,7 +1578,25 @@ def get_chapters(task_id):
 def settings():
     current_user = get_current_user()
     scan_paths = get_scan_path_entries() if current_user and current_user.is_admin else []
-    return render_template('settings.html', current_user=current_user, scan_paths=scan_paths)
+    return render_template(
+        'settings.html',
+        current_user=current_user,
+        scan_paths=scan_paths,
+        adult_content_enabled=is_adult_content_enabled(),
+    )
+
+
+@app.route('/settings/adult-content', methods=['POST'])
+@login_required
+@admin_required
+def set_adult_content():
+    enabled = (request.form.get('enabled') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    set_adult_content_enabled(enabled)
+    if enabled:
+        flash('已开启 18+ 内容来源：下载页将显示漫小肆韩漫入口')
+    else:
+        flash('已关闭 18+ 内容来源：漫小肆韩漫入口已隐藏，相关下载已停用')
+    return redirect(url_for('settings'))
 
 
 @app.route('/settings/scan_paths', methods=['POST'])

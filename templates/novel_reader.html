@@ -16,14 +16,17 @@
                 const supportedAccents = ['pink-blue', 'pink-green', 'gray', 'pink', 'red'];
                 const savedAccent = localStorage.getItem('mangadock-accent');
                 document.documentElement.dataset.accent = supportedAccents.includes(savedAccent) ? savedAccent : 'red';
+                const savedReaderMode = localStorage.getItem('mangadock-novel-reading-mode');
+                document.documentElement.dataset.readerMode = ['horizontal', 'vertical'].includes(savedReaderMode) ? savedReaderMode : 'horizontal';
             } catch (error) {
                 document.documentElement.dataset.accent = 'red';
+                document.documentElement.dataset.readerMode = 'horizontal';
             }
         })();
     </script>
     <style>
         @font-face { font-family: "MangaDock Kai"; src: url("{{ asset_url('fonts/LXGWWenKai-Regular.ttf') }}") format("truetype"); font-display: swap; }
-        :root { --reader-size: 22px; --reader-title-size: 36px; --reader-leading: 2.15; --reader-letter-spacing: .025em; --reader-paragraph-spacing: .9em; --reader-width: 796px; --reader-margin: 18px; --reader-page-gap: 36px; --reader-font: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif; --reader-bg: #0b0b0f; --reader-text: #dcdce5; --reader-title: #ffffff; --reader-muted: #626273; --reader-brand: #e11d48; --reader-brand-rgb: 225, 29, 72; }
+        :root { --reader-size: 22px; --reader-title-size: 36px; --reader-leading: 2.15; --reader-letter-spacing: .025em; --reader-paragraph-spacing: .9em; --reader-width: 796px; --reader-margin: 18px; --reader-page-gap: 36px; --reader-font: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif; --reader-bg: #0b0b0f; --reader-text: #dcdce5; --reader-title: #ffffff; --reader-muted: #626273; --reader-brand: #e11d48; --reader-brand-rgb: 225, 29, 72; --reader-safe-top: env(safe-area-inset-top, 0px); --reader-safe-bottom: env(safe-area-inset-bottom, 0px); }
         html[data-accent="pink-blue"] { --reader-brand: #60a5fa; --reader-brand-rgb: 96, 165, 250; }
         html[data-accent="pink-green"] { --reader-brand: #34d399; --reader-brand-rgb: 52, 211, 153; }
         html[data-accent="gray"] { --reader-brand: #64748b; --reader-brand-rgb: 100, 116, 139; }
@@ -31,7 +34,7 @@
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html { height: 100%; background: var(--reader-bg); color-scheme: dark; }
         body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; background: var(--reader-bg); color: var(--reader-text); font-family: var(--reader-font); transition: background-color .2s, color .2s; }
-        .novel-reader-header { position: fixed; inset: 0 0 auto; z-index: 20; height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: 1px solid rgba(255,255,255,.07); background: rgba(7,7,10,.9); backdrop-filter: blur(18px); transition: transform .25s, opacity .25s; }
+        .novel-reader-header { position: fixed; inset: 0 0 auto; z-index: 20; height: calc(58px + var(--reader-safe-top)); display: flex; align-items: center; gap: 14px; padding: var(--reader-safe-top) 18px 0; border-bottom: 1px solid rgba(255,255,255,.07); background: rgba(7,7,10,.9); backdrop-filter: blur(18px); transition: transform .25s, opacity .25s; }
         .novel-reader-header.is-hidden { transform: translateY(-100%); opacity: 0; }
         .novel-reader-back { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; text-decoration: none; background: rgba(255,255,255,.08); }
         .novel-reader-heading { min-width: 0; }
@@ -41,7 +44,7 @@
         .novel-reader-minimal-footer { position: fixed; z-index: 12; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); width: min(100%, var(--reader-width)); padding: 0 var(--reader-margin); display: flex; align-items: center; justify-content: space-between; color: var(--reader-muted); font-size: 12px; line-height: 1; transform: translateX(-50%); transition: opacity .2s; }
         .novel-reader-clock { display: inline-flex; align-items: center; gap: 5px; }
         .novel-reader-minimal-header.is-hidden, .novel-reader-minimal-footer.is-hidden { opacity: 0; pointer-events: none; }
-        .novel-reader-main { width: min(100%, var(--reader-width)); height: 100dvh; margin: 0 auto; padding: 60px 0 48px; overflow: hidden; }
+        .novel-reader-main { width: min(100%, var(--reader-width)); height: 100dvh; margin: 0 auto; padding: calc(60px + var(--reader-safe-top)) 0 calc(48px + var(--reader-safe-bottom)); overflow: hidden; }
         .novel-reader-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; isolation: isolate; touch-action: none; user-select: none; -webkit-user-select: none; }
         .novel-reader-layer { position: absolute; inset: 0; overflow: hidden; contain: paint; background: var(--reader-bg); transform: translate3d(0,0,0); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
         .novel-reader-layer.is-dragging { transition: none !important; }
@@ -72,11 +75,24 @@
         .novel-font-option { height: 42px; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; background: rgba(255,255,255,.04); color: #d7d7e1; cursor: pointer; }
         .novel-font-option:hover { background: rgba(255,255,255,.09); color: #fff; }
         .novel-font-option.is-active { border-color: rgba(var(--reader-brand-rgb),.65); background: rgba(var(--reader-brand-rgb),.18); color: #fff; }
+        .novel-mode-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+        .novel-mode-option { min-width: 0; min-height: 72px; padding: 10px 5px; border: 1px solid rgba(255,255,255,.1); border-radius: 13px; background: rgba(255,255,255,.04); color: #c8c8d3; cursor: pointer; }
+        .novel-mode-option i { display: block; margin-bottom: 8px; font-size: 20px; }
+        .novel-mode-option span { display: block; font-size: 12px; white-space: nowrap; }
+        .novel-mode-option:hover { background: rgba(255,255,255,.09); color: #fff; }
+        .novel-mode-option.is-active { border-color: rgba(var(--reader-brand-rgb),.65); background: rgba(var(--reader-brand-rgb),.18); color: #fff; }
         .novel-margin-setting { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.1); }
         .novel-margin-setting + .novel-margin-setting { margin-top: 0; }
         .novel-margin-value { color: #a9a9b8; font-size: 12px; font-weight: 500; }
         .novel-margin-slider { width: 100%; height: 30px; margin-top: 8px; accent-color: var(--reader-brand); cursor: pointer; }
-        @media (max-width: 600px) { :root { --reader-size: 21px; --reader-title-size: 32px; --reader-leading: 2.2; --reader-margin: 16px; } .novel-reader-main { padding-top: 52px; padding-bottom: 42px; } .novel-control span { display: none; } }
+        html[data-reader-mode="vertical"] { height: auto; min-height: 100%; }
+        html[data-reader-mode="vertical"] body { height: auto; min-height: 100dvh; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: auto; }
+        html[data-reader-mode="vertical"] .novel-reader-main { height: auto; min-height: 100dvh; padding: calc(76px + var(--reader-safe-top)) 0 calc(84px + var(--reader-safe-bottom)); overflow: visible; }
+        html[data-reader-mode="vertical"] .novel-reader-viewport { height: auto; min-height: calc(100dvh - 160px); overflow: visible; isolation: auto; touch-action: pan-y; user-select: text; -webkit-user-select: text; }
+        html[data-reader-mode="vertical"] .novel-reader-layer { position: relative; inset: auto; overflow: visible; contain: none; transform: none !important; }
+        html[data-reader-mode="vertical"] .novel-reader-flow { position: relative; inset: auto; width: auto; height: auto; min-height: calc(100dvh - 160px); margin: 0 var(--reader-margin); column-width: auto !important; column-count: auto; column-gap: normal; transform: none !important; }
+        html[data-reader-mode="vertical"] .novel-reader-title { margin-top: .35rem; }
+        @media (max-width: 600px) { :root { --reader-size: 21px; --reader-title-size: 32px; --reader-leading: 2.2; --reader-margin: 16px; } .novel-reader-main { padding-top: calc(52px + var(--reader-safe-top)); padding-bottom: calc(42px + var(--reader-safe-bottom)); } .novel-reader-controls { max-width: calc(100vw - 12px); gap: 2px; padding: 5px; } .novel-control { min-width: 35px; height: 36px; padding: 0 5px; } .novel-control span { display: none; } }
     </style>
 </head>
 <body>
@@ -144,6 +160,14 @@
         </div>
     </div>
 
+    <div class="novel-background-panel" id="mode-panel" hidden>
+        <div class="novel-background-title"><span>阅读模式</span></div>
+        <div class="novel-mode-options" aria-label="选择阅读模式">
+            <button class="novel-mode-option" type="button" data-reader-mode="horizontal"><i class="fa fa-arrows-h"></i><span>横向滑动</span></button>
+            <button class="novel-mode-option" type="button" data-reader-mode="vertical"><i class="fa fa-arrows-v"></i><span>上下滚动</span></button>
+        </div>
+    </div>
+
     <nav class="novel-reader-controls is-hidden" id="reader-controls" aria-label="阅读工具">
         <a class="novel-control{% if chapter.index <= 0 %} is-disabled{% endif %}" id="previous-chapter" href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index - 1) }}" data-reader-nav data-reader-chapter="{{ chapter.index - 1 }}"><i class="fa fa-angle-left"></i><span>上一章</span></a>
         <a class="novel-control" href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}"><i class="fa fa-list"></i><span>目录</span></a>
@@ -151,6 +175,7 @@
         <button class="novel-control" type="button" id="font-larger" aria-label="放大字号">A+</button>
         <button class="novel-control" type="button" id="font-toggle" aria-label="选择阅读字体"><i class="fa fa-font"></i><span>字体</span></button>
         <button class="novel-control" type="button" id="background-toggle" aria-label="设置阅读背景"><i class="fa fa-paint-brush"></i><span>背景</span></button>
+        <button class="novel-control" type="button" id="mode-toggle" aria-label="选择阅读模式"><i class="fa fa-book"></i><span>模式</span></button>
         <a class="novel-control is-primary{% if chapter.index + 1 >= chapter.total_chapters %} is-disabled{% endif %}" id="next-chapter" href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index + 1) }}" data-reader-nav data-reader-chapter="{{ chapter.index + 1 }}"><span>下一章</span><i class="fa fa-angle-right"></i></a>
     </nav>
 
@@ -194,6 +219,7 @@
         const nextChapter = document.getElementById('next-chapter');
         const backgroundPanel = document.getElementById('background-panel');
         const fontPanel = document.getElementById('font-panel');
+        const modePanel = document.getElementById('mode-panel');
         const backgroundPicker = document.getElementById('background-picker');
         const marginSlider = document.getElementById('margin-slider');
         const marginValue = document.getElementById('margin-value');
@@ -228,6 +254,9 @@
         let lineHeight = Number(localStorage.getItem('mangadock-novel-line-height') || (matchMedia('(max-width: 600px)').matches ? 2.2 : 2.15));
         let paragraphSpacing = Number(localStorage.getItem('mangadock-novel-paragraph-spacing') || 0.9);
         let titleSize = Number(localStorage.getItem('mangadock-novel-title-size') || (matchMedia('(max-width: 600px)').matches ? 32 : 36));
+        let readingMode = ['horizontal', 'vertical'].includes(localStorage.getItem('mangadock-novel-reading-mode'))
+            ? localStorage.getItem('mangadock-novel-reading-mode')
+            : 'horizontal';
         let saveTimer = null;
         let paginationTimer = null;
         let resizeTimer = null;
@@ -260,6 +289,7 @@
         let lastSwipeAt = 0;
         let wheelDistance = 0;
         let wheelTimer = null;
+        let verticalScrollFrame = null;
         let isSwitchingChapter = false;
         let isTouching = false;
         let gestureNeighbor = null;
@@ -368,6 +398,41 @@
             root.style.colorScheme = isLight ? 'light' : 'dark';
             backgroundPicker.value = color;
             localStorage.setItem('mangadock-novel-background', color);
+        }
+        function applyReadingMode(mode, persist = true, recalculate = true) {
+            if (!['horizontal', 'vertical'].includes(mode)) mode = 'horizontal';
+            const progressRatio = pageCount > 1 ? pageIndex / (pageCount - 1) : 0;
+            readingMode = mode;
+            root.dataset.readerMode = mode;
+            if (persist) localStorage.setItem('mangadock-novel-reading-mode', mode);
+            document.querySelectorAll('button[data-reader-mode]').forEach((button) => {
+                button.classList.toggle('is-active', button.dataset.readerMode === mode);
+            });
+            modePanel.hidden = true;
+            cancelQueuedDrag();
+            cancelFlowSettle();
+            clearMotionHints();
+            invalidatePreparedChapterViews();
+            if (mode === 'vertical') {
+                if (layer) {
+                    layer.style.removeProperty('transition');
+                    layer.style.removeProperty('transform');
+                }
+                if (flow) {
+                    flow.style.removeProperty('transition');
+                    flow.style.removeProperty('transform');
+                }
+                renderedFlowOffset = 0;
+                renderedLayerOffset = 0;
+            } else {
+                window.scrollTo({top: 0, behavior: 'auto'});
+            }
+            if (!recalculate) return;
+            requestAnimationFrame(() => {
+                recalculatePagination(false, {ratio: progressRatio});
+                persistBrowserProgress();
+                queueSave({skipAnchor: mode !== 'vertical'});
+            });
         }
         function textOffsetWithinParagraph(paragraph, node, offset) {
             if (node === paragraph) {
@@ -497,6 +562,7 @@
             if (hidden) {
                 backgroundPanel.hidden = true;
                 fontPanel.hidden = true;
+                modePanel.hidden = true;
             }
         }
         function readerUrl(index) { return `${readerBaseUrl}?start_chapter=${index}`; }
@@ -513,16 +579,19 @@
             updatePageLabel();
         }
         function updatePageLabel() {
-            chapterLabel.textContent = `${currentChapter.title} · ${chapterIndex + 1} / ${totalChapters} · ${pageIndex + 1} / ${pageCount} 页`;
+            const progressText = readingMode === 'vertical'
+                ? `${pageCount > 1 ? Math.round((pageIndex / (pageCount - 1)) * 100) : 100}%`
+                : `${pageIndex + 1} / ${pageCount} 页`;
+            chapterLabel.textContent = `${currentChapter.title} · ${chapterIndex + 1} / ${totalChapters} · ${progressText}`;
             minimalHeader.textContent = currentChapter.title;
-            pageStatus.textContent = `${pageIndex + 1} / ${pageCount}`;
+            pageStatus.textContent = readingMode === 'vertical' ? progressText : `${pageIndex + 1} / ${pageCount}`;
         }
         function updateClock() {
             clockLabel.textContent = new Intl.DateTimeFormat('zh-CN', {hour: '2-digit', minute: '2-digit', hour12: false}).format(new Date());
         }
         function applyFlowOffset(offset) {
             renderedFlowOffset = offset;
-            if (flow) flow.style.transform = `translate3d(${offset}px,0,0)`;
+            if (flow && readingMode !== 'vertical') flow.style.transform = `translate3d(${offset}px,0,0)`;
         }
         function queueDragOffset(offset) {
             pendingDragOffset = offset;
@@ -970,11 +1039,48 @@
         }
         function scheduleAdjacentPreload() {
             clearTimeout(preloadTimer);
+            if (readingMode === 'vertical') return;
             preloadTimer = setTimeout(() => preloadAdjacentChapters(), 400);
+        }
+        function recalculateVerticalPagination(preservePosition = true, targetPage = null) {
+            measuredViewportWidth = viewport.clientWidth;
+            measuredViewportHeight = window.innerHeight;
+            cancelQueuedDrag();
+            cancelFlowSettle();
+            renderedFlowOffset = 0;
+            renderedLayerOffset = 0;
+            if (flow) flow.style.removeProperty('transform');
+            if (layer) layer.style.removeProperty('transform');
+            const oldCount = pageCount;
+            const oldRatio = oldCount > 1 ? pageIndex / (oldCount - 1) : 0;
+            const viewportHeight = Math.max(1, window.innerHeight);
+            const documentHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+            const maxScroll = Math.max(0, documentHeight - viewportHeight);
+            pageStep = viewportHeight;
+            pageWidth = viewport.clientWidth;
+            pageCount = Math.max(1, Math.ceil(documentHeight / viewportHeight));
+            if (targetPage && Number.isFinite(targetPage.ratio)) {
+                pageIndex = Math.round(targetPage.ratio * Math.max(0, pageCount - 1));
+            } else if (Number.isFinite(targetPage)) {
+                pageIndex = targetPage;
+            } else if (preservePosition) {
+                pageIndex = Math.round(oldRatio * Math.max(0, pageCount - 1));
+            } else {
+                pageIndex = 0;
+            }
+            pageIndex = Math.max(0, Math.min(pageIndex, pageCount - 1));
+            const targetScroll = pageCount > 1 ? (pageIndex / (pageCount - 1)) * maxScroll : 0;
+            window.scrollTo({top: targetScroll, behavior: 'auto'});
+            updatePageLabel();
+            registerCurrentChapterView(true);
         }
         function recalculatePagination(preservePosition = true, targetPage = null) {
             if (isMotionBusy()) {
                 schedulePagination(preservePosition, targetPage);
+                return;
+            }
+            if (readingMode === 'vertical') {
+                recalculateVerticalPagination(preservePosition, targetPage);
                 return;
             }
             if (!viewport.clientWidth) return;
@@ -993,6 +1099,7 @@
             void flow.offsetWidth;
             pageCount = Math.max(1, Math.round((flow.scrollWidth + (readerMargin * 2)) / pageStep));
             if (targetPage === 'last') pageIndex = pageCount - 1;
+            else if (targetPage && Number.isFinite(targetPage.ratio)) pageIndex = Math.round(targetPage.ratio * Math.max(0, pageCount - 1));
             else if (Number.isFinite(targetPage)) pageIndex = targetPage;
             else if (preservePosition) pageIndex = Math.round(oldRatio * Math.max(0, pageCount - 1));
             pageIndex = Math.max(0, Math.min(pageIndex, pageCount - 1));
@@ -1149,7 +1256,51 @@
             restoreGestureNeighbor();
             clearMotionHints();
         }
+        function replaceChapterContent(chapter, targetIndex, targetPage = 0) {
+            chapterViews.forEach((view) => {
+                if (view.layer !== layer) removeChapterView(view);
+            });
+            chapterViews.clear();
+            chapterViewPromises.clear();
+            viewGeneration += 1;
+            currentChapter = chapter;
+            chapterIndex = targetIndex;
+            flow.replaceChildren(createChapterFragment(chapter));
+            layer.className = 'novel-reader-layer';
+            layer.removeAttribute('aria-hidden');
+            layer.style.removeProperty('transition');
+            layer.style.removeProperty('transform');
+            flow.className = 'novel-reader-flow';
+            flow.style.removeProperty('transition');
+            flow.style.removeProperty('transform');
+            pageIndex = 0;
+            pageCount = 1;
+            renderedFlowOffset = 0;
+            renderedLayerOffset = 0;
+            recalculatePagination(false, targetPage);
+            updateChapterUi();
+            persistBrowserProgress();
+            history.replaceState(null, '', readerUrl(chapterIndex));
+        }
+        async function switchChapterInstant(targetIndex) {
+            if (targetIndex < 0 || targetIndex >= totalChapters || isSwitchingChapter) return;
+            isSwitchingChapter = true;
+            setReaderChromeHidden(true);
+            let chapter;
+            try {
+                chapter = await getChapter(targetIndex);
+            } catch (error) {
+                isSwitchingChapter = false;
+                setReaderChromeHidden(false);
+                return;
+            }
+            isSwitchingChapter = false;
+            replaceChapterContent(chapter, targetIndex, 0);
+            scheduleAdjacentPreload();
+            saveProgress(false, {skipAnchor: readingMode !== 'vertical'});
+        }
         async function switchChapter(targetIndex, direction, velocity = 0) {
+            if (readingMode === 'vertical') return switchChapterInstant(targetIndex);
             if (targetIndex < 0 || targetIndex >= totalChapters || isSwitchingChapter) return;
             isSwitchingChapter = true;
             setReaderChromeHidden(true);
@@ -1237,6 +1388,7 @@
             });
         }
         function movePage(direction, velocity = 0) {
+            if (readingMode === 'vertical') return;
             const targetPage = pageIndex + direction;
             if (targetPage >= 0 && targetPage < pageCount) {
                 setPage(targetPage, true, velocity);
@@ -1251,8 +1403,9 @@
         });
         document.getElementById('font-smaller').addEventListener('click', () => { fontSize -= 1; applyFontSize(); });
         document.getElementById('font-larger').addEventListener('click', () => { fontSize += 1; applyFontSize(); });
-        document.getElementById('font-toggle').addEventListener('click', () => { fontPanel.hidden = !fontPanel.hidden; backgroundPanel.hidden = true; });
-        document.getElementById('background-toggle').addEventListener('click', () => { backgroundPanel.hidden = !backgroundPanel.hidden; fontPanel.hidden = true; });
+        document.getElementById('font-toggle').addEventListener('click', () => { fontPanel.hidden = !fontPanel.hidden; backgroundPanel.hidden = true; modePanel.hidden = true; });
+        document.getElementById('background-toggle').addEventListener('click', () => { backgroundPanel.hidden = !backgroundPanel.hidden; fontPanel.hidden = true; modePanel.hidden = true; });
+        document.getElementById('mode-toggle').addEventListener('click', () => { modePanel.hidden = !modePanel.hidden; fontPanel.hidden = true; backgroundPanel.hidden = true; });
         marginSlider.addEventListener('input', () => applyReaderMargin(marginSlider.value));
         letterSpacingSlider.addEventListener('input', () => applyLetterSpacing(letterSpacingSlider.value));
         lineHeightSlider.addEventListener('input', () => applyLineHeight(lineHeightSlider.value));
@@ -1261,6 +1414,7 @@
         backgroundPicker.addEventListener('input', () => applyBackground(backgroundPicker.value));
         document.querySelectorAll('[data-reader-font]').forEach((button) => button.addEventListener('click', () => applyFont(button.dataset.readerFont)));
         document.querySelectorAll('[data-reader-background]').forEach((button) => button.addEventListener('click', () => applyBackground(button.dataset.readerBackground)));
+        document.querySelectorAll('button[data-reader-mode]').forEach((button) => button.addEventListener('click', () => applyReadingMode(button.dataset.readerMode)));
         document.addEventListener('click', (event) => {
             const chapterLink = event.target.closest('[data-reader-nav]');
             if (chapterLink) {
@@ -1273,6 +1427,10 @@
             }
             const readerMain = event.target.closest('.novel-reader-main');
             if (Date.now() - lastSwipeAt < 350 || isSwitchingChapter || event.target.closest('a,button,input') || !readerMain) return;
+            if (readingMode === 'vertical') {
+                setReaderChromeHidden(!header.classList.contains('is-hidden'));
+                return;
+            }
             const viewportRect = viewport.getBoundingClientRect();
             const horizontalPosition = (event.clientX - viewportRect.left) / viewportRect.width;
             if (horizontalPosition <= 0.28) {
@@ -1286,7 +1444,7 @@
             }
         });
         viewport.addEventListener('touchstart', (event) => {
-            if (event.touches.length !== 1 || isSwitchingChapter) return;
+            if (readingMode === 'vertical' || event.touches.length !== 1 || isSwitchingChapter) return;
             clearTimeout(saveTimer);
             isTouching = true;
             touchStartX = event.touches[0].clientX;
@@ -1425,7 +1583,7 @@
             clearMotionHints();
         }, {passive: true});
         viewport.addEventListener('wheel', (event) => {
-            if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || isSwitchingChapter) return;
+            if (readingMode === 'vertical' || Math.abs(event.deltaX) <= Math.abs(event.deltaY) || isSwitchingChapter) return;
             event.preventDefault();
             wheelDistance += event.deltaX;
             clearTimeout(wheelTimer);
@@ -1440,6 +1598,20 @@
             if (event.key === 'ArrowLeft') movePage(-1);
             if (event.key === 'ArrowRight') movePage(1);
         });
+        addEventListener('scroll', () => {
+            if (readingMode !== 'vertical' || isSwitchingChapter || verticalScrollFrame !== null) return;
+            verticalScrollFrame = requestAnimationFrame(() => {
+                verticalScrollFrame = null;
+                const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+                const ratio = maxScroll > 0 ? window.scrollY / maxScroll : 0;
+                const nextPage = Math.max(0, Math.min(Math.round(ratio * Math.max(0, pageCount - 1)), pageCount - 1));
+                if (nextPage === pageIndex) return;
+                pageIndex = nextPage;
+                updatePageLabel();
+                persistBrowserProgress();
+                queueSave();
+            });
+        }, {passive: true});
         addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') {
                 pauseReadingTimer();
@@ -1454,6 +1626,7 @@
         });
         addEventListener('resize', handleReaderResize);
         addEventListener('load', () => {
+            applyReadingMode(readingMode, false, false);
             applyFontSize();
             applyFont(localStorage.getItem('mangadock-novel-font') || 'default');
             applyBackground(localStorage.getItem('mangadock-novel-background') || '#0b0b0f');

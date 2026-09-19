@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Read the local EPUB novel library without adding an EPUB dependency."""
 import html
+import logging
 import os
 import posixpath
 import re
@@ -17,8 +18,22 @@ from PIL import Image
 from mangadock.settings import NOVEL_COVER_ROOT, NOVEL_ROOT, china_tz
 
 
+logger = logging.getLogger(__name__)
+
 NOVEL_PROGRESS_PREFIX = "novel:"
 NOVEL_COVER_CACHE_VERSION = 1
+
+# EPUB 解析失败时 `_metadata()` 的返回值。
+# 刻意用「正常返回值」而不是抛异常：functools.lru_cache 不缓存异常，
+# 那样损坏的 EPUB 会在每次 get_novels() 时被重新打开并解析一遍中央目录
+# （实测 17MB 的书 6ms/次，而一次「打开章节」会触发两次全目录扫描）。
+METADATA_UNREADABLE = None
+
+# 视为「这本书读不了」的异常集合（原先散落在 get_novels 的 except 里）。
+EPUB_UNREADABLE_ERRORS = (
+    OSError, BadZipFile, ET.ParseError, KeyError, StopIteration,
+    ValueError, IndexError, EOFError,
+)
 
 
 def novel_progress_key(novel_id):
@@ -61,9 +76,8 @@ def _read_package(epub):
     return package_path, package
 
 
-@lru_cache(maxsize=128)
-def _metadata_for_file(file_path, modified_ns):
-    del modified_ns
+def _parse_metadata(file_path):
+    """真正解析 EPUB 元数据；失败时向外抛异常，由调用方兜底。"""
     with ZipFile(file_path) as epub:
         package_path, package = _read_package(epub)
         manifest = {
@@ -113,6 +127,26 @@ def _metadata_for_file(file_path, modified_ns):
         }
 
 
+@lru_cache(maxsize=128)
+def _metadata_for_file(file_path, modified_ns):
+    """带缓存的元数据读取；解析失败返回 METADATA_UNREADABLE。
+
+    失败也走正常返回值是刻意的 —— lru_cache 不缓存异常，
+    而 get_novel_chapter() 会经由 get_novels() 触发两次全目录扫描，
+    于是损坏的 EPUB 每次都被重新打开 + 解析中央目录。
+    """
+    del modified_ns
+    try:
+        return _parse_metadata(file_path)
+    except EPUB_UNREADABLE_ERRORS as exc:
+        logger.warning(
+            'EPUB 解析失败，已标记为不可读（按 mtime 缓存，文件更新后自动重试）：'
+            '%s —— %s: %s',
+            file_path, type(exc).__name__, exc,
+        )
+        return METADATA_UNREADABLE
+
+
 def _metadata(file_path):
     stat = os.stat(file_path)
     return _metadata_for_file(file_path, stat.st_mtime_ns)
@@ -131,7 +165,9 @@ def get_novels():
         try:
             file_stat = os.stat(file_path)
             metadata = _metadata(file_path)
-        except (OSError, BadZipFile, ET.ParseError, KeyError, StopIteration):
+        except OSError:
+            continue
+        if metadata is METADATA_UNREADABLE:
             continue
         file_stem = os.path.splitext(filename)[0]
         fallback_title, _, fallback_author = file_stem.rpartition('_')
@@ -176,6 +212,8 @@ def get_novel_by_fanqie_id(book_id):
 def _chapter_titles(file_path, modified_ns):
     del modified_ns
     metadata = _metadata(file_path)
+    if metadata is METADATA_UNREADABLE:
+        return []
     title_by_path = {}
     with ZipFile(file_path) as epub:
         nav_item = next((
@@ -214,6 +252,8 @@ def get_novel_chapter(novel_id, chapter_index):
     if not novel:
         return None
     metadata = _metadata(novel['file_path'])
+    if metadata is METADATA_UNREADABLE:
+        return None
     if chapter_index < 0 or chapter_index >= len(metadata['spine']):
         return None
     chapter_path = metadata['spine'][chapter_index]['href']
@@ -262,6 +302,8 @@ def get_novel_cover_file(novel_id):
         pass
 
     metadata = _metadata(novel['file_path'])
+    if metadata is METADATA_UNREADABLE:
+        return None
     cover_path = metadata.get('cover_path')
     if not cover_path:
         return None

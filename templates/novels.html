@@ -8,7 +8,7 @@
         <h1 class="md-page-title">小说书架</h1>
         <p class="md-page-sub">{% if selected_group == '全部' %}全部分组{% else %}{{ selected_group }}{% endif %} · 共 {{ pagination.total_items }} 本</p>
     </div>
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="md-lib-toolbar flex flex-wrap items-center gap-2">
         {% if groups %}
         <select class="md-lib-select" aria-label="切换小说分组" onchange="window.location.href=this.value">
             <option value="{{ url_for('novels_list', group='全部') }}" {% if selected_group == '全部' %}selected{% endif %}>全部分组</option>

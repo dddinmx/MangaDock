@@ -3,172 +3,135 @@
 {% block title %}MangaDock - 任务列表{% endblock %}
 {% block body_class %}md-body min-h-screen{% endblock %}
 
+{% block extra_head %}{% include '_md_ios_ui.html' %}
+<style>
+    /* 页面级：任务列表专属 */
+
+    /* 单条任务：整块可点进详情，右侧留一个删除按钮。
+       用 div 包 a + button 而不是 a 里套 button（交互元素不能嵌套）。 */
+    .md-task-row { display: flex; align-items: center; gap: 0.5rem; padding-right: 0.85rem; transition: background 0.15s ease; }
+    .md-task-row:hover { background: rgba(255, 255, 255, 0.045); }
+    .md-task-row:active { background: rgba(255, 255, 255, 0.085); }
+
+    .md-task-row__link {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 0.72rem 0 0.72rem 1rem;
+        color: inherit;
+        text-decoration: none !important;
+    }
+    .md-task-row__main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+    .md-task-row__name { font-size: 0.95rem; font-weight: 600; color: var(--md-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .md-task-row__meta { font-size: 0.74rem; color: var(--md-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .md-task-row__bar { display: block; height: 0.22rem; margin-top: 0.15rem; border-radius: 999px; background: rgba(148, 163, 184, 0.22); overflow: hidden; }
+    .md-task-row__bar > span { display: block; height: 100%; border-radius: 999px; background: var(--md-brand); }
+
+    .md-task-row__del {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.1rem;
+        height: 2.1rem;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #fb7185;
+        font-size: 0.95rem;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+    .md-task-row__del:hover { background: rgba(251, 113, 133, 0.14); }
+
+    /* 状态胶囊 .md-ios-status 已提到 _md_ios_ui.html 共用（下载详情页也用同一套） */
+
+    html:not(.theme-dark) .md-task-row:hover { background: rgba(15, 23, 42, 0.045); }
+    html:not(.theme-dark) .md-task-row:active { background: rgba(15, 23, 42, 0.085); }
+    html:not(.theme-dark) .md-task-row__del { color: #e11d48; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="max-w-5xl mx-auto">
-    <header class="mb-6 md:mb-7">
-        <div>
-            <h1 class="md-page-title">任务列表</h1>
-            <p class="md-page-sub">查看下载和更新任务的历史记录与当前状态</p>
-        </div>
-        {% if tasks %}
-        <div class="mt-4 flex flex-col gap-2 md:hidden">
-            <button class="delete-finished-tasks-button inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-danger hover:bg-red-100 action-press {% if deletable_task_count == 0 %}opacity-50 cursor-not-allowed{% endif %}"
-                    type="button"
-                    onclick="deleteFinishedTasks()"
-                    {% if deletable_task_count == 0 %}disabled{% endif %}>
-                <i class="fa fa-trash-o"></i>
-                <span>一键删除</span>
-                {% if deletable_task_count > 0 %}
-                <span class="rounded-full bg-white px-2 py-0.5 text-xs">{{ deletable_task_count }}</span>
-                {% endif %}
-            </button>
-            <p class="text-xs text-gray-500">
-                只删除已结束任务记录，不删除漫画文件{% if active_task_count > 0 %}；{{ active_task_count }} 个进行中/等待中会保留{% endif %}
-            </p>
-        </div>
-        {% endif %}
+<div class="md-setting-page">
+    <header class="md-setting-header">
+        <h1 class="md-setting-header__title">任务列表</h1>
+        <p class="md-setting-header__sub">
+            下载和更新任务的历史记录与当前状态{% if tasks %}（共 {{ tasks|length }} 条）{% endif %}
+        </p>
     </header>
 
-    <div class="bg-white rounded-xl shadow-md p-5 md:p-6">
-        {% if tasks %}
-        <div class="hidden md:flex items-start justify-between gap-4 border-b border-gray-100 pb-6 mb-6">
-            <div>
-                <div class="text-sm font-semibold text-dark">任务记录</div>
-                <p class="mt-1 text-xs text-gray-500">
-                    只删除已结束任务记录，不删除漫画文件{% if active_task_count > 0 %}；{{ active_task_count }} 个进行中/等待中会保留{% endif %}
-                </p>
-            </div>
-            <button class="delete-finished-tasks-button inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-danger hover:bg-red-100 action-press {% if deletable_task_count == 0 %}opacity-50 cursor-not-allowed{% endif %}"
-                    type="button"
-                    onclick="deleteFinishedTasks()"
-                    {% if deletable_task_count == 0 %}disabled{% endif %}>
-                <i class="fa fa-trash-o"></i>
-                <span>一键删除</span>
-                {% if deletable_task_count > 0 %}
-                <span class="rounded-full bg-white px-2 py-0.5 text-xs">{{ deletable_task_count }}</span>
-                {% endif %}
-            </button>
-        </div>
+    {% if tasks %}
+    {% set status_labels = {'running': '进行中', 'completed': '已完成', 'error': '出错', 'cancelled': '已取消'} %}
+    {% set status_classes = {'running': 'is-running', 'completed': 'is-completed', 'error': 'is-error', 'cancelled': 'is-cancelled'} %}
 
-        <div class="hidden md:block overflow-x-auto">
-            <table class="min-w-full table-auto text-[15px]">
-                <thead class="hidden md:table-header-group">
-                    <tr class="border-b border-gray-200">
-                        <th class="py-3 pr-5 text-left font-semibold">漫画名称</th>
-                        <th class="py-3 pr-5 text-left whitespace-nowrap font-semibold">类型</th>
-                        <th class="py-3 pr-5 text-left whitespace-nowrap font-semibold">状态</th>
-                        <th class="py-3 pr-5 text-left whitespace-nowrap font-semibold">进度</th>
-                        <th class="py-3 pr-5 text-left whitespace-nowrap font-semibold">开始时间</th>
-                        <th class="py-3 text-left whitespace-nowrap font-semibold">操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for task in tasks %}
-                    <tr class="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                        <td class="py-4 pr-5 align-middle text-[15px] leading-6">
-                            {{ task.comic_name }}
-                        </td>
-                        <td class="py-4 pr-5 align-middle whitespace-nowrap">
-                            {% if task.is_update %}
-                            <span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">更新</span>
-                            {% else %}
-                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">下载</span>
-                            {% endif %}
-                        </td>
-                        <td class="py-4 pr-5 align-middle whitespace-nowrap">
-                            {% if task.status == 'running' %}
-                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">进行中</span>
-                            {% elif task.status == 'completed' %}
-                            <span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">已完成</span>
-                            {% elif task.status == 'error' %}
-                            <span class="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs">出错</span>
-                            {% elif task.status == 'cancelled' %}
-                            <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs">已取消</span>
-                            {% else %}
-                            <span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">等待中</span>
-                            {% endif %}
-                        </td>
-                        <td class="py-4 pr-5 align-middle whitespace-nowrap text-sm">
-                            {{ task.progress_percent }}%
-                        </td>
-                        <td class="py-4 pr-5 align-middle whitespace-nowrap text-sm text-gray-700">
-                            {{ task.start_time.strftime('%Y-%m-%d %H:%M') }}
-                        </td>
-                        <td class="py-4 align-middle whitespace-nowrap">
-                            <div class="flex items-center gap-3 text-sm">
-                                <a href="{{ url_for('progress', task_id=task.id) }}" class="text-primary hover:text-primary/80 action-press">
-                                    查看详情
-                                </a>
-                                <button onclick="deleteTask('{{ task.id }}')" class="text-danger hover:text-danger/80 action-press">
-                                    删除
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="md:hidden space-y-3">
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">任务记录</h2>
+        <div class="md-setting-list">
             {% for task in tasks %}
-            <div class="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                <div class="font-medium text-base text-dark mb-3 break-words">{{ task.comic_name }}</div>
-
-                <div class="grid grid-cols-2 gap-3 text-sm mb-3">
-                    <div>
-                        <div class="text-gray-500 mb-1">类型</div>
-                        {% if task.is_update %}
-                        <span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">更新</span>
-                        {% else %}
-                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">下载</span>
-                        {% endif %}
-                    </div>
-                    <div>
-                        <div class="text-gray-500 mb-1">状态</div>
-                        {% if task.status == 'running' %}
-                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">进行中</span>
-                        {% elif task.status == 'completed' %}
-                        <span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">已完成</span>
-                        {% elif task.status == 'error' %}
-                        <span class="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs">出错</span>
-                        {% elif task.status == 'cancelled' %}
-                        <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs">已取消</span>
-                        {% else %}
-                        <span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">等待中</span>
-                        {% endif %}
-                    </div>
-                    <div>
-                        <div class="text-gray-500 mb-1">进度</div>
-                        <div>{{ task.progress_percent }}%</div>
-                    </div>
-                    <div>
-                        <div class="text-gray-500 mb-1">开始时间</div>
-                        <div>{{ task.start_time.strftime('%Y-%m-%d %H:%M') }}</div>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-4 text-sm">
-                    <a href="{{ url_for('progress', task_id=task.id) }}" class="text-primary hover:text-primary/80 action-press">
-                        查看详情
-                    </a>
-                    <button onclick="deleteTask('{{ task.id }}')" class="text-danger hover:text-danger/80 action-press">
-                        删除
-                    </button>
-                </div>
+            {% set status_label = status_labels.get(task.status, '等待中') %}
+            {% set status_class = status_classes.get(task.status, 'is-pending') %}
+            <div class="md-task-row">
+                <a href="{{ url_for('progress', task_id=task.id) }}" class="md-task-row__link" aria-label="查看 {{ task.comic_name }} 的任务详情">
+                    <span class="md-task-row__main">
+                        <span class="md-task-row__name">{{ task.comic_name }}</span>
+                        <span class="md-task-row__meta">
+                            {{ '更新' if task.is_update else '下载' }} · {{ task.start_time.strftime('%Y-%m-%d %H:%M') }} · {{ task.progress_percent }}%
+                        </span>
+                        <span class="md-task-row__bar" aria-hidden="true">
+                            <span style="width: {{ task.progress_percent }}%"></span>
+                        </span>
+                    </span>
+                    <span class="md-ios-status {{ status_class }}">{{ status_label }}</span>
+                </a>
+                <button
+                    type="button"
+                    class="md-task-row__del action-press"
+                    onclick="deleteTask('{{ task.id }}')"
+                    aria-label="删除任务 {{ task.comic_name }}"
+                    title="删除任务"
+                >
+                    <i class="fa fa-trash-o"></i>
+                </button>
             </div>
             {% endfor %}
+
+            <button
+                type="button"
+                class="delete-finished-tasks-button md-setting-row is-danger action-press"
+                onclick="deleteFinishedTasks()"
+                {% if deletable_task_count == 0 %}disabled{% endif %}
+            >
+                <span class="md-setting-row__icon"><i class="fa fa-trash-o"></i></span>
+                <span class="md-setting-row__title">一键删除已结束任务</span>
+                <span class="md-setting-row__value">
+                    {% if deletable_task_count > 0 %}{{ deletable_task_count }} 条{% else %}无可删除{% endif %}
+                </span>
+            </button>
         </div>
-        {% else %}
-        <div class="text-center py-10 text-gray-500">
-            <i class="fa fa-folder-open-o text-4xl mb-4"></i>
-            <p>暂无任务记录</p>
-            <a href="{{ url_for('download') }}" class="inline-flex items-center mt-3 text-primary hover:text-primary/80 action-press">
-                <i class="fa fa-download mr-2"></i> 开始新的下载
+        <p class="md-setting-group__note">
+            只删除已结束任务记录，不删除漫画文件{% if active_task_count > 0 %}；{{ active_task_count }} 个进行中/等待中会保留{% endif %}。
+        </p>
+    </section>
+    {% else %}
+    <section class="md-setting-group">
+        <div class="md-setting-list">
+            <div class="md-setting-panel">
+                <p class="md-ios-hint">暂无任务记录。下载或更新漫画后，这里会显示执行历史与当前状态。</p>
+            </div>
+            <a href="{{ url_for('download') }}" class="md-setting-row" data-app-loader="true">
+                <span class="md-setting-row__icon"><i class="fa fa-download"></i></span>
+                <span class="md-setting-row__title">开始新的下载</span>
+                <i class="fa fa-angle-right md-setting-row__chevron"></i>
             </a>
         </div>
-        {% endif %}
-    </div>
+    </section>
+    {% endif %}
 </div>
 {% endblock %}
 

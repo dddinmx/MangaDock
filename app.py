@@ -108,9 +108,9 @@ def main():
 
     worker_count = max(2, min(4, os.cpu_count() or 2))
     gunicorn_options = {
-        # Docker listens on all container interfaces. Host deployments can
-        # override this with MANGADOCK_BIND=127.0.0.1:5001.
-        'bind': os.environ.get('MANGADOCK_BIND', '0.0.0.0:5001'),
+        # Native host deployments keep the loopback default; the container
+        # overrides this with MANGADOCK_BIND=0.0.0.0:5001 so port mapping works.
+        'bind': os.environ.get('MANGADOCK_BIND', '127.0.0.1:5001'),
         'workers': worker_count,
         'threads': 4,
         'worker_class': 'gthread',

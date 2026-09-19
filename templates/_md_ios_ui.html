@@ -1,0 +1,220 @@
+{# ============================================================
+   iOS 分组列表 · 共用样式（页面级，用 {% include %} 复用）
+   被 /settings、/users、/download、/update、/tasks、/progress/<id> 引入。
+   为什么不做成 md-theme.css 的全局组件：
+     这些是「页面级视觉」，而基类名一旦全局化就会和 base.html 顶栏的
+     .md-user-* / .md-nav-* 等规则互相干扰（`.md-user-role` 撞名已踩过一次）。
+   引入方式：
+     {% block extra_head %}{% include '_md_ios_ui.html' %}<style>…本页专属…</style>{% endblock %}
+   ============================================================ #}
+<style>
+    /* ---------- 页面骨架 ---------- */
+    .md-setting-page { max-width: 42rem; margin: 0 auto; }
+    .md-setting-page form { margin: 0; }
+
+    .md-setting-header { padding: 0.1rem 0 1.6rem; text-align: center; }
+    .md-setting-header__title { margin: 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.01em; color: var(--md-text); }
+    .md-setting-header__sub { margin-top: 0.45rem; font-size: 0.85rem; color: var(--md-muted); }
+
+    /* ---------- 分组 ---------- */
+    .md-setting-group { margin-bottom: 1.9rem; }
+    /* 注意：不要写 .md-setting-group:last-child { margin-bottom: 0 }。
+       分组常被 <form> 包裹，那样写会让「表单里的最后一组」也被当成末组，
+       页尾间距直接变 0（下载页的提交按钮组就这么踩到过）。
+       页面底部的留白由 .md-main 的 padding-bottom 兜着，这里不需要特殊处理。 */
+    .md-setting-group__title { margin: 0; padding: 0 1.1rem 0.55rem; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; color: var(--md-muted); }
+    .md-setting-group__note { margin: 0.6rem 1.1rem 0; font-size: 0.78rem; line-height: 1.55; color: var(--md-muted); }
+    /* 放进面板里的说明文字不需要左右缩进（面板自己已有内边距） */
+    .md-setting-panel .md-setting-group__note { margin-left: 0; margin-right: 0; }
+    .md-setting-list { border-radius: 1rem; border: 1px solid var(--md-border); background: var(--md-bg-elevated); overflow: hidden; }
+    /* 分隔线必须用 > *:not(:first-child)：组员常被 <form> 包裹，
+       相邻兄弟选择器 + 会漏线。 */
+    .md-setting-list > *:not(:first-child) { border-top: 1px solid var(--md-border); }
+    /* .md-setting-row 自带 display:flex，JS 用 classList 切 .hidden 时会被自己盖住；
+       面板同理。在这里统一收口，页面就不必各写一遍。 */
+    .md-setting-row.hidden,
+    .md-setting-panel.hidden { display: none; }
+
+    /* ---------- 列表行 ---------- */
+    .md-setting-row {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        width: 100%;
+        min-height: 3.15rem;
+        padding: 0.55rem 1rem;
+        border: 0;
+        background: transparent;
+        color: var(--md-text);
+        font-size: 0.98rem;
+        font-weight: 500;
+        text-align: left;
+        text-decoration: none !important;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+    .md-setting-row:hover { background: rgba(255, 255, 255, 0.045); }
+    .md-setting-row:active { background: rgba(255, 255, 255, 0.085); }
+    .md-setting-row--static { cursor: default; }
+    .md-setting-row--static:hover,
+    .md-setting-row--static:active { background: transparent; }
+    .md-setting-row[disabled] { opacity: 0.55; cursor: not-allowed; }
+    .md-setting-row[disabled]:hover,
+    .md-setting-row[disabled]:active { background: transparent; }
+    .md-setting-row__icon { flex: 0 0 auto; display: inline-flex; align-items: center; width: 1.6rem; justify-content: center; font-size: 1.02rem; line-height: 1; color: rgba(255, 255, 255, 0.72); }
+    .md-setting-row__main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.12rem; }
+    .md-setting-row__title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .md-setting-row__main .md-setting-row__title { flex: 0 1 auto; }
+    .md-setting-row__desc { font-size: 0.76rem; line-height: 1.45; color: var(--md-muted); }
+    .md-setting-row__value { flex: 0 0 auto; font-size: 0.86rem; color: var(--md-muted); }
+    .md-setting-row__chevron { flex: 0 0 auto; font-size: 0.92rem; color: rgba(255, 255, 255, 0.26); }
+    .md-setting-row.is-danger .md-setting-row__title,
+    .md-setting-row.is-danger .md-setting-row__icon { color: #fb7185; }
+    /* 行内单选：整行可点，右侧放原生 radio（保留键盘可达性） */
+    .md-ios-radio { flex: 0 0 auto; width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--md-brand); }
+
+    /* 列表里的多行内容块 */
+    .md-setting-panel { padding: 0.95rem 1.05rem 1.15rem; }
+
+    /* 次级说明小字（可与 __label 搭配，也可单独用） */
+    .md-ios-hint { margin: 0; font-size: 0.76rem; line-height: 1.55; color: var(--md-muted); }
+
+    /* 按钮禁用态：自己收口，不依赖可能没编译出来的 Tailwind 工具类 */
+    .md-btn-primary[disabled],
+    .md-btn-ghost[disabled] { opacity: 0.7; cursor: not-allowed; }
+
+    /* ---------- 表单字段 ---------- */
+    .md-ios-field { display: flex; flex-direction: column; gap: 0.4rem; }
+    .md-ios-field + .md-ios-field { margin-top: 0.9rem; }
+    .md-ios-field__label { font-size: 0.78rem; font-weight: 600; color: var(--md-muted); }
+    .md-setting-panel .md-input,
+    .md-ios-field .md-input { padding: 0.65rem 0.9rem; font-size: 0.86rem; }
+    /* 输入框左侧图标：靠 padding-left 让位，别用 absolute 的 flex 居中技巧 */
+    .md-ios-input-wrap { position: relative; }
+    .md-ios-input-wrap > i {
+        position: absolute;
+        left: 0.9rem;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.85rem;
+        color: var(--md-muted);
+        pointer-events: none;
+    }
+    .md-ios-input-wrap .md-input { padding-left: 2.35rem; }
+
+    /* 面板内的主按钮：比基类紧凑，并收掉基类过强的辉光
+       （基类 0 12px 30px 向下蔓延 ~27px，会把下方控件"粘"住） */
+    .md-setting-panel .md-btn-primary { padding: 0.55rem 1.15rem; font-size: 0.82rem; box-shadow: 0 6px 16px rgba(var(--md-brand-rgb), 0.32); }
+    .md-ios-submit { width: 100%; box-shadow: 0 6px 16px rgba(var(--md-brand-rgb), 0.32) !important; }
+    /* 禁用态自己收口，不依赖 Tailwind 的 bg-primary/70 / shadow-none（后者被 !important 压住） */
+    .md-ios-submit[disabled] { opacity: 0.65; cursor: not-allowed; box-shadow: none !important; }
+
+    /* ---------- 选项胶囊（radio / checkbox 通用） ---------- */
+    .md-ios-pills { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .md-ios-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.72rem;
+        border: 1px solid var(--md-border);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.045);
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: var(--md-text);
+        cursor: pointer;
+        user-select: none;
+        transition: border-color 0.16s ease, background 0.16s ease;
+    }
+    .md-ios-pill:hover { border-color: rgba(var(--md-brand-rgb), 0.45); background: rgba(var(--md-brand-rgb), 0.08); }
+    .md-ios-pill input { width: 0.9rem; height: 0.9rem; margin: 0; accent-color: var(--md-brand); }
+    .md-ios-pill:has(input:checked) { border-color: rgba(var(--md-brand-rgb), 0.5); background: rgba(var(--md-brand-rgb), 0.16); }
+    .md-ios-pills--block .md-ios-pill { flex: 1 1 0; min-width: 6.5rem; justify-content: center; }
+
+    /* ---------- 分段控件 ---------- */
+    .md-ios-segment {
+        display: inline-flex;
+        padding: 0.2rem;
+        border: 1px solid var(--md-border);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .md-ios-segment--full { display: flex; width: 100%; }
+    .md-ios-segment > * {
+        flex: 1 1 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.42rem 0.9rem;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--md-muted);
+        font-size: 0.8rem;
+        font-weight: 600;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+    .md-ios-segment > *:hover { color: var(--md-text); }
+    .md-ios-segment > .is-active { background: var(--md-brand); color: #fff !important; }
+    .md-ios-segment > .is-active:hover { color: #fff; }
+
+    /* ---------- 提示条 ---------- */
+    .md-ios-alert {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+        padding: 0.7rem 1rem;
+        border: 1px solid var(--md-border);
+        border-radius: 0.85rem;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--md-text);
+        font-size: 0.85rem;
+        line-height: 1.5;
+    }
+    .md-ios-alert__icon { flex: 0 0 auto; margin-top: 0.12rem; }
+    /* .md-ios-alert 自带 display:flex，会盖掉 Tailwind 的 .hidden(display:none)，
+       而 JS 靠 classList.add('hidden') 收提示条 —— 必须补这条更高的特异度。 */
+    .md-ios-alert.hidden { display: none; }
+    .md-ios-alert.is-error { border-color: rgba(251, 113, 133, 0.4); background: rgba(251, 113, 133, 0.12); color: #fda4af; }
+    .md-ios-alert.is-success { border-color: rgba(45, 212, 168, 0.4); background: rgba(45, 212, 168, 0.12); color: var(--md-mint); }
+
+    /* ---------- 状态胶囊（任务列表 / 下载详情共用） ---------- */
+    .md-ios-status {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        padding: 0.15rem 0.6rem;
+        border: 1px solid var(--md-border);
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        line-height: 1.5;
+        white-space: nowrap;
+        color: var(--md-muted);
+    }
+    .md-ios-status.is-running { border-color: rgba(96, 165, 250, 0.42); background: rgba(96, 165, 250, 0.14); color: #93c5fd; }
+    .md-ios-status.is-completed { border-color: rgba(45, 212, 168, 0.42); background: rgba(45, 212, 168, 0.14); color: var(--md-mint); }
+    .md-ios-status.is-error { border-color: rgba(251, 113, 133, 0.45); background: rgba(251, 113, 133, 0.14); color: #fda4af; }
+    .md-ios-status.is-cancelled { border-color: rgba(148, 163, 184, 0.4); background: rgba(148, 163, 184, 0.14); color: var(--md-muted); }
+    .md-ios-status.is-pending { border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.14); color: #fcd34d; }
+
+    /* ---------- 浅色主题 ---------- */
+    html:not(.theme-dark) .md-setting-row:hover { background: rgba(15, 23, 42, 0.045); }
+    html:not(.theme-dark) .md-setting-row:active { background: rgba(15, 23, 42, 0.085); }
+    html:not(.theme-dark) .md-setting-row__icon { color: #4a5568; }
+    html:not(.theme-dark) .md-setting-row__chevron { color: rgba(15, 23, 42, 0.28); }
+    html:not(.theme-dark) .md-setting-row.is-danger .md-setting-row__title,
+    html:not(.theme-dark) .md-setting-row.is-danger .md-setting-row__icon { color: #e11d48; }
+    html:not(.theme-dark) .md-ios-pill { background: rgba(15, 23, 42, 0.035); }
+    html:not(.theme-dark) .md-ios-segment { background: rgba(15, 23, 42, 0.05); }
+    html:not(.theme-dark) .md-ios-alert { background: rgba(15, 23, 42, 0.04); }
+    html:not(.theme-dark) .md-ios-alert.is-error { border-color: rgba(225, 29, 72, 0.28); background: rgba(225, 29, 72, 0.07); color: #be123c; }
+    html:not(.theme-dark) .md-ios-alert.is-success { border-color: rgba(4, 120, 87, 0.28); background: rgba(4, 120, 87, 0.07); color: #047857; }
+    html:not(.theme-dark) .md-ios-status.is-running { color: #1d4ed8; }
+    html:not(.theme-dark) .md-ios-status.is-completed { color: #047857; }
+    html:not(.theme-dark) .md-ios-status.is-error { color: #be123c; }
+    html:not(.theme-dark) .md-ios-status.is-pending { color: #b45309; }
+</style>

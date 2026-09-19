@@ -39,7 +39,11 @@ from mangadock.models import (
     User,
     UserGroupPermission,
 )
-from mangadock.services.download import is_supported_comic_url
+from mangadock.services.adult_content import (
+    is_adult_content_enabled,
+    set_adult_content_enabled,
+)
+from mangadock.services.download import is_adult_content_blocked, is_supported_comic_url
 from mangadock.services.groups import (
     assign_comic_group,
     delete_comic_group,
@@ -76,6 +80,7 @@ from mangadock.services.updates import (
 )
 from mangadock.services.workers import start_download_task, start_update_task
 from mangadock.settings import (
+    ADULT_CONTENT_DISABLED_MESSAGE,
     APP_VERSION,
     COMIC_ROOT,
     COMIC_UPDATE_MODE_AUTO,
@@ -178,6 +183,7 @@ def register_routes(bp):
                 'POST /api/v1/library/hidden/comics',
                 'POST /api/v1/library/hidden/groups',
                 'POST /api/v1/comics/by-name/<name>/cover',
+                'GET|PUT /api/v1/settings/adult-content',
                 'GET|POST /api/v1/settings/scan-paths',
                 'DELETE /api/v1/settings/scan-paths/<id>',
                 'POST /api/v1/settings/scan-paths/rescan',
@@ -332,8 +338,13 @@ def register_routes(bp):
         if not is_supported_comic_url(comic_url):
             return api_fail(
                 'UNSUPPORTED_URL',
-                '请输入有效的漫画链接或 ID（支持包子漫画、MXS 和番茄图片漫画）',
+                '请输入有效的漫画链接或 ID（支持包子漫画、番茄图片漫画'
+                + ('、MXS' if is_adult_content_enabled() else '')
+                + '）',
             )
+
+        if is_adult_content_blocked(comic_url):
+            return api_fail('ADULT_CONTENT_DISABLED', ADULT_CONTENT_DISABLED_MESSAGE, 403)
 
         task_id = start_download_task(comic_url, comic_format)
         task = get_task(task_id)
@@ -540,6 +551,36 @@ def register_routes(bp):
         return api_ok({
             'comic_name': comic_name,
             'message': f'《{comic_name}》封面已更新',
+        })
+
+    # ------------------------------------------------------------------ settings / adult content
+    @bp.get('/settings/adult-content')
+    @require_write_auth(admin=True)
+    def get_adult_content_setting():
+        return api_ok({'enabled': is_adult_content_enabled()})
+
+    @bp.put('/settings/adult-content')
+    @require_write_auth(admin=True)
+    def update_adult_content_setting():
+        data = request_json()
+        if data is None:
+            return api_fail('INVALID_JSON', '请求体必须是 JSON 对象')
+
+        raw = data.get('enabled')
+        if isinstance(raw, bool):
+            enabled = raw
+        elif isinstance(raw, int):
+            enabled = raw != 0
+        elif isinstance(raw, str):
+            enabled = raw.strip().lower() in {'1', 'true', 'yes', 'on'}
+        else:
+            return api_fail('INVALID_VALUE', 'enabled 必须是布尔值')
+
+        enabled = set_adult_content_enabled(enabled)
+        return api_ok({
+            'enabled': enabled,
+            'message': '已开启 18+ 内容来源：下载页将显示漫小肆韩漫入口'
+            if enabled else '已关闭 18+ 内容来源：漫小肆韩漫入口已隐藏，相关下载已停用',
         })
 
     # ------------------------------------------------------------------ settings / scan paths

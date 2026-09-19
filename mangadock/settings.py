@@ -115,3 +115,8 @@ COMIC_UPDATE_MODE_SETTING_KEY = 'comic_update_mode'
 COMIC_UPDATE_MODE_MANUAL = 'manual'
 COMIC_UPDATE_MODE_AUTO = 'auto'
 COMIC_UPDATE_MODES = {COMIC_UPDATE_MODE_MANUAL, COMIC_UPDATE_MODE_AUTO}
+
+# 18+ 内容来源（漫小肆韩漫 / mxs12.cc）全局开关，默认关闭。
+# 关闭时：下载页不显示漫小肆入口，且后端拒绝一切 mxs 来源的下载/更新。
+ADULT_CONTENT_SETTING_KEY = 'adult_content_enabled'
+ADULT_CONTENT_DISABLED_MESSAGE = '漫小肆韩漫属于 18+ 来源，请先在「设置」页开启 18+ 开关'

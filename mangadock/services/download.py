@@ -22,6 +22,7 @@ from mangadock.core import app
 from mangadock.extensions import db
 from mangadock.models import DownloadTask
 from mangadock.settings import (
+    ADULT_CONTENT_DISABLED_MESSAGE,
     BAOZIMH_ORG_API_BASE_URL,
     COMIC_MAPPING_FILE,
     BAOZIMH_ORG_DEFAULT_IMAGE_HOST,
@@ -47,6 +48,7 @@ from mangadock.services.library import (
     target_extension,
 )
 from mangadock.services.tasks import get_task, is_task_cancel_requested, update_task
+from mangadock.utils.cover_image import normalize_cover_bytes
 from mangadock.utils.http import (
     safe_http_get,
     should_verify_upstream_tls,
@@ -143,6 +145,8 @@ def detect_source_provider(url):
         return 'fanqie'
     host = urlparse(url).netloc.lower()
     if 'mxs12.cc' in host or 'wzd1.cc' in host:
+        if is_adult_content_blocked(url):
+            raise ValueError(ADULT_CONTENT_DISABLED_MESSAGE)
         return 'mxs'
     if 'baozimh.org' in host:
         return 'baozimh_org'
@@ -199,6 +203,14 @@ def extract_description_from_html(html_content, soup=None):
         if len(cleaned) > len(best):
             best = cleaned
     return best
+
+
+def is_adult_content_blocked(url):
+    """URL 属于漫小肆韩漫且 18+ 开关关闭时返回 True。"""
+    if not is_mxs_url(url):
+        return False
+    from mangadock.services.adult_content import is_adult_content_enabled
+    return not is_adult_content_enabled()
 
 
 def is_supported_comic_url(url):
@@ -459,16 +471,17 @@ def title_mxs(url):
         try:
             response = safe_http_get(cover_url, timeout=10, max_bytes=MAX_IMAGE_RESPONSE_BYTES)
             if response.status_code == 200:
-                if not os.path.exists(COVER_ROOT):
-                    os.makedirs(COVER_ROOT)
-                with open(os.path.join(COVER_ROOT, f"{title}.jpg"), 'wb') as f:
-                    f.write(response.content)
-                print(f"封面已保存到: {os.path.join(COVER_ROOT, f'{title}.jpg')}")
-                try:
-                    from mangadock.utils.cover_enhance import refresh_hero_cover
-                    refresh_hero_cover(title)
-                except Exception as enhance_exc:
-                    print(f"封面超分缓存失败: {enhance_exc}")
+                cover_path = os.path.join(COVER_ROOT, f"{title}.jpg")
+                # 统一转码为 JPEG 落盘，非 JPEG 内容仅在可解码时才写入
+                if normalize_cover_bytes(response.content, cover_path):
+                    print(f"封面已保存到: {cover_path}")
+                    try:
+                        from mangadock.utils.cover_enhance import refresh_hero_cover
+                        refresh_hero_cover(title)
+                    except Exception as enhance_exc:
+                        print(f"封面超分缓存失败: {enhance_exc}")
+                else:
+                    print(f"封面格式无法转码，已跳过保存: {cover_url}")
         except Exception as e:
             print(f"下载封面时出错: {e}")
 
@@ -518,17 +531,17 @@ def title(url):
             try:
                 response = safe_http_get(image_url, max_bytes=MAX_IMAGE_RESPONSE_BYTES)
                 response.raise_for_status()
-                # 保存图片到本地
-                if not os.path.exists(COVER_ROOT):
-                    os.makedirs(COVER_ROOT)
-                with open(os.path.join(COVER_ROOT, f"{title}.jpg"), 'wb') as f:
-                    f.write(response.content)
-                print(f"图片已保存到: {os.path.join(COVER_ROOT, f'{title}.jpg')}")
-                try:
-                    from mangadock.utils.cover_enhance import refresh_hero_cover
-                    refresh_hero_cover(title)
-                except Exception as enhance_exc:
-                    print(f"封面超分缓存失败: {enhance_exc}")
+                # 保存图片到本地（统一转码为 JPEG）
+                cover_path = os.path.join(COVER_ROOT, f"{title}.jpg")
+                if normalize_cover_bytes(response.content, cover_path):
+                    print(f"图片已保存到: {cover_path}")
+                    try:
+                        from mangadock.utils.cover_enhance import refresh_hero_cover
+                        refresh_hero_cover(title)
+                    except Exception as enhance_exc:
+                        print(f"封面超分缓存失败: {enhance_exc}")
+                else:
+                    print(f"封面格式无法转码，已跳过保存: {image_url}")
             except Exception as e:
                 print(f"下载或保存图片时出错: {e}")
 
@@ -1179,6 +1192,8 @@ def download_complete_book_mxs(url, comic_format, task_id):
     """下载整本漫画（mxs12.cc 专用）"""
     try:
         update_task(task_id, status='running')
+        if is_adult_content_blocked(url):
+            raise ValueError(ADULT_CONTENT_DISABLED_MESSAGE)
 
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'

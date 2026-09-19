@@ -9,11 +9,8 @@ import shutil
 import time
 import zipfile
 from datetime import datetime
-from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
-
-from PIL import Image
 
 from mangadock.services.fanqie_api import FanqieApiError, get_client
 from mangadock.services.library import (
@@ -31,6 +28,7 @@ from mangadock.settings import (
     MAX_ARCHIVE_ENTRY_BYTES,
     china_tz,
 )
+from mangadock.utils.cover_image import normalize_cover_bytes
 from mangadock.utils.media import sanitize_filename
 
 
@@ -113,13 +111,10 @@ def _save_cover(comic_name: str, book_id: str, content: bytes | None = None) -> 
         raise ValueError("番茄漫画封面无效")
     os.makedirs(COVER_ROOT, exist_ok=True)
     cover_path = Path(COVER_ROOT) / f"{comic_name}.jpg"
-    temporary = cover_path.with_name(f".{cover_path.name}.part")
-    with Image.open(BytesIO(content)) as image:
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        image.thumbnail((2400, 3200), Image.Resampling.LANCZOS)
-        image.save(temporary, format="JPEG", quality=92, optimize=True)
-    os.replace(temporary, cover_path)
+    # 统一经封面转码写盘：源站返回 AVIF 等格式时 Pillow 直接 open 会失败，
+    # 这里交给公共转换链处理（Pillow → 可选插件 → sips/ImageMagick/ffmpeg）。
+    if not normalize_cover_bytes(content, str(cover_path)):
+        raise ValueError("番茄漫画封面格式无法转码")
     try:
         from mangadock.utils.cover_enhance import refresh_hero_cover
         refresh_hero_cover(comic_name)

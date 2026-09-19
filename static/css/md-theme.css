@@ -33,6 +33,20 @@ html.theme-dark body {
   -webkit-backdrop-filter: blur(18px);
 }
 
+/* PWA 独立窗口下（viewport-fit=cover + black-translucent）顶栏的 top:0 就是屏幕
+   物理顶端，内层又用 padding-top: env(safe-area-inset-top) 主动撑到状态栏，
+   于是状态栏那一条也落进了 backdrop-filter 的模糊范围里，看起来像顶栏顶部
+   糊了一块。用一个只覆盖安全区的纯色伪元素把这条从模糊里摘出来；
+   浏览器模式下该高度为 0，不产生任何影响。 */
+.md-topnav::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  background: #07070a;
+  pointer-events: none;
+}
+
 .md-topnav-inner {
   max-width: var(--md-max);
   margin: 0 auto;
@@ -1608,6 +1622,121 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   vertical-align: middle;
 }
 
+/* 书架/书库工具条：统一三个控件的高度 · 圆角 · 字号，消除「大小不一」
+   —— select 原本是 33.6px 圆角矩形、两个按钮是 43.8/45px 胶囊，混在一起很跳 */
+.md-lib-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.md-lib-toolbar > .md-lib-select,
+.md-lib-toolbar > .md-btn-ghost,
+.md-lib-toolbar > .md-btn-primary {
+  box-sizing: border-box;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.md-lib-toolbar > .md-lib-select {
+  min-width: 6.5rem;
+  max-width: 8.5rem;
+  padding-left: 1rem;
+  padding-right: 1.75rem;
+}
+
+.md-lib-toolbar > .md-btn-ghost {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+.md-lib-toolbar > .md-btn-primary {
+  padding-left: 1.375rem;
+  padding-right: 1.375rem;
+  font-weight: 700;
+}
+
+.md-lib-toolbar > .md-btn-ghost .fa,
+.md-lib-toolbar > .md-btn-primary .fa {
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+/* ---- 窄屏：工具条三件套必须保持在同一行（2026-09-19 用户要求）----
+   全尺寸下三件套共需 420px，而 420px 视口的容器只有 388px，会折成两行。
+   ≤480px 收紧字号与内边距，把需求宽度压到 ~306px。 */
+@media (max-width: 480px) {
+  .md-lib-toolbar {
+    gap: 0.5rem;
+  }
+
+  .md-lib-toolbar > .md-lib-select,
+  .md-lib-toolbar > .md-btn-ghost,
+  .md-lib-toolbar > .md-btn-primary {
+    font-size: 0.8125rem;
+    padding-left: 0.625rem;
+    padding-right: 0.625rem;
+  }
+
+  .md-lib-toolbar > .md-lib-select {
+    min-width: 4.75rem;
+    max-width: 8.25rem;
+    padding-left: 0.625rem;
+    padding-right: 1.375rem;
+  }
+
+  .md-lib-toolbar > .md-btn-ghost .fa,
+  .md-lib-toolbar > .md-btn-primary .fa {
+    font-size: 0.8125rem;
+  }
+
+  .md-lib-toolbar > .md-btn-ghost .mr-2,
+  .md-lib-toolbar > .md-btn-primary .mr-2 {
+    margin-right: 0.3125rem;
+  }
+}
+
+/* 360–399px：容器只有 328–367px，下拉框收到 6.5rem 才能保住单行
+   （此时长分组名被渲染成「默认分组…」，与桌面原有的截断行为一致）。 */
+@media (min-width: 360px) and (max-width: 399px) {
+  .md-lib-toolbar > .md-lib-select {
+    max-width: 6.5rem;
+  }
+}
+
+/* ≤359px（320/340 档）：带文字需要 326px，容器只有 288–308px 放不下，
+   两个动作按钮收成 44×44 圆形图标、贴右排，沿用移动端长胶囊的既有约定。
+   文案用 font-size:0 隐藏而不是 display:none —— 文字节点仍留在无障碍树里，
+   可访问名不会丢（无需另补 aria-label）。 */
+@media (max-width: 359px) {
+  .md-lib-toolbar > .md-btn-ghost,
+  .md-lib-toolbar > .md-btn-primary {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    padding-left: 0;
+    padding-right: 0;
+    font-size: 0;
+  }
+
+  .md-lib-toolbar > .md-btn-ghost .fa,
+  .md-lib-toolbar > .md-btn-primary .fa {
+    font-size: 1rem;
+    margin-right: 0;
+  }
+
+  /* 空出 80px 余量，下拉框放宽到原始上限，带计数的分组名不再被省略号截断 */
+  .md-lib-toolbar > .md-lib-select {
+    max-width: 8.5rem;
+  }
+}
+
 .md-lib-badge {
   display: inline-flex;
   align-items: center;
@@ -1975,16 +2104,33 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 }
 
 @media (max-width: 767px) {
+  /* 移动端窄屏下，整条「搜索与下载」胶囊挤在文案下面既不美观也浪费纵向空间。
+     改为：标题+说明占满左侧，动作收成一个 44px 的圆形图标按钮贴在右侧并与文案垂直居中。 */
   .md-fanqie-home-panel {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 1rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.875rem;
+  }
+
+  .md-fanqie-home-panel > div {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .md-fanqie-home-action {
-    align-self: flex-start;
-    width: fit-content;
+    align-self: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
+    flex: 0 0 auto;
+    padding: 0;
+    border-radius: 999px;
+    box-shadow: 0 8px 20px rgba(var(--md-brand-rgb), 0.32);
   }
+
+  /* 文案只留可访问名（锚点上有 aria-label），视觉上只剩放大镜图标 */
+  .md-fanqie-home-action span { display: none; }
+  .md-fanqie-home-action .fa { font-size: 1rem; }
 }
 
 .md-fanqie-tools {
@@ -2310,6 +2456,11 @@ html:not(.theme-dark) .md-topnav {
   border-color: rgba(148, 163, 184, 0.32);
   background: rgba(255, 255, 255, 0.88);
   box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+}
+
+/* 浅色下安全区那一条用页面顶部的渐变色收口 */
+html:not(.theme-dark) .md-topnav::before {
+  background: #fbfcff;
 }
 
 html:not(.theme-dark) .md-logo,
@@ -2819,4 +2970,19 @@ html:not(.theme-dark) .md-pagination-link:not(.is-active) {
   .md-pagination-link,
   .md-pagination-ellipsis { min-width: 2.35rem; height: 2.35rem; padding: 0 0.6rem; }
   .md-pagination-direction span { display: none; }
+}
+
+/* ---- .md-lib-select 背景还原（修复被全局兜底刷掉的下拉箭头）---- */
+html.theme-dark .md-lib-select {
+  background:
+    linear-gradient(45deg, transparent 50%, #8b8b9e 50%) calc(100% - 16px) calc(50% - 2px) / 5px 5px no-repeat,
+    linear-gradient(135deg, #8b8b9e 50%, transparent 50%) calc(100% - 11px) calc(50% - 2px) / 5px 5px no-repeat,
+    rgba(22, 22, 31, 0.95) !important;
+}
+
+html:not(.theme-dark) .md-lib-select {
+  background:
+    linear-gradient(45deg, transparent 50%, #64748b 50%) calc(100% - 16px) calc(50% - 2px) / 5px 5px no-repeat,
+    linear-gradient(135deg, #64748b 50%, transparent 50%) calc(100% - 11px) calc(50% - 2px) / 5px 5px no-repeat,
+    rgba(255, 255, 255, 0.92) !important;
 }

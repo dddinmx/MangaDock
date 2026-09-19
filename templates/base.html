@@ -488,6 +488,25 @@
         html.theme-dark textarea::placeholder {
             color: #64748b !important;
         }
+        /* 顶栏搜索框例外：胶囊 .md-search 自带底色，里面那个 input 必须保持透明。
+           深色下 html.theme-dark input（特异度 (0,1,2) 且带 !important）、
+           浅色下 html:not(.theme-dark) body.md-body input[type="search"]（(0,3,3)）
+           都会压掉 md-theme.css 里 .md-search input { background: transparent }
+           的 (0,1,1)，让输入框拿到一块不透明的直角底色
+           （深色 #1d1d1d / 浅色 rgba(255,255,255,.92)）。
+           这里统一用 !important 盖回来，并抹掉 Safari 对 input[type=search]
+           的原生外观（设计里已有自己的放大镜图标）。 */
+        html.theme-dark .md-search input,
+        html:not(.theme-dark) .md-search input {
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        html.theme-dark .md-search input {
+            color: #fff !important;
+        }
         html.theme-dark select option {
             background: #1d1d1d;
             color: #e5e7eb;
@@ -593,105 +612,86 @@
                 overflow: hidden;
                 left: 50%;
                 bottom: max(0.65rem, env(safe-area-inset-bottom, 0px));
-                display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-                width: min(25rem, calc(100vw - 1.5rem));
-                padding: 0.35rem;
-                border: 1px solid rgba(255, 255, 255, 0.36);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.15rem;
+                width: min(22rem, calc(100vw - 1.5rem));
+                padding: 0.32rem;
+                border: 1px solid rgba(255, 255, 255, 0.14);
                 border-radius: 999px;
-                background: rgba(18, 20, 29, 0.42);
-                box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.32), inset 0 -1px 0 rgba(0, 0, 0, 0.14);
-                backdrop-filter: blur(26px) saturate(185%) brightness(1.1) contrast(1.06);
-                -webkit-backdrop-filter: blur(26px) saturate(185%) brightness(1.1) contrast(1.06);
+                background: rgba(15, 16, 22, 0.66);
+                box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(26px) saturate(160%);
+                -webkit-backdrop-filter: blur(26px) saturate(160%);
                 transform: translateX(-50%);
                 transform-origin: center bottom;
                 opacity: 1;
                 transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
                 will-change: transform, opacity;
             }
-            .md-mobile-tabbar::before,
-            .md-mobile-tabbar::after {
-                content: '';
-                position: absolute;
-                z-index: 0;
-                pointer-events: none;
-                border-radius: inherit;
-            }
-            .md-mobile-tabbar::before {
-                inset: 0;
-                background:
-                    radial-gradient(44% 68% at 8% -36%, rgba(255, 255, 255, 0.28) 0%, transparent 38%),
-                    radial-gradient(32% 50% at 100% 120%, rgba(255, 255, 255, 0.065) 0%, transparent 44%),
-                    linear-gradient(112deg, rgba(255, 255, 255, 0.08) 0%, transparent 18%, rgba(255, 255, 255, 0.018) 52%, transparent 68%);
-            }
-            .md-mobile-tabbar::after {
-                top: 1px;
-                right: 30%;
-                left: 30%;
-                height: 1px;
-                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.58), transparent);
-            }
             .md-mobile-tabbar.is-scroll-hidden {
-                transform: translateX(-50%) scale(0.72);
+                transform: translateX(-50%) scale(0.86);
                 opacity: 0.96;
                 pointer-events: auto;
             }
+            /* 未选中：纯图标居中；选中：胶囊内「图标 + 文字」横向排列 */
             .md-mobile-tabbar__link {
                 position: relative;
                 z-index: 1;
                 display: flex;
+                flex: 1 1 0;
                 min-width: 0;
-                min-height: 3.25rem;
-                flex-direction: column;
+                min-height: 2.75rem;
                 align-items: center;
                 justify-content: center;
-                gap: 0.22rem;
+                gap: 0;
+                padding: 0 0.5rem;
                 border-radius: 999px;
                 color: #8f8f9f;
-                font-size: 0.66rem;
+                font-size: 0.78rem;
                 font-weight: 600;
                 text-decoration: none;
-                transition: gap 0.2s ease;
+                transition: gap 0.24s ease, background 0.2s ease, color 0.2s ease;
+            }
+            .md-mobile-tabbar__link i {
+                font-size: 1.12rem;
+                line-height: 1;
+                transition: color 0.2s ease;
             }
             .md-mobile-tabbar__link span {
                 display: block;
-                max-height: 1em;
+                max-width: 0;
                 overflow: hidden;
-                line-height: 1;
-                opacity: 1;
-                transform: translateY(0);
-                transition: max-height 0.2s ease, opacity 0.14s ease, transform 0.2s ease;
-            }
-            .md-mobile-tabbar.is-scroll-hidden .md-mobile-tabbar__link { gap: 0; }
-            .md-mobile-tabbar.is-scroll-hidden .md-mobile-tabbar__link span {
-                max-height: 0;
+                white-space: nowrap;
                 opacity: 0;
-                transform: translateY(-0.3rem);
-            }
-            .md-mobile-tabbar__link i {
-                font-size: 1.18rem;
-                line-height: 1;
+                transition: max-width 0.26s ease, opacity 0.18s ease;
             }
             .md-mobile-tabbar__link.is-active {
-                color: var(--md-brand-soft);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.24), rgba(var(--md-brand-rgb), 0.18));
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 5px 14px rgba(0, 0, 0, 0.08);
+                flex: 0 0 auto;
+                min-width: 6.4rem;
+                gap: 0.42rem;
+                padding: 0 0.95rem;
+                color: #fff;
+                background: rgba(255, 255, 255, 0.14);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
             }
+            .md-mobile-tabbar__link.is-active i { color: var(--md-brand-soft); }
+            .md-mobile-tabbar__link.is-active span { max-width: 5rem; opacity: 1; }
             html:not(.theme-dark) .md-mobile-tabbar {
-                border-color: rgba(255, 255, 255, 0.82);
-                background: rgba(248, 250, 255, 0.42);
-                box-shadow: 0 16px 38px rgba(15, 23, 42, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.88), inset 0 -1px 0 rgba(148, 163, 184, 0.16);
+                border-color: rgba(255, 255, 255, 0.86);
+                background: rgba(250, 251, 255, 0.76);
+                box-shadow: 0 16px 38px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
             }
             html:not(.theme-dark) .md-mobile-tabbar__link {
                 color: #64748b;
             }
             html:not(.theme-dark) .md-mobile-tabbar__link.is-active {
-                color: var(--md-brand);
-                border-color: rgba(255, 255, 255, 0.8);
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(var(--md-brand-rgb), 0.2));
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 5px 14px rgba(15, 23, 42, 0.06);
+                color: #182033;
+                background: rgba(15, 23, 42, 0.07);
+                box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
             }
+            html:not(.theme-dark) .md-mobile-tabbar__link.is-active i { color: var(--md-brand); }
             html:not(.platform-android) body {
                 padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
             }
@@ -935,7 +935,7 @@
                 <a href="{{ mode_library_url }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">{{ mode_library_label }}</a>
                 <a href="{{ url_for(mode_history_endpoint) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_history_endpoint %} is-active{% endif %}">历史</a>
                 <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == 'statistics' %} is-active{% endif %}">统计</a>
-                <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'users', 'change_password', 'download', 'update', 'tasks'] %} is-active{% endif %}">我的</a>
+                <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">我的</a>
             </nav>
 
             {# 顶栏常驻搜索：结果页 /search，与书架分离 #}
@@ -1005,7 +1005,7 @@
         <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == 'statistics' %} is-active{% endif %}">
             <i class="fa fa-bar-chart"></i><span>统计</span>
         </a>
-        <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint in ['settings', 'users', 'change_password'] %} is-active{% endif %}">
+        <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint in ['settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">
             <i class="fa fa-user-o"></i><span>我的</span>
         </a>
     </nav>
@@ -1099,7 +1099,7 @@
                         label.textContent = isDark ? '切换到浅色模式' : '切换到暗黑模式';
                     }
                     if (state) {
-                        state.textContent = isDark ? '当前：暗黑模式' : '当前：浅色模式';
+                        state.textContent = isDark ? '暗黑模式' : '浅色模式';
                     }
                 });
                 if (themeColorMeta) {

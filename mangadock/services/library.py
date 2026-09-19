@@ -38,6 +38,7 @@ from mangadock.settings import (
     PDF_TOOL_TIMEOUT_SECONDS,
     china_tz,
 )
+from mangadock.utils.cover_image import normalize_cover_bytes
 from mangadock.utils.files import resolve_file_under_directory
 from mangadock.utils.http import safe_http_get, should_verify_upstream_tls, write_limited_response_to_file
 from mangadock.utils.media import default_headers, ensure_directory, repair_pdf_for_reading, sanitize_filename
@@ -884,8 +885,11 @@ def save_cover_image(comic_name, cover_url, referer=None, verify=True):
             max_bytes=MAX_IMAGE_RESPONSE_BYTES
         )
         response.raise_for_status()
-        with open(cover_path, "wb") as cover_file:
-            cover_file.write(response.content)
+        # 源站可能返回 AVIF 等非 JPEG 内容，统一转码后再落盘；
+        # 转码失败则不写盘，避免留下扩展名与内容不符的坏封面。
+        if not normalize_cover_bytes(response.content, cover_path):
+            safe_print(f"封面格式无法转码，已跳过保存: {cover_url}")
+            return
         try:
             from mangadock.utils.cover_enhance import refresh_hero_cover
             refresh_hero_cover(comic_name)
