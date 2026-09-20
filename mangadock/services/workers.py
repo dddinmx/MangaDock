@@ -19,10 +19,10 @@ from mangadock.services.updates import (
 )
 from mangadock.settings import WORKER_POLL_INTERVAL_SECONDS, WORKER_SCHEDULE_HEARTBEAT_SECONDS, china_tz
 
-def start_download_task(url, comic_format):
-    """创建下载任务并加入后台队列"""
+def start_download_task(url, comic_format, allow_adult=False):
+    """创建下载任务并加入后台队列（allow_adult=创建者的 18+ 覆盖授权快照）"""
     task_id = create_task(url, comic_format)
-    update_task(task_id, log="任务已加入后台队列，等待 worker 处理")
+    update_task(task_id, log="任务已加入后台队列，等待 worker 处理", allow_adult=bool(allow_adult))
     return task_id
 
 def start_update_task(comic_name, comic_format, url):

@@ -74,7 +74,7 @@
                 <img src="{{ url_for('fanqie_novel_cover', book_id=book.book_id, v='api1') }}"
                      alt="{{ book.title }}封面"
                      loading="lazy"
-                     onerror="this.onerror=null;this.src='{{ asset_url('cover/cover.png') }}';">
+                     data-fallback="{{ asset_url('cover/cover.png') }}">
             </div>
             <div class="md-fanqie-book-body">
                 <div class="md-fanqie-book-topline">

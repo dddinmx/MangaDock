@@ -20,7 +20,7 @@
         <div class="md-history-cover h-24 w-16 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-ink-700">
             <img src="{{ cover_image_url(comic.comic_name) }}" alt=""
                  class="h-full w-full object-cover"
-                 onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                 data-fallback="{{ asset_url('cover/cover.png') }}">
         </div>
         <div class="min-w-0 flex-1 py-0.5">
             <div class="md-history-item-title truncate text-base font-semibold text-white">{{ comic.comic_name }}</div>

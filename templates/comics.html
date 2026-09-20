@@ -764,7 +764,7 @@
                                      alt="{{ task.comic_name }}封面"
                                      loading="lazy"
                                      decoding="async"
-                                     onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                                     data-fallback="{{ asset_url('cover/cover.png') }}">
                             </div>
                         </div>
                         <div class="md-cover-card__title">{{ task.comic_name }}</div>
@@ -797,7 +797,7 @@
                                      alt="{{ task.comic_name }}封面"
                                      loading="lazy"
                                      decoding="async"
-                                     onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                                     data-fallback="{{ asset_url('cover/cover.png') }}">
                             </div>
                         </div>
                         <div class="md-cover-card__title">{{ task.comic_name }}</div>

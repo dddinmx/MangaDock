@@ -385,7 +385,13 @@ def novel_chapter_data(novel_id, chapter_index):
 @app.route('/novel/<path:novel_id>/cover')
 @login_required
 def novel_cover(novel_id):
-    cover = get_novel_cover_file(novel_id)
+    cover = None
+    for delay in (0.0, 0.5, 1.5):  # SMB 瞬时抖动重试（2026-09-20）
+        if delay:
+            time.sleep(delay)
+        cover = get_novel_cover_file(novel_id)
+        if cover:
+            break
     if not cover:
         return app.send_static_file('cover/cover.png')
     cover_path, mimetype = cover

@@ -195,7 +195,7 @@
         <img
             src="{{ cover_image_url(task.comic_name) }}"
             alt=""
-            onerror="this.onerror=null;this.src='{{ asset_url('cover/cover.png') }}';"
+            data-fallback="{{ asset_url('cover/cover.png') }}"
         >
     </div>
     <div class="md-detail-hero-shade"></div>
@@ -260,7 +260,7 @@
                 <img
                     src="{{ cover_image_url(task.comic_name) }}"
                     alt="{{ task.comic_name }}封面"
-                    onerror="this.src='{{ asset_url('cover/cover.png') }}'"
+                    data-fallback="{{ asset_url('cover/cover.png') }}"
                 >
             </div>
             <div class="md-detail-meta">

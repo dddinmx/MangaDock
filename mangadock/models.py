@@ -28,6 +28,8 @@ class DownloadTask(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now(china_tz))
     is_update = db.Column(db.Boolean, default=False)
     group = db.Column(db.String(255), default='默认分组')  # 分组字段
+    # 任务创建者的 18+ 覆盖授权快照（can_view_adult 用户在全局关闭时仍可下 mxs 源）
+    allow_adult = db.Column(db.Boolean, nullable=False, default=False)
 
 class ReadingProgress(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -197,6 +199,9 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')
+    # 普通用户权限开关（管理员恒为全开，不走这两个字段判断）
+    can_download = db.Column(db.Boolean, nullable=False, default=False)
+    can_view_adult = db.Column(db.Boolean, nullable=False, default=False)
 
     def set_password(self, password):
         # 使用 pbkdf2:sha256 算法，确保在 Docker 精简镜像中也能正常工作
@@ -247,6 +252,9 @@ def initialize_database():
                 time.sleep(0.1)
 
         ensure_sqlite_column(User.__table__.name, 'role', "VARCHAR(20) DEFAULT 'user'")
+        ensure_sqlite_column(User.__table__.name, 'can_download', 'BOOLEAN DEFAULT 0')
+        ensure_sqlite_column(User.__table__.name, 'can_view_adult', 'BOOLEAN DEFAULT 0')
+        ensure_sqlite_column(DownloadTask.__table__.name, 'allow_adult', 'BOOLEAN DEFAULT 0')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'user_id', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'anchor_paragraph', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'anchor_offset', 'INTEGER')

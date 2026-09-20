@@ -16,6 +16,17 @@ def is_adult_content_enabled():
     return str(raw or '').strip().lower() in _TRUE_VALUES
 
 
+def is_adult_content_enabled_for(user):
+    """按用户生效的 18+ 开关：全局开启，或该用户被单独授予 can_view_adult。
+
+    全局关闭时被单独授权的用户仍可使用 18+ 内容来源；管理员不走用户级覆盖
+    （管理员需要 18+ 内容时直接开全局开关，保持既有语义）。
+    """
+    if user is not None and getattr(user, 'can_view_adult', False):
+        return True
+    return is_adult_content_enabled()
+
+
 def set_adult_content_enabled(enabled):
     """写入开关状态并返回最终生效值。"""
     value = '1' if enabled else '0'

@@ -13,9 +13,6 @@
 
     .md-um-panel { display: flex; flex-direction: column; gap: 0.8rem; padding: 0.85rem 1.05rem 1rem; }
 
-    .md-um-head { display: flex; align-items: center; gap: 0.75rem; }
-    .md-um-head form { display: flex; flex: 0 0 auto; }
-
     .md-um-avatar {
         flex: 0 0 auto;
         display: inline-flex;
@@ -51,29 +48,30 @@
     }
     .md-um-role.is-admin { border-color: rgba(var(--md-brand-rgb), 0.42); background: rgba(var(--md-brand-rgb), 0.14); color: var(--md-brand-soft); }
 
-    .md-um-delete {
-        flex: 0 0 auto;
+    .md-um-perm-badges { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .md-um-perm-badge {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        width: 2.1rem;
-        height: 2.1rem;
-        padding: 0;
-        border: 0;
+        gap: 0.3rem;
         border-radius: 999px;
-        background: transparent;
-        color: #fb7185;
-        font-size: 0.95rem;
-        line-height: 1;
-        cursor: pointer;
-        transition: background 0.15s ease;
+        padding: 0.1rem 0.55rem;
+        font-size: 0.7rem;
+        font-weight: 500;
+        border: 1px solid var(--md-border);
+        color: var(--md-muted);
+        background: rgba(255, 255, 255, 0.04);
     }
-    .md-um-delete:hover { background: rgba(251, 113, 133, 0.14); }
+    .md-um-perm-badge.is-on {
+        border-color: rgba(52, 211, 153, 0.4);
+        background: rgba(52, 211, 153, 0.12);
+        color: #34d399;
+    }
 
-    /* 可见分组授权 */
-    .md-um-perms { display: flex; flex-direction: column; gap: 0.6rem; }
-    .md-um-perms__label { font-size: 0.76rem; font-weight: 600; color: var(--md-muted); }
-    .md-um-perms__foot { display: flex; justify-content: flex-end; }
+    .md-um-row { display: flex; align-items: center; gap: 0.75rem; color: inherit; text-decoration: none; }
+    .md-um-chevron { flex: 0 0 auto; color: var(--md-muted); font-size: 0.85rem; opacity: 0.7; }
+    a.md-um-panel { transition: background 0.15s ease; }
+    a.md-um-panel:hover { background: rgba(255, 255, 255, 0.04); }
+    html:not(.theme-dark) a.md-um-panel:hover { background: rgba(15, 23, 42, 0.035); }
 
     .md-um-create__submit { width: 100%; margin-top: 1.1rem; }
 
@@ -82,7 +80,7 @@
     html:not(.theme-dark) .md-um-avatar.is-admin { background: rgba(var(--md-brand-rgb), 0.12); color: var(--md-brand); }
     html:not(.theme-dark) .md-um-role { background: rgba(15, 23, 42, 0.04); }
     html:not(.theme-dark) .md-um-role.is-admin { background: rgba(var(--md-brand-rgb), 0.1); color: var(--md-brand); }
-    html:not(.theme-dark) .md-um-delete { color: #e11d48; }
+    html:not(.theme-dark) .md-um-perm-badge { background: rgba(15, 23, 42, 0.035); }
 </style>
 {% endblock %}
 
@@ -102,60 +100,41 @@
 
     <header class="md-setting-header">
         <h1 class="md-setting-header__title">用户管理</h1>
-        <p class="md-setting-header__sub">创建账号、分配角色与可见分组</p>
+        <p class="md-setting-header__sub">创建账号，点击用户进入详情页分配权限</p>
     </header>
 
     <section class="md-setting-group">
         <h2 class="md-setting-group__title">现有用户（{{ users|length }} 个账号）</h2>
         <div class="md-setting-list">
             {% for user in users %}
-            <div class="md-um-panel">
-                <div class="md-um-head">
+            <a class="md-um-panel" href="{{ url_for('user_detail', user_id=user.id) }}" data-app-loader="true">
+                <div class="md-um-row">
                     <span class="md-um-avatar{% if user.role == 'admin' %} is-admin{% endif %}">
                         <i class="fa {{ 'fa-user-secret' if user.role == 'admin' else 'fa-user' }}"></i>
                     </span>
                     <span class="md-um-id">
                         <span class="md-um-name">{{ user.username }}</span>
-                        <span class="md-um-meta">ID {{ user.id }}</span>
+                        <span class="md-um-meta">ID {{ user.id }}{% if user.role != 'admin' %} · 点击进入权限分配{% endif %}</span>
                     </span>
                     <span class="md-um-role{% if user.role == 'admin' %} is-admin{% endif %}">
                         {{ '管理员' if user.role == 'admin' else '普通用户' }}
                     </span>
-                    {% if user.role != 'admin' %}
-                    <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" data-api-v1="user-delete" data-user-id="{{ user.id }}" data-api-confirm="确定删除用户 {{ user.username }} 吗？此操作不可恢复。">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="md-um-delete action-press" aria-label="删除用户 {{ user.username }}" title="删除用户 {{ user.username }}">
-                            <i class="fa fa-trash-o"></i>
-                        </button>
-                    </form>
-                    {% endif %}
+                    <i class="fa fa-angle-right md-um-chevron" aria-hidden="true"></i>
                 </div>
-
                 {% if user.role != 'admin' %}
-                <form method="post" action="{{ url_for('update_user_groups', user_id=user.id) }}" class="md-um-perms" data-api-v1="user-groups" data-user-id="{{ user.id }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="md-um-perms__label">可见分组授权</div>
-                    {% if groups %}
-                    <div class="md-ios-pills">
-                        {% for group_name in groups %}
-                        <label class="md-ios-pill">
-                            <input type="checkbox" name="group_names" value="{{ group_name }}"{% if group_name in user_group_permissions.get(user.id, []) %} checked{% endif %}>
-                            <span>{{ group_name }}</span>
-                        </label>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <div class="md-ios-hint">还没有可授权的分组，请先创建漫画分组。</div>
-                    {% endif %}
-                    <div class="md-um-perms__foot">
-                        <button type="submit" class="md-btn-primary action-press">保存授权</button>
-                    </div>
-                </form>
+                <div class="md-um-perm-badges">
+                    <span class="md-um-perm-badge{{ ' is-on' if user.can_download }}">
+                        <i class="fa fa-download"></i>下载/更新
+                    </span>
+                    <span class="md-um-perm-badge{{ ' is-on' if user.can_view_adult }}">
+                        <i class="fa fa-eye"></i>18+ 内容
+                    </span>
+                </div>
                 {% endif %}
-            </div>
+            </a>
             {% endfor %}
         </div>
-        <p class="md-setting-group__note">管理员默认拥有全部分组权限，无需单独授权。</p>
+        <p class="md-setting-group__note">管理员拥有全部权限；普通用户点击进入详情页逐项分配。</p>
     </section>
 
     <section class="md-setting-group">
@@ -183,24 +162,10 @@
                     <div class="md-ios-field">
                         <label for="role" class="md-ios-field__label">角色</label>
                         <select id="role" name="role" class="md-input">
-                            <option value="user">普通用户</option>
+                            <option value="user">普通用户（创建后进入详情页分配权限）</option>
                             <option value="admin">管理员</option>
                         </select>
                     </div>
-
-                    {% if groups %}
-                    <div class="md-ios-field">
-                        <div class="md-ios-field__label">初始可见分组</div>
-                        <div class="md-ios-pills">
-                            {% for group_name in groups %}
-                            <label class="md-ios-pill">
-                                <input type="checkbox" name="group_names" value="{{ group_name }}">
-                                <span>{{ group_name }}</span>
-                            </label>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
 
                     <button type="submit" class="md-btn-primary md-um-create__submit action-press">
                         创建用户
@@ -208,7 +173,7 @@
                 </form>
             </div>
         </div>
-        <p class="md-setting-group__note">新账号创建后即可用该用户名与密码登录；管理员拥有全部管理权限。</p>
+        <p class="md-setting-group__note">新账号创建后自动进入详情页分配权限；管理员拥有全部管理权限。</p>
     </section>
 </div>
 {% endblock %}

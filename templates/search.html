@@ -28,7 +28,7 @@
                 <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
                      loading="lazy"
                      decoding="async"
-                     onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                     data-fallback="{{ asset_url('cover/cover.png') }}">
             </div>
         </div>
         <div class="md-cover-card__title">{{ comic.comic_name }}</div>

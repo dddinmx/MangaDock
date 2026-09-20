@@ -112,7 +112,7 @@
                 </div>
                 <div class="stats-rank-cover">
                     <span class="stats-rank-cover-placeholder"><i class="fa fa-book"></i></span>
-                    {% if item.cover_url %}<img src="{{ item.cover_url }}" alt="{{ item.title }}封面" loading="lazy" onerror="this.remove()">{% endif %}
+                    {% if item.cover_url %}<img src="{{ item.cover_url }}" alt="{{ item.title }}封面" loading="lazy" data-fallback="{{ asset_url('cover/cover.png') }}">{% endif %}
                 </div>
                 <div class="stats-rank-main">
                     <div class="stats-rank-line">

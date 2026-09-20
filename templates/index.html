@@ -15,7 +15,7 @@
                 class="md-hero-media-img is-soft"
                 src="{{ cover_image_url(spotlight.comic_name) }}"
                 alt=""
-                onerror="this.onerror=null;this.src='{{ asset_url('cover/cover.png') }}';"
+                data-fallback="{{ asset_url('cover/cover.png') }}"
             >
         </div>
         <div class="md-hero-shade"></div>
@@ -67,7 +67,7 @@
                      alt="{{ spotlight.comic_name }}"
                      loading="eager"
                      decoding="async"
-                     onerror="this.onerror=null;this.src='{{ asset_url('cover/cover.png') }}';">
+                     data-fallback="{{ asset_url('cover/cover.png') }}">
             </div>
         </div>
     </section>
@@ -105,7 +105,7 @@
                         <div class="md-book__pages" aria-hidden="true"></div>
                         <div class="md-book__cover">
                             <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
-                                 onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                                 data-fallback="{{ asset_url('cover/cover.png') }}">
                         </div>
                     </div>
                     <div class="md-cover-card__title">{{ comic.comic_name }}</div>
@@ -130,7 +130,7 @@
                         <div class="md-book__pages" aria-hidden="true"></div>
                         <div class="md-book__cover">
                             <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
-                                 onerror="this.src='{{ asset_url('cover/cover.png') }}'">
+                                 data-fallback="{{ asset_url('cover/cover.png') }}">
                         </div>
                     </div>
                     <div class="md-cover-card__title">{{ comic.comic_name }}</div>

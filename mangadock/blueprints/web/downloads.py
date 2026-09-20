@@ -11,10 +11,10 @@ from flask import (
     url_for,
 )
 
-from mangadock.auth import admin_required, login_required
+from mangadock.auth import admin_required, library_write_required, login_required, get_current_user
 from mangadock.core import app
 from mangadock.extensions import db
-from mangadock.services.adult_content import is_adult_content_enabled
+from mangadock.services.adult_content import is_adult_content_enabled, is_adult_content_enabled_for
 from mangadock.services.download import (
     is_adult_content_blocked,
     is_supported_comic_url,
@@ -45,9 +45,10 @@ from mangadock.blueprints.web.common import safe_print
 
 
 @app.route('/download', methods=['GET', 'POST'])
-@login_required
-@admin_required
+@library_write_required
 def download():
+    current_user = get_current_user()
+    adult_enabled_for_user = is_adult_content_enabled_for(current_user)
     if request.method == 'POST':
         comic_url = request.form.get('comic_url')
         comic_format = int(request.form.get('format', 2))
@@ -56,29 +57,31 @@ def download():
             return render_template(
                 'download.html',
                 error='请输入有效的漫画链接或 ID（支持包子漫画、漫画柜、番茄图片漫画'
-                      + ('、MXS' if is_adult_content_enabled() else '')
+                      + ('、MXS' if adult_enabled_for_user else '')
                       + '）',
-                adult_content_enabled=is_adult_content_enabled(),
+                adult_content_enabled=adult_enabled_for_user,
             )
 
-        if is_adult_content_blocked(comic_url):
+        if is_adult_content_blocked(comic_url, allow_adult=adult_enabled_for_user):
             return render_template(
                 'download.html',
                 error=ADULT_CONTENT_DISABLED_MESSAGE,
-                adult_content_enabled=is_adult_content_enabled(),
+                adult_content_enabled=adult_enabled_for_user,
             )
 
-        # 启动下载线程并获取任务ID
-        task_id = start_download_task(comic_url, comic_format)
+        # 启动下载线程并获取任务ID（带创建者 18+ 覆盖授权快照）
+        task_id = start_download_task(
+            comic_url, comic_format,
+            allow_adult=bool(current_user and current_user.can_view_adult),
+        )
 
         # 重定向到进度页
         return redirect(url_for('progress', task_id=task_id))
 
-    return render_template('download.html', adult_content_enabled=is_adult_content_enabled())
+    return render_template('download.html', adult_content_enabled=adult_enabled_for_user)
 
 @app.route('/update', methods=['GET', 'POST'])
-@login_required
-@admin_required
+@library_write_required
 def update():
     # 获取已下载的漫画列表
     comic_data = load_comic_mapping()
@@ -133,8 +136,7 @@ def update_mode():
 
 
 @app.route('/update/check', methods=['POST'])
-@login_required
-@admin_required
+@library_write_required
 def check_updates_now():
     queue_background_command('refresh_update_checks', {'force': True}, dedupe_pending=True)
     flash('已加入更新检查队列，稍后刷新页面可查看最新结果')
@@ -180,8 +182,7 @@ def delete_tasks_route():
 
 
 @app.route('/progress/<task_id>')
-@login_required
-@admin_required
+@library_write_required
 def progress(task_id):
     task = get_task(task_id)
     if not task:
@@ -200,8 +201,7 @@ def progress(task_id):
     )
 
 @app.route('/task_status/<task_id>')
-@login_required
-@admin_required
+@library_write_required
 def task_status(task_id):
     task = get_task(task_id)
     if not task:
@@ -225,8 +225,7 @@ def task_status(task_id):
     })
 
 @app.route('/cancel_task/<task_id>', methods=['POST'])
-@login_required
-@admin_required
+@library_write_required
 def cancel_task(task_id):
     task = get_task(task_id)
     if task and task.status in {'pending', 'running'}:
@@ -235,8 +234,7 @@ def cancel_task(task_id):
     return jsonify({'status': 'error', 'message': '无法取消任务，任务可能已完成或不存在'})
 
 @app.route('/tasks')
-@login_required
-@admin_required
+@library_write_required
 def tasks():
     """显示所有任务列表"""
     all_tasks = get_all_tasks()

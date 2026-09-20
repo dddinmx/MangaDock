@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """登录 / 登出 / 修改密码。"""
+import json
+import os
+import random
+import time
 from datetime import datetime
 
 from flask import (
@@ -19,11 +23,79 @@ from mangadock.auth import (
 from mangadock.core import app
 from mangadock.extensions import db, login_failures
 from mangadock.models import LoginLog, User
+from mangadock.services.providers.mxs import is_mxs_url
 from mangadock.settings import (
+    BASE_DIR,
+    COVER_ROOT,
     LOGIN_LOCKOUT_DURATION,
     LOGIN_MAX_ATTEMPTS,
     china_tz,
 )
+
+# 登录页封面墙：24 小说封面 + 24 漫画封面。漫画封面按「日期」确定性抽样：
+# 同一天所有访客看到完全相同的一批（用户要求全员一致），跨天自动轮换。
+_LOGIN_COMIC_COVER_COUNT = 24
+_LOGIN_COVER_POOL_TTL = 600
+_login_cover_pool_cache = {'at': 0.0, 'names': []}
+
+
+def _eligible_comic_cover_names():
+    """候选池：cover 根目录的 jpg，排除 18+（mxs 源）漫画的封面。"""
+    try:
+        with open(os.path.join(BASE_DIR, 'comic.json'), 'r', encoding='utf-8') as fh:
+            comic_index = json.load(fh)
+    except (OSError, ValueError):
+        comic_index = {}
+    adult_names = {
+        name for name, source_url in comic_index.items()
+        if isinstance(source_url, str) and is_mxs_url(source_url)
+    }
+    names = []
+    try:
+        entries = os.listdir(COVER_ROOT)
+    except OSError:
+        return names
+    for entry in entries:
+        if not entry.lower().endswith('.jpg'):
+            continue
+        name = entry[:-4]
+        if name in adult_names or name.startswith('._'):
+            continue
+        names.append(name)
+    return names
+
+
+def _pick_comic_covers(count=_LOGIN_COMIC_COVER_COUNT):
+    """按日期做确定性抽样：随机种子 = 当天日期（中国时区），同一天内
+    所有请求、所有访客得到同一批封面；候选池带 10 分钟进程内缓存。
+    池先排序再抽样，保证不受目录枚举顺序影响。"""
+    now = time.time()
+    if now - _login_cover_pool_cache['at'] > _LOGIN_COVER_POOL_TTL:
+        _login_cover_pool_cache['at'] = now
+        _login_cover_pool_cache['names'] = _eligible_comic_cover_names()
+    pool = sorted(_login_cover_pool_cache['names'])
+    if not pool:
+        return []
+    today = datetime.now(china_tz).date().isoformat()
+    rng = random.Random(f'mangadock-login-covers/{today}')
+    if len(pool) <= count:
+        picks = list(pool)
+        rng.shuffle(picks)
+        return picks
+    return rng.sample(pool, count)
+
+
+def render_login_page():
+    """渲染登录页：小说封面与漫画封面交错排布的背景墙。"""
+    comic_names = _pick_comic_covers()
+    wall = []
+    for slot in range(_LOGIN_COMIC_COVER_COUNT):
+        wall.append({'url': url_for('static', filename=f'login-covers/{slot:02d}.jpg')})
+        if slot < len(comic_names):
+            wall.append({
+                'url': url_for('static', filename=f'cover/{comic_names[slot]}.jpg'),
+            })
+    return render_template('login.html', login_wall=wall)
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -56,7 +128,7 @@ def login():
                     )
                     db.session.add(login_log)
                     db.session.commit()
-                    return render_template('login.html')
+                    return render_login_page()
                 else:
                     # 锁定过期，重置失败计数
                     del login_failures[failure_key]
@@ -118,7 +190,7 @@ def login():
                 db.session.add(login_log)
                 db.session.commit()
 
-                return render_template('login.html')
+                return render_login_page()
         else:
             # 用户不存在，记录失败次数
             if failure_key not in login_failures:
@@ -147,10 +219,10 @@ def login():
             db.session.add(login_log)
             db.session.commit()
 
-            return render_template('login.html')
+            return render_login_page()
 
     # GET请求，返回登录页面
-    return render_template('login.html')
+    return render_login_page()
 
 @app.route('/logout', methods=['POST'])
 @login_required

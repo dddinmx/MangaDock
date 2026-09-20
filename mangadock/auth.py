@@ -88,6 +88,32 @@ def admin_required(f):
     return decorated_function
 
 
+def library_write_required(f):
+    """下载/更新/任务类页面权限：管理员，或被授予 can_download 的普通用户。"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login", next=get_login_redirect_target()))
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            session.clear()
+            flash('登录信息已失效，请重新登录')
+            return redirect(url_for("login", next=get_login_redirect_target()))
+        session.permanent = True
+        session['user_role'] = user.role
+        if not (user.is_admin or user.can_download):
+            flash('该操作需要下载权限，请联系管理员在用户管理中开通')
+            if (
+                request.path.startswith('/task_')
+                or request.path.startswith('/cancel_task')
+                or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            ):
+                return jsonify({'status': 'error', 'message': '该操作需要下载权限'}), 403
+            return redirect(url_for('comics_list'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def get_current_user():
     user_id = session.get('user_id')
     if not user_id:
@@ -103,38 +129,6 @@ def asset_url(filename):
     except OSError:
         version = None
     return url_for('static', filename=filename, v=version) if version else url_for('static', filename=filename)
-
-
-# --- Cover existence cache -------------------------------------------------
-# Covers live on an SMB mount; os.path.exists() can transiently fail there
-# (observed 2026-09-20: server rendered the placeholder cover.png for books
-# whose cover files are definitely on disk, 22 hits in two days). Cache
-# positive stat results so a momentary SMB hiccup doesn't flash the
-# placeholder. Negative results are never cached, so genuinely new covers
-# become visible as soon as they are written.
-_COVER_POSITIVE_TTL = 600.0      # trust a positive stat for 10 minutes
-_COVER_POSITIVE_GRACE = 3600.0   # on a failed stat, keep trusting for up to 1h
-_cover_exists_cache = {}
-
-
-def _cover_file_exists(path):
-    now = time.monotonic()
-    seen_at = _cover_exists_cache.get(path)
-    if seen_at is not None:
-        if now - seen_at <= _COVER_POSITIVE_TTL:
-            return True
-        if os.path.exists(path):
-            _cover_exists_cache[path] = now
-            return True
-        if now - seen_at <= _COVER_POSITIVE_GRACE:
-            # stat failed but we saw the file recently: treat as present
-            return True
-        _cover_exists_cache.pop(path, None)
-        return False
-    if os.path.exists(path):
-        _cover_exists_cache[path] = now
-        return True
-    return False
 
 
 def cover_image_url(comic_name, variant='default'):
@@ -155,10 +149,11 @@ def cover_image_url(comic_name, variant='default'):
         # fall through to source cover
 
     cover_filename = f'cover/{comic_name}.jpg'
-    cover_path = os.path.join(app.static_folder, cover_filename)
-    if _cover_file_exists(cover_path):
-        return asset_url(cover_filename)
-    return asset_url('cover/cover.png')
+    # 2026-09-20 二次修复：不再在服务端回落占位图。SMB stat 瞬时失败曾让这里对
+    # 确实存在的封面渲染 cover.png（绿猫直接进 HTML，刷新才恢复）。现在恒发真实
+    # 地址：瞬时抖动由 core.py 的 /static/cover/ 重试路由兜底，文件真缺失由前端
+    # 全局 onerror 重试后再回落占位图——最终表现不变，但不再误判。
+    return asset_url(cover_filename)
 
 
 def cover_hero_image_url(comic_name):
@@ -209,10 +204,16 @@ def save_uploaded_cover_image(comic_name, file_storage):
 def inject_user_context():
     current_user = get_current_user()
     is_admin_user = bool(current_user and current_user.is_admin)
+    can_manage_library = is_admin_user or bool(
+        current_user and getattr(current_user, 'can_download', False)
+    )
     return {
         'current_user': current_user,
         'is_admin_user': is_admin_user,
-        'can_manage_library': is_admin_user,
+        'can_manage_library': can_manage_library,
+        'can_view_adult_override': bool(
+            current_user and getattr(current_user, 'can_view_adult', False)
+        ),
         'asset_url': asset_url,
         'cover_image_url': cover_image_url,
         'cover_hero_image_url': cover_hero_image_url,

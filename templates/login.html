@@ -246,26 +246,30 @@
         .login-cover-scene {
             position: fixed;
             z-index: -3;
-            top: -40vh;
+            top: -25vh;
             left: -17vw;
             width: 138vw;
+            height: 140vh;
             transform: rotate(-8deg);
             transform-origin: center;
             pointer-events: none;
         }
         .login-cover-wall {
             display: grid;
-            grid-template-columns: repeat(8, minmax(118px, 1fr));
-            gap: clamp(8px, .8vw, 14px);
+            /* 24 小说 + 24 漫画共 48 格 = 12 列 × 4 行，行高随场景高度拉伸，
+               保证任何视口宽高比下都铺满到底（2026-09-20 底部黑底修复） */
+            grid-template-columns: repeat(12, minmax(84px, 1fr));
+            grid-template-rows: repeat(4, 1fr);
+            height: 100%;
+            gap: clamp(7px, .7vw, 12px);
         }
         .login-cover-tile {
             position: relative;
-            aspect-ratio: 2 / 3;
             overflow: hidden;
-            border: 3px solid rgba(0, 0, 0, .88);
-            border-radius: clamp(8px, .8vw, 15px);
+            border: 2px solid rgba(0, 0, 0, .88);
+            border-radius: clamp(7px, .7vw, 12px);
             background: linear-gradient(145deg, #252531, #111118);
-            box-shadow: 0 18px 38px rgba(0, 0, 0, .5);
+            box-shadow: 0 14px 30px rgba(0, 0, 0, .5);
             transform: none;
         }
         .login-cover-tile:nth-child(3n + 2),
@@ -566,13 +570,15 @@
         }
         @media (max-width: 900px) {
             .login-cover-scene {
-                top: -22vh;
+                top: -15vh;
                 left: -56vw;
                 width: 210vw;
+                height: 120vh;
             }
             .login-cover-wall {
-                grid-template-columns: repeat(5, minmax(112px, 1fr));
-                gap: 10px;
+                grid-template-columns: repeat(8, minmax(80px, 1fr));
+                grid-template-rows: repeat(6, 1fr);
+                gap: 9px;
             }
             .login-container {
                 width: min(430px, 92vw);
@@ -591,9 +597,10 @@
 <body>
     <div class="login-cover-scene" aria-hidden="true">
         <div class="login-cover-wall">
-            {% for slot in range(24) %}
-                <div class="login-cover-tile" style="--i:{{ loop.index0 }}">
-                    <img src="{{ asset_url('login-covers/' ~ ('%02d'|format(loop.index0)) ~ '.jpg') }}" alt="" decoding="async">
+            {% for item in login_wall %}
+                <div class="login-cover-tile">
+                    <img src="{{ item.url }}" alt="" decoding="async"
+                         data-fallback="{{ asset_url('cover/cover.png') }}">
                 </div>
             {% endfor %}
         </div>
@@ -748,5 +755,32 @@
             }
         })();
     </script>
+<script>
+/* 封面加载重试（2026-09-20）：带 data-fallback 的 img 加载失败时，
+   先重试原地址两次（1.2s / 2.8s）再回落占位图，吸收网络/隧道瞬时失败 */
+(function () {
+    'use strict';
+    var DELAYS = [1200, 2800];
+    document.addEventListener('error', function (e) {
+        var img = e.target;
+        if (!img || img.tagName !== 'IMG' || !img.hasAttribute('data-fallback')) return;
+        var src = img.getAttribute('src') || '';
+        if (src.indexOf('cover.png') !== -1) return;
+        var n = parseInt(img.getAttribute('data-err-n') || '0', 10);
+        if (n >= DELAYS.length) {
+            if (src.indexOf('cover.png') === -1) img.src = img.getAttribute('data-fallback');
+            return;
+        }
+        img.setAttribute('data-err-n', String(n + 1));
+        setTimeout(function () {
+            var cur = img.getAttribute('src') || '';
+            if (cur.indexOf('cover.png') !== -1) return;
+            if (!img.hasAttribute('data-orig-src')) img.setAttribute('data-orig-src', cur);
+            var orig = img.getAttribute('data-orig-src');
+            img.src = orig + (orig.indexOf('?') > -1 ? '&' : '?') + 'retry=' + n + Date.now();
+        }, DELAYS[n]);
+    }, true);
+})();
+</script>
 </body>
 </html>

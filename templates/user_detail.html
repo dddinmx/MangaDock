@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block title %}MangaDock - 用户 {{ user.username }}{% endblock %}
+{% block body_class %}md-body min-h-screen{% endblock %}
+
+{% block extra_head %}{% include '_md_ios_ui.html' %}
+<style>
+    /* ==================== 用户详情专属 ==================== */
+    /* 页面私有类统一 md-ud- 前缀（避开顶栏 .md-user-* 同名规则）。 */
+
+    .md-ud-topline { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.8rem; }
+    .md-ud-topline a { color: var(--md-muted); text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem; }
+    .md-ud-topline a:hover { color: var(--md-text); }
+
+    .md-ud-hero { display: flex; align-items: center; gap: 0.9rem; padding: 0.95rem 1.05rem; }
+    .md-ud-avatar {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 3rem;
+        height: 3rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--md-muted);
+        font-size: 1.25rem;
+        line-height: 1;
+    }
+    .md-ud-avatar.is-admin { background: rgba(var(--md-brand-rgb), 0.16); color: var(--md-brand-soft); }
+    .md-ud-hero__id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+    .md-ud-hero__name { font-size: 1.15rem; font-weight: 700; color: var(--md-text); }
+    .md-ud-hero__meta { font-size: 0.76rem; color: var(--md-muted); }
+
+    .md-ud-status {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        border: 1px solid var(--md-border);
+        background: rgba(255, 255, 255, 0.05);
+        padding: 0.15rem 0.6rem;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--md-muted);
+        white-space: nowrap;
+    }
+    .md-ud-status.is-admin { border-color: rgba(var(--md-brand-rgb), 0.42); background: rgba(var(--md-brand-rgb), 0.14); color: var(--md-brand-soft); }
+
+    .md-ud-rowlabel { font-size: 0.76rem; font-weight: 600; color: var(--md-muted); margin-bottom: 0.5rem; }
+    .md-ud-submit { display: flex; justify-content: flex-end; margin-top: 0.7rem; }
+    .md-ud-perm-summary { font-size: 0.74rem; color: var(--md-muted); }
+
+    .md-ud-log { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.2rem; font-size: 0.8rem; }
+    .md-ud-log + .md-ud-log { border-top: 1px solid var(--md-border); }
+    .md-ud-log__time { flex: 0 0 auto; color: var(--md-muted); font-variant-numeric: tabular-nums; }
+    .md-ud-log__ip { flex: 1 1 auto; min-width: 0; color: var(--md-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .md-ud-log__ok { flex: 0 0 auto; font-weight: 600; }
+    .md-ud-log__ok.is-ok { color: #34d399; }
+    .md-ud-log__ok.is-bad { color: #fb7185; }
+
+    .md-ud-danger { border: 1px solid rgba(251, 113, 133, 0.4); }
+    .md-ud-danger-btn {
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        border: 0;
+        border-radius: 12px;
+        padding: 0.65rem 1rem;
+        background: rgba(251, 113, 133, 0.14);
+        color: #fb7185;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+    .md-ud-danger-btn:hover { background: rgba(251, 113, 133, 0.22); }
+
+    html:not(.theme-dark) .md-ud-avatar { background: rgba(15, 23, 42, 0.06); color: #5b6474; }
+    html:not(.theme-dark) .md-ud-avatar.is-admin { background: rgba(var(--md-brand-rgb), 0.12); color: var(--md-brand); }
+    html:not(.theme-dark) .md-ud-status { background: rgba(15, 23, 42, 0.04); }
+    html:not(.theme-dark) .md-ud-status.is-admin { background: rgba(var(--md-brand-rgb), 0.1); color: var(--md-brand); }
+    html:not(.theme-dark) .md-ud-danger { border-color: rgba(225, 29, 72, 0.35); }
+    html:not(.theme-dark) .md-ud-danger-btn { background: rgba(225, 29, 72, 0.1); color: #e11d48; }
+    html:not(.theme-dark) .md-ud-danger-btn:hover { background: rgba(225, 29, 72, 0.16); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="md-setting-page">
+    {% set flash_messages = get_flashed_messages() %}
+    {% if flash_messages %}
+    <section class="space-y-2 mb-5">
+        {% for message in flash_messages %}
+        <div class="md-ios-alert">
+            <i class="fa fa-info-circle md-ios-alert__icon"></i>
+            <span>{{ message }}</span>
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    <div class="md-ud-topline">
+        <a href="{{ url_for('users') }}" data-app-loader="true"><i class="fa fa-angle-left"></i>用户管理</a>
+    </div>
+
+    <header class="md-setting-header" style="margin-bottom: 0.6rem;">
+        <h1 class="md-setting-header__title">用户详情</h1>
+    </header>
+
+    <section class="md-setting-group">
+        <div class="md-setting-list">
+            <div class="md-ud-hero md-setting-panel">
+                <span class="md-ud-avatar{% if user.is_admin %} is-admin{% endif %}">
+                    <i class="fa {{ 'fa-user-secret' if user.is_admin else 'fa-user' }}"></i>
+                </span>
+                <span class="md-ud-hero__id">
+                    <span class="md-ud-hero__name">{{ user.username }}</span>
+                    <span class="md-ud-hero__meta">ID {{ user.id }}</span>
+                </span>
+                <span class="md-ud-status{% if user.is_admin %} is-admin{% endif %}">
+                    {{ '管理员' if user.is_admin else '普通用户' }}
+                </span>
+            </div>
+        </div>
+    </section>
+
+    {% if not user.is_admin %}
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">功能权限</h2>
+        <div class="md-setting-list">
+            <div class="md-setting-panel">
+                <form method="post" action="{{ url_for('update_user_permissions', user_id=user.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="md-ud-rowlabel">勾选后保存即可生效（管理员恒为全开）</div>
+                    <div class="md-ios-pills md-ios-pills--block">
+                        <label class="md-ios-pill">
+                            <input type="checkbox" name="can_download" value="1"{% if user.can_download %} checked{% endif %}>
+                            <span><i class="fa fa-download"></i> 允许下载 / 更新漫画小说</span>
+                        </label>
+                        <label class="md-ios-pill">
+                            <input type="checkbox" name="can_view_adult" value="1"{% if user.can_view_adult %} checked{% endif %}>
+                            <span><i class="fa fa-eye"></i> 允许查看 18+ 内容（覆盖全局开关）</span>
+                        </label>
+                    </div>
+                    <div class="md-ud-submit">
+                        <button type="submit" class="md-btn-primary action-press">保存权限</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <p class="md-setting-group__note">「允许下载/更新」开放下载页、更新页与任务页；「18+ 内容」在全局开关关闭时仍允许该用户使用 18+ 漫画源。</p>
+    </section>
+
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">可见分组授权</h2>
+        <div class="md-setting-list">
+            <div class="md-setting-panel">
+                <form method="post" action="{{ url_for('update_user_groups', user_id=user.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    {% if groups %}
+                    <div class="md-ios-pills">
+                        {% for group_name in groups %}
+                        <label class="md-ios-pill">
+                            <input type="checkbox" name="group_names" value="{{ group_name }}"{% if group_name in user_groups %} checked{% endif %}>
+                            <span>{{ group_name }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="md-ios-hint">还没有可授权的分组，请先创建漫画分组。</div>
+                    {% endif %}
+                    <div class="md-ud-submit">
+                        <button type="submit" class="md-btn-primary action-press">保存授权</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <p class="md-setting-group__note">不勾选任何分组时，该用户只能看到「默认分组」内容。</p>
+    </section>
+    {% else %}
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">功能权限</h2>
+        <div class="md-setting-list">
+            <div class="md-setting-panel">
+                <div class="md-ios-hint">管理员拥有全部权限（下载、更新、18+ 内容、全部分组），无需分配。</div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">重置密码</h2>
+        <div class="md-setting-list">
+            <div class="md-setting-panel">
+                <form method="post" action="{{ url_for('reset_user_password', user_id=user.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="md-ios-field">
+                        <label for="new_password" class="md-ios-field__label">新密码</label>
+                        <input id="new_password" name="password" type="password" minlength="6" required class="md-input" autocomplete="new-password">
+                    </div>
+                    <div class="md-ios-field">
+                        <label for="confirm_new_password" class="md-ios-field__label">确认新密码</label>
+                        <input id="confirm_new_password" name="confirm_password" type="password" minlength="6" required class="md-input" autocomplete="new-password">
+                    </div>
+                    <div class="md-ud-submit">
+                        <button type="submit" class="md-btn-primary action-press">重置密码</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">最近登录记录</h2>
+        <div class="md-setting-list">
+            <div class="md-setting-panel">
+                {% if login_logs %}
+                {% for log in login_logs %}
+                <div class="md-ud-log">
+                    <span class="md-ud-log__time">{{ log.login_time.strftime('%m-%d %H:%M') if log.login_time }}</span>
+                    <span class="md-ud-log__ip">{{ log.ip_address or '未知 IP' }} · {{ log.message or '' }}</span>
+                    <span class="md-ud-log__ok {{ 'is-ok' if log.success else 'is-bad' }}">{{ '成功' if log.success else '失败' }}</span>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="md-ios-hint">暂无登录记录。</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    {% if not user.is_admin %}
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">危险操作</h2>
+        <div class="md-setting-list">
+            <div class="md-setting-panel md-ud-danger">
+                <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" data-api-v1="user-delete" data-user-id="{{ user.id }}" data-api-confirm="确定删除用户 {{ user.username }} 吗？该用户的阅读进度、分组授权等数据将一并删除，此操作不可恢复。">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="md-ud-danger-btn action-press">
+                        <i class="fa fa-trash-o"></i>删除用户 {{ user.username }}
+                    </button>
+                </form>
+            </div>
+        </div>
+        <p class="md-setting-group__note">删除后该账号立即失效，阅读进度与授权记录同步清除。</p>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

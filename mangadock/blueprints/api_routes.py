@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """JSON API routes."""
 import os
+import time
 import subprocess
 import zipfile
 from datetime import datetime
@@ -212,8 +213,12 @@ def api_comic_cover(comic_id):
 
     cover_filename = f'{identity.comic_name}.jpg'
     cover_path = os.path.join(COVER_ROOT, cover_filename)
-    if os.path.exists(cover_path):
-        return send_from_directory(COVER_ROOT, cover_filename)
+    # SMB 瞬时抖动重试（2026-09-20）：单次 stat 失败曾直接回落占位图
+    for delay in (0.0, 0.5, 1.5):
+        if delay:
+            time.sleep(delay)
+        if os.path.exists(cover_path):
+            return send_from_directory(COVER_ROOT, cover_filename)
     return send_from_directory(os.path.join(app.static_folder, 'cover'), 'cover.png')
 
 

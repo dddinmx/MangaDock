@@ -91,17 +91,17 @@ def detect_source_provider(url):
     return providers.detect_provider_name(url)
 
 
-def is_adult_content_blocked(url):
-    """18+ 开关关闭时的下载拦截判定（只拦「新增下载」）。
+def is_adult_content_blocked(url, allow_adult=False):
+    """18+ 拦截判定（只拦「新增下载」）。
 
-    URL 已存在于库映射（comic.json）视为既有收藏：允许继续更新/重新下载，
-    避免开关误伤存量收藏（2026-09-20 修复：此前 detect_source_provider
-    在识别阶段抛错，导致关闭开关后既有 mxs 收藏无法更新）。
+    - URL 已存在于库映射（comic.json）视为既有收藏：允许继续更新/重新下载；
+    - 全局开关关闭时，创建者被授予 can_view_adult 的任务（allow_adult=True）
+      仍可下载 mxs 源（2026-09-20 用户级 18+ 授权）。
     """
     if not is_mxs_url(url):
         return False
     from mangadock.services.adult_content import is_adult_content_enabled
-    if is_adult_content_enabled():
+    if is_adult_content_enabled() or allow_adult:
         return False
     try:
         mapping = load_comic_mapping()
@@ -463,7 +463,14 @@ def download_complete_book(url, comic_format, task_id):
     try:
         update_task(task_id, status='running')
 
-        if is_adult_content_blocked(url):
+        allow_adult = False
+        try:
+            from mangadock.services.tasks import get_task
+            task = get_task(task_id)
+            allow_adult = bool(getattr(task, 'allow_adult', False)) if task else False
+        except Exception:
+            allow_adult = False
+        if is_adult_content_blocked(url, allow_adult=allow_adult):
             raise ValueError(ADULT_CONTENT_DISABLED_MESSAGE)
 
         source = load_comic_source(url)

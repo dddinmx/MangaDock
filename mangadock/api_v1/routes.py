@@ -41,6 +41,7 @@ from mangadock.models import (
 )
 from mangadock.services.adult_content import (
     is_adult_content_enabled,
+    is_adult_content_enabled_for,
     set_adult_content_enabled,
 )
 from mangadock.services.download import is_adult_content_blocked, is_supported_comic_url
@@ -323,8 +324,13 @@ def register_routes(bp):
 
     # ------------------------------------------------------------------ downloads
     @bp.post('/downloads')
-    @require_write_auth(admin=True)
+    @require_write_auth()
     def create_download():
+        requester = get_api_request_user()
+        if not (requester and (requester.is_admin or getattr(requester, 'can_download', False))):
+            return api_fail('FORBIDDEN', '当前账号没有下载权限', 403)
+        requester_can_adult = is_adult_content_enabled_for(requester)
+
         data = request_json()
         if data is None:
             return api_fail('INVALID_JSON', '请求体必须是 JSON 对象')
@@ -339,14 +345,17 @@ def register_routes(bp):
             return api_fail(
                 'UNSUPPORTED_URL',
                 '请输入有效的漫画链接或 ID（支持包子漫画、漫画柜、番茄图片漫画'
-                + ('、MXS' if is_adult_content_enabled() else '')
+                + ('、MXS' if requester_can_adult else '')
                 + '）',
             )
 
-        if is_adult_content_blocked(comic_url):
+        if is_adult_content_blocked(comic_url, allow_adult=requester_can_adult):
             return api_fail('ADULT_CONTENT_DISABLED', ADULT_CONTENT_DISABLED_MESSAGE, 403)
 
-        task_id = start_download_task(comic_url, comic_format)
+        task_id = start_download_task(
+            comic_url, comic_format,
+            allow_adult=bool(getattr(requester, 'can_view_adult', False)),
+        )
         task = get_task(task_id)
         return api_ok({
             'task_id': task_id,
@@ -368,8 +377,12 @@ def register_routes(bp):
         })
 
     @bp.post('/updates')
-    @require_write_auth(admin=True)
+    @require_write_auth()
     def start_update():
+        requester = get_api_request_user()
+        if not (requester and (requester.is_admin or getattr(requester, 'can_download', False))):
+            return api_fail('FORBIDDEN', '当前账号没有下载权限', 403)
+
         data = request_json()
         if data is None:
             return api_fail('INVALID_JSON', '请求体必须是 JSON 对象')
