@@ -472,24 +472,35 @@ _health_cache: dict = {'checked_at': 0.0, 'ok': None, 'message': '尚未检查'}
 
 def _probe_api_health() -> dict:
     """探测中转服务连通性：任何 HTTP 响应（含 401/403）都算服务可达；
-    只有连接错误/超时才算不可达。"""
-    url = f"{FANQIE_API_BASE_URL}/v1/capabilities"
-    try:
-        response = requests.get(url, timeout=(3, 5))
-    except requests.exceptions.SSLError as exc:
-        return {'ok': False, 'message': f'中转服务 TLS 校验失败：{exc.__class__.__name__}'}
-    except requests.exceptions.ConnectionError:
-        return {'ok': False, 'message': f'无法连接中转服务（{FANQIE_API_BASE_URL}），可能已宕机或网络不通'}
-    except requests.exceptions.Timeout:
-        return {'ok': False, 'message': f'中转服务响应超时（{FANQIE_API_BASE_URL}）'}
-    except Exception as exc:  # 兜底：任何探测异常都按不可达处理
-        return {'ok': False, 'message': f'中转服务探测失败：{exc}'}
+    只有连接错误/超时才算不可达。
 
-    if response.status_code == 200:
-        return {'ok': True, 'message': '番茄中转服务正常'}
-    if response.status_code in (401, 403):
-        return {'ok': True, 'message': '番茄中转服务可达（Token 校验未通过，请检查注册状态）'}
-    return {'ok': True, 'message': f'番茄中转服务可达（HTTP {response.status_code}）'}
+    两段尝试：先走环境代理（与 FanqieApiClient 实际出网路径一致），
+    失败再直连兜底，避免代理瞬时抖动造成误报。
+    """
+    url = f"{FANQIE_API_BASE_URL}/v1/capabilities"
+    last_error = None
+    for trust_env in (True, False):
+        session = requests.Session()
+        session.trust_env = trust_env
+        try:
+            response = session.get(url, timeout=(3, 8))
+        except requests.exceptions.SSLError as exc:
+            return {'ok': False, 'message': f'中转服务 TLS 校验失败：{exc.__class__.__name__}'}
+        except requests.exceptions.ConnectionError as exc:
+            last_error = f'无法连接中转服务（{FANQIE_API_BASE_URL}）'
+        except requests.exceptions.Timeout as exc:
+            last_error = f'中转服务响应超时（{FANQIE_API_BASE_URL}）'
+        except Exception as exc:  # 兜底：任何探测异常都按不可达处理
+            last_error = f'中转服务探测失败：{exc}'
+        else:
+            if response.status_code == 200:
+                return {'ok': True, 'message': '番茄中转服务正常'}
+            if response.status_code in (401, 403):
+                return {'ok': True, 'message': '番茄中转服务可达（Token 校验未通过，请检查注册状态）'}
+            return {'ok': True, 'message': f'番茄中转服务可达（HTTP {response.status_code}）'}
+        if trust_env is False:
+            break
+    return {'ok': False, 'message': last_error or '中转服务探测失败'}
 
 
 def check_api_health(force: bool = False) -> dict:
