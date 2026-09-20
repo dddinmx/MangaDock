@@ -53,7 +53,7 @@ printf '{}\n' > data/comic.json
 ```yaml
 services:
   mangadock:
-    image: dddinmx/mangadock:v2.5.0
+    image: dddinmx/mangadock:latest
     container_name: MangaDock
     restart: unless-stopped
     ports:
