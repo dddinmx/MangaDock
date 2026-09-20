@@ -2,6 +2,7 @@
 """Authentication, session helpers, and API serializers."""
 import base64
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import wraps
@@ -104,6 +105,38 @@ def asset_url(filename):
     return url_for('static', filename=filename, v=version) if version else url_for('static', filename=filename)
 
 
+# --- Cover existence cache -------------------------------------------------
+# Covers live on an SMB mount; os.path.exists() can transiently fail there
+# (observed 2026-09-20: server rendered the placeholder cover.png for books
+# whose cover files are definitely on disk, 22 hits in two days). Cache
+# positive stat results so a momentary SMB hiccup doesn't flash the
+# placeholder. Negative results are never cached, so genuinely new covers
+# become visible as soon as they are written.
+_COVER_POSITIVE_TTL = 600.0      # trust a positive stat for 10 minutes
+_COVER_POSITIVE_GRACE = 3600.0   # on a failed stat, keep trusting for up to 1h
+_cover_exists_cache = {}
+
+
+def _cover_file_exists(path):
+    now = time.monotonic()
+    seen_at = _cover_exists_cache.get(path)
+    if seen_at is not None:
+        if now - seen_at <= _COVER_POSITIVE_TTL:
+            return True
+        if os.path.exists(path):
+            _cover_exists_cache[path] = now
+            return True
+        if now - seen_at <= _COVER_POSITIVE_GRACE:
+            # stat failed but we saw the file recently: treat as present
+            return True
+        _cover_exists_cache.pop(path, None)
+        return False
+    if os.path.exists(path):
+        _cover_exists_cache[path] = now
+        return True
+    return False
+
+
 def cover_image_url(comic_name, variant='default'):
     """
     variant:
@@ -123,7 +156,7 @@ def cover_image_url(comic_name, variant='default'):
 
     cover_filename = f'cover/{comic_name}.jpg'
     cover_path = os.path.join(app.static_folder, cover_filename)
-    if os.path.exists(cover_path):
+    if _cover_file_exists(cover_path):
         return asset_url(cover_filename)
     return asset_url('cover/cover.png')
 
