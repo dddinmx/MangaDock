@@ -458,7 +458,7 @@ def download():
         if not is_supported_comic_url(comic_url):
             return render_template(
                 'download.html',
-                error='请输入有效的漫画链接或 ID（支持包子漫画、番茄图片漫画'
+                error='请输入有效的漫画链接或 ID（支持包子漫画、漫画柜、番茄图片漫画'
                       + ('、MXS' if is_adult_content_enabled() else '')
                       + '）',
                 adult_content_enabled=is_adult_content_enabled(),

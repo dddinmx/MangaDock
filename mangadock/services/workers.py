@@ -35,43 +35,77 @@ def start_update_task(comic_name, comic_format, url):
 def claim_next_pending_task():
     with app.app_context():
         while True:
-            task = DownloadTask.query.filter_by(status='pending').order_by(
+            candidates = DownloadTask.query.filter_by(status='pending').order_by(
                 DownloadTask.created_at.asc(),
                 DownloadTask.id.asc()
-            ).first()
-            if not task:
+            ).all()
+            if not candidates:
                 return None
 
             now = datetime.now(china_tz)
-            if task.is_update and task.comic_name:
-                active_same_comic_task = DownloadTask.query.filter(
+            chosen = None
+
+            for task in candidates:
+                # ---- 同漫画并发防护 ----
+                # 完整下载会先清空再重建章节目录，任何任务与它并发操作同一本漫画
+                # 都会撞上目录被删的窗口（CBZ 生成 FileNotFoundError）。
+                # 规则：
+                # 1) 更新任务：同漫画已有活动任务（下载/更新）→ 取消更新
+                #    （完整下载会重新抓取全部章节，更新内容被覆盖）
+                # 2) 下载任务：同漫画已有相同 URL 的活动任务 → 取消（重复提交）
+                # 3) 下载任务：同漫画有不同 URL 的活动任务 → 暂缓，保持 pending 等待
+                conflict = DownloadTask.query.filter(
                     DownloadTask.id != task.id,
-                    DownloadTask.is_update.is_(True),
                     DownloadTask.comic_name == task.comic_name,
-                    DownloadTask.status == 'running'
+                    DownloadTask.comic_name != '未知漫画',
+                    DownloadTask.status.in_(('pending', 'running')),
+                ).order_by(
+                    DownloadTask.created_at.asc(),
+                    DownloadTask.id.asc()
                 ).first()
-                if active_same_comic_task:
-                    task.status = 'cancelled'
-                    task.end_time = now
-                    task.log = (
-                        (task.log or '')
-                        + f'已有同名更新任务正在运行（{active_same_comic_task.id}），已跳过重复任务\n'
-                    )
-                    db.session.commit()
+
+                if conflict is not None:
+                    conflict_desc = f'（{conflict.id[:8]}…）'
+                    if task.is_update:
+                        task.status = 'cancelled'
+                        task.end_time = now
+                        task.log = (
+                            (task.log or '')
+                            + f'已有该漫画的任务正在排队或运行{conflict_desc}，更新任务已跳过（下载任务会一并刷新全部章节）\n'
+                        )
+                        db.session.commit()
+                        continue
+                    if conflict.url and task.url and conflict.url == task.url:
+                        task.status = 'cancelled'
+                        task.end_time = now
+                        task.log = (
+                            (task.log or '')
+                            + f'该漫画已有相同链接的任务正在排队或运行{conflict_desc}，重复任务已跳过\n'
+                        )
+                        db.session.commit()
+                        continue
+                    # 不同链接的同漫画任务 → 暂缓，继续看队列里其他漫画的任务
                     continue
 
-            updated_rows = DownloadTask.query.filter_by(id=task.id, status='pending').update(
+                chosen = task
+                break
+
+            if chosen is None:
+                return None
+
+            updated_rows = DownloadTask.query.filter_by(id=chosen.id, status='pending').update(
                 {
                     'status': 'running',
-                    'start_time': task.start_time or now,
+                    'start_time': chosen.start_time or now,
                     'end_time': None,
-                    'log': (task.log or '') + '后台 worker 已开始处理任务\n',
+                    'log': (chosen.log or '') + '后台 worker 已开始处理任务\n',
                 },
                 synchronize_session=False
             )
             db.session.commit()
             if updated_rows:
-                return task.id
+                return chosen.id
+            # chosen 被并发抢占 → 重新查询
 
 
 def execute_download_task(task_id):

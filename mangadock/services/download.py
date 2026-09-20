@@ -150,6 +150,8 @@ def detect_source_provider(url):
         return 'mxs'
     if 'baozimh.org' in host:
         return 'baozimh_org'
+    if 'manhuagui.com' in host:
+        return 'manhuagui'
     if 'baozimhcn.com' in host or 'baozimh.com' in host:
         return 'baozimhcn'
     raise ValueError("暂不支持该站点")
@@ -221,6 +223,7 @@ def is_supported_comic_url(url):
         r'^https://(?:cn\.baozimhcn\.com|(?:www\.)?baozimh\.com)/comic/[^/?#]+/?$',
         r'^https://(?:www\.)?baozimh\.org/manga/[^/?#]+/?$',
         r'^https://(?:www\.)?(?:mxs12|wzd1)\.cc/(?:book/)?[^/?#]+/?$',
+        r'^https?://(?:www\.)?manhuagui\.com/comic/\d+(?:/\d+\.html)?/?$',
     ]
     return any(re.match(pattern, url or '') for pattern in patterns)
 
@@ -394,6 +397,9 @@ def load_comic_source(url):
         return load_mxs_source(url)
     if provider == 'baozimh_org':
         return load_baozimh_org_source(url)
+    if provider == 'manhuagui':
+        from mangadock.services.manhuagui import load_manhuagui_source
+        return load_manhuagui_source(url)
     return load_baozimhcn_source(url)
 
 
@@ -1192,6 +1198,9 @@ def download_provider_chapter(source, chapter, folder, comic_format, task_id):
         return download_mxs_chapter(chapter, folder, comic_format, task_id)
     if source['provider'] == 'baozimh_org':
         return download_baozimh_org_chapter(source, chapter, folder, comic_format, task_id)
+    if source['provider'] == 'manhuagui':
+        from mangadock.services.manhuagui import download_manhuagui_chapter
+        return download_manhuagui_chapter(source, chapter, folder, comic_format, task_id)
     return crawl_chapter(chapter['chapter_url'], folder, chapter['order'], comic_format, task_id)
 
 def download_complete_book_mxs(url, comic_format, task_id):

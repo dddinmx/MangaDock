@@ -75,6 +75,12 @@ BAOZIMH_ORG_ENCODED_IMAGE_TRANSLATION = str.maketrans(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 )
 
+# 漫画柜 (manhuagui.com)：章节页内联 Dean Edwards packer 混淆的图片配置（纯静态）。
+# 图片直链 https://{图床}{path}{file}?e=&m= 的签名由服务端下发，必须带 Referer。
+# 注意：图床 hamreus.com 直连不可达，必须走代理（由 start-macos.sh 的代理自检保证）。
+MANHUAGUI_IMAGE_HOSTS = ('us.hamreus.com', 'us2.hamreus.com', 'us3.hamreus.com')
+MANHUAGUI_IMAGE_REFERER_FALLBACK = 'https://www.manhuagui.com/'
+
 SAFE_HTTP_ALLOWED_HOST_SUFFIXES = (
     '6wm.top',
     'baozimh.com',
@@ -90,6 +96,10 @@ SAFE_HTTP_ALLOWED_HOST_SUFFIXES = (
     'mxs12.cc',
     'twbzmg.com',
     'wzd1.cc',
+    # 漫画柜：主站 manhuagui.com、封面 CDN cf.mhgui.com、图床 *.hamreus.com
+    'manhuagui.com',
+    'mhgui.com',
+    'hamreus.com',
 )
 SAFE_HTTP_ALLOWED_PROXY_NETWORKS = (
     ipaddress.ip_network('198.18.0.0/15'),
