@@ -21,6 +21,14 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 > 番茄漫画目前支持静态图片漫画，不支持漫剧或短视频作品。
 
+## v2.6.0
+
+- 多层级用户管理：管理员可在「用户管理」中创建账号、逐用户分配权限（下载/导入、18+ 内容可见性），并支持改密与删除；库写入操作按权限校验。
+- 封面加载三层加固：服务端恒发真实封面地址（不再误回落占位图）；`/static/cover/*` 增加 SMB 抖动重试；前端图片失败自动重试两次后再兜底。
+- 登录页封面墙升级为 24 小说 + 24 漫画封面交错（漫画封面按日轮换、全员一致，自动排除 18+ 来源）。
+- 内置 Tachiyomi / Mihon 扩展仓库（`static/ext-repo/`，含 MangaDock 扩展 v1.6.3 APK），客户端可直接添加仓库地址安装。
+- 架构重构：漫画源 Provider 注册表化（新增源更简单）、web 路由拆分模块化；修复 18+ 开关误伤库内收藏、番茄 API 健康探测误报。
+
 ## v2.5.0
 
 - 新增漫画源：漫画柜（`manhuagui.com`），纯 HTTP 实现整本下载，图床直链带服务端签名并自动携带 Referer。
@@ -30,7 +38,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:v2.5.0`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.5.0` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:v2.6.0`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.6.0` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 
@@ -116,6 +124,14 @@ Docker 容器内监听 `0.0.0.0:5001`，Compose 默认只将它绑定到宿主�
 - 同步方向为 App → web 单向，只前进不后退，不会覆盖 web 上更新的章节进度；
 - 记录粒度为「打开章节」；
 - web 端继续阅读会自动定位到该章节。
+
+**扩展仓库安装**：在 Tachimanga / Mihon 的扩展仓库设置中添加：
+
+```
+https://raw.githubusercontent.com/dddinmx/MangaDock/main/static/ext-repo/index.min.json
+```
+
+即可在线搜索并安装 MangaDock 扩展（无需手动下载 APK）。
 
 ## Project Team
 
