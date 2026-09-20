@@ -221,6 +221,11 @@ def fanqie_novel_search():
     query = (request.args.get('q') or '').strip()
     results = []
     error = ''
+    try:
+        from mangadock.services.fanqie_api import check_api_health
+        fanqie_api_health = check_api_health()
+    except Exception:
+        fanqie_api_health = {'ok': False, 'message': '番茄中转服务状态检查失败'}
     if query:
         try:
             results = search_books(query)
@@ -238,6 +243,7 @@ def fanqie_novel_search():
         results=results,
         local_ids=local_ids,
         error=error,
+        fanqie_api_health=fanqie_api_health,
         current_user=get_current_user(),
     )
 

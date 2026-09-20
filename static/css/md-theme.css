@@ -2986,3 +2986,33 @@ html:not(.theme-dark) .md-lib-select {
     linear-gradient(135deg, #64748b 50%, transparent 50%) calc(100% - 11px) calc(50% - 2px) / 5px 5px no-repeat,
     rgba(255, 255, 255, 0.92) !important;
 }
+
+/* Fanqie relay health banner */
+.md-fanqie-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0 0 1.5rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  border-radius: 14px;
+  background: rgba(220, 38, 38, 0.10);
+  color: var(--md-text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.md-fanqie-alert > i {
+  margin-top: 0.15rem;
+  color: #dc2626;
+}
+
+.md-fanqie-alert strong {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: #dc2626;
+}
+
+.md-fanqie-alert span {
+  color: var(--md-text);
+}

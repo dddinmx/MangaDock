@@ -13,6 +13,16 @@
         <a href="{{ url_for('novels_list') }}" class="md-fanqie-back" data-app-loader="true"><i class="fa fa-arrow-left"></i> 返回书架</a>
     </div>
 
+    {% if fanqie_api_health and not fanqie_api_health.ok %}
+    <div class="md-fanqie-alert" role="alert">
+        <i class="fa fa-triangle-exclamation"></i>
+        <div>
+            <strong>番茄中转服务不可达</strong>
+            <span>{{ fanqie_api_health.message }}；搜索与下载暂不可用，服务恢复后无需操作即可继续使用。</span>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="md-fanqie-panel md-fanqie-tools">
         <section class="md-fanqie-tool">
             <div class="md-fanqie-tool-copy">

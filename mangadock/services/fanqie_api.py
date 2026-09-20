@@ -459,3 +459,51 @@ class FanqieApiClient:
 
 def get_client() -> FanqieApiClient:
     return FanqieApiClient()
+
+
+# --------------------------------------------------------------------------
+# 中转服务健康自检
+# --------------------------------------------------------------------------
+
+_HEALTH_CACHE_TTL_SECONDS = 60.0
+_health_lock = threading.Lock()
+_health_cache: dict = {'checked_at': 0.0, 'ok': None, 'message': '尚未检查'}
+
+
+def _probe_api_health() -> dict:
+    """探测中转服务连通性：任何 HTTP 响应（含 401/403）都算服务可达；
+    只有连接错误/超时才算不可达。"""
+    url = f"{FANQIE_API_BASE_URL}/v1/capabilities"
+    try:
+        response = requests.get(url, timeout=(3, 5))
+    except requests.exceptions.SSLError as exc:
+        return {'ok': False, 'message': f'中转服务 TLS 校验失败：{exc.__class__.__name__}'}
+    except requests.exceptions.ConnectionError:
+        return {'ok': False, 'message': f'无法连接中转服务（{FANQIE_API_BASE_URL}），可能已宕机或网络不通'}
+    except requests.exceptions.Timeout:
+        return {'ok': False, 'message': f'中转服务响应超时（{FANQIE_API_BASE_URL}）'}
+    except Exception as exc:  # 兜底：任何探测异常都按不可达处理
+        return {'ok': False, 'message': f'中转服务探测失败：{exc}'}
+
+    if response.status_code == 200:
+        return {'ok': True, 'message': '番茄中转服务正常'}
+    if response.status_code in (401, 403):
+        return {'ok': True, 'message': '番茄中转服务可达（Token 校验未通过，请检查注册状态）'}
+    return {'ok': True, 'message': f'番茄中转服务可达（HTTP {response.status_code}）'}
+
+
+def check_api_health(force: bool = False) -> dict:
+    """返回 {'ok': bool, 'message': str}，结果缓存 60 秒；force=True 跳过缓存。"""
+    now = time.time()
+    with _health_lock:
+        cached = (
+            not force
+            and _health_cache['ok'] is not None
+            and now - _health_cache['checked_at'] < _HEALTH_CACHE_TTL_SECONDS
+        )
+        if cached:
+            return dict(_health_cache)
+    result = _probe_api_health()
+    with _health_lock:
+        _health_cache.update(result, checked_at=time.time())
+        return dict(_health_cache)
