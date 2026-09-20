@@ -79,7 +79,6 @@ volumes:
 ### 3. 启动
 
 ```bash
-export MANGADOCK_ADMIN_PASSWORD='请替换为强密码'
 docker compose up -d
 docker compose logs -f mangadock
 ```
