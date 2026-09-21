@@ -41,6 +41,14 @@
 
                 document.documentElement.dataset.accent = supportedAccents.includes(savedAccent) ? savedAccent : 'red';
 
+                // 书架列数偏好（在「我的 → 外观」里选）：只有 '2' / '3' 才写属性，未设置即保持自适应。
+                // 旧键 comicGridColumns 来自已下线的书架工具条，这里做一次回落兼容，避免老偏好丢失。
+                const savedShelfColumns = localStorage.getItem('mangadock-shelf-columns')
+                    || localStorage.getItem('comicGridColumns');
+                if (savedShelfColumns === '2' || savedShelfColumns === '3') {
+                    document.documentElement.dataset.shelfColumns = savedShelfColumns;
+                }
+
                 // 默认深色（贴参考图）；仅当用户明确选 light 时用浅色
                 if (savedTheme === 'light') {
                     document.documentElement.classList.remove('theme-dark');
@@ -1032,6 +1040,8 @@
             const themeColorMeta = document.getElementById('theme-color-meta');
             const themeToggleButtons = document.querySelectorAll('[data-theme-toggle]');
             const accentOptionButtons = document.querySelectorAll('[data-accent-option]');
+            const shelfColumnButtons = document.querySelectorAll('[data-shelf-columns]');
+            const shelfColumnValues = ['auto', '2', '3'];
             const accentNames = {
                 'pink-blue': '粉蓝',
                 'pink-green': '粉绿',
@@ -1151,6 +1161,36 @@
             });
             accentOptionButtons.forEach((button) => {
                 button.addEventListener('click', () => setAccent(button.dataset.accentOption));
+            });
+
+            // 书架列数：写在 <html data-shelf-columns> 上，样式在 md-theme.css 里按窄屏生效
+            const syncShelfColumns = () => {
+                const current = document.documentElement.dataset.shelfColumns || 'auto';
+                shelfColumnButtons.forEach((button) => {
+                    const isActive = button.dataset.shelfColumns === current;
+                    button.classList.toggle('is-active', isActive);
+                    button.setAttribute('aria-checked', isActive ? 'true' : 'false');
+                });
+            };
+
+            const setShelfColumns = (value) => {
+                const normalized = shelfColumnValues.includes(value) ? value : 'auto';
+                if (normalized === 'auto') {
+                    delete document.documentElement.dataset.shelfColumns;
+                } else {
+                    document.documentElement.dataset.shelfColumns = normalized;
+                }
+                try {
+                    localStorage.setItem('mangadock-shelf-columns', normalized);
+                } catch (error) {
+                    console.warn('Failed to persist shelf columns', error);
+                }
+                syncShelfColumns();
+            };
+
+            syncShelfColumns();
+            shelfColumnButtons.forEach((button) => {
+                button.addEventListener('click', () => setShelfColumns(button.dataset.shelfColumns));
             });
 
             if (groupMenuBtn && groupMenuDropdown) {

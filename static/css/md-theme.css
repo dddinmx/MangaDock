@@ -660,13 +660,18 @@ html.theme-dark body {
   }
 }
 
-/* 书架手动列数覆盖（手机工具栏） */
-.md-cover-grid.is-cols-2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-}
+/* 书架列数偏好：在「我的 → 外观」里选，base.html 启动脚本写到 <html data-shelf-columns>。
+   只覆盖窄屏（<768px）——桌面维持上面自适应出来的 4/5 列，不受该设置影响。
+   默认不写属性 = 沿用基础网格（<640px 两列、640–767px 三列）。 */
+@media (max-width: 767.98px) {
+  html[data-shelf-columns='2'] .md-cover-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
 
-.md-cover-grid.is-cols-3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  html[data-shelf-columns='3'] .md-cover-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 1.5rem 0.85rem;
+  }
 }
 
 .md-cover-card {

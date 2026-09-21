@@ -344,7 +344,7 @@ def register_routes(bp):
         if not is_supported_comic_url(comic_url):
             return api_fail(
                 'UNSUPPORTED_URL',
-                '请输入有效的漫画链接或 ID（支持包子漫画、漫画柜、番茄图片漫画'
+                '请输入有效的漫画链接或 ID（支持包子漫画、漫画柜、嬉皮漫畫、番茄图片漫画'
                 + ('、MXS' if requester_can_adult else '')
                 + '）',
             )

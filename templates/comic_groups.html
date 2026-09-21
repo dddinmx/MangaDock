@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}漫画分组管理 - MangaDock{% endblock %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+    <div>
+        <h1 class="md-page-title">漫画分组管理</h1>
+        <p class="md-page-sub">新建分组后，勾选多本漫画批量移动</p>
+    </div>
+    <a href="{{ url_for('comics_list', group='全部') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-arrow-left mr-2"></i>返回漫画书架</a>
+</div>
+
+{% with messages = get_flashed_messages() %}
+{% if messages %}
+<div class="mb-5 space-y-2">
+    {% for message in messages %}
+    <div class="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<section class="md-novel-group-panel">
+    <div>
+        <h2 class="md-section-title !mb-1">分组</h2>
+        <p class="md-page-sub">删除分组不会删除漫画，分组内漫画会回到默认分组。</p>
+    </div>
+    <form method="post" action="{{ url_for('create_comic_group') }}" class="md-novel-group-create">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" name="group_name" class="md-input" maxlength="50" placeholder="输入新分组名称" required>
+        <button type="submit" class="md-btn-primary action-press"><i class="fa fa-plus mr-2"></i>新建分组</button>
+    </form>
+    <div class="md-novel-group-list">
+        {% for group_name in groups %}
+        <div class="md-novel-group-chip">
+            <a href="{{ url_for('comics_list', group=group_name) }}" data-app-loader="true">
+                <span>{{ group_name }}</span>
+                <strong>{{ group_counts.get(group_name, 0) }}</strong>
+            </a>
+            {% if group_name != '默认分组' %}
+            <form method="post" action="{{ url_for('remove_comic_group') }}" onsubmit="return confirm('删除这个分组？其中漫画会移回默认分组。')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="group_name" value="{{ group_name }}">
+                <button type="submit" aria-label="删除分组 {{ group_name }}"><i class="fa fa-times"></i></button>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<form method="post" action="{{ url_for('batch_assign_comic_group') }}" id="comic-batch-form" class="mt-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="md-novel-batch-toolbar">
+        <div class="md-novel-batch-search">
+            <i class="fa fa-search"></i>
+            <input id="comic-group-search" type="search" class="md-input" placeholder="搜索漫画名或当前分组" aria-label="搜索漫画">
+        </div>
+        <button type="button" class="md-chip action-press" onclick="selectVisibleComics(true)">全选当前结果</button>
+        <button type="button" class="md-chip action-press" onclick="selectVisibleComics(false)">清空选择</button>
+        <select name="group_name" class="md-lib-select" required aria-label="目标漫画分组">
+            <option value="">选择目标分组</option>
+            {% for group_name in groups %}<option value="{{ group_name }}">{{ group_name }}</option>{% endfor %}
+        </select>
+        <button id="comic-batch-submit" type="submit" class="md-btn-primary action-press" disabled>移动所选漫画 <span id="comic-selected-count">0</span></button>
+    </div>
+
+    {% if comics %}
+    <div class="md-novel-batch-grid" id="comic-batch-grid">
+        {% for comic in comics %}
+        <label class="md-novel-select-item" data-search="{{ (comic.comic_name ~ ' ' ~ comic.group)|lower }}">
+            <input type="checkbox" name="comic_names" value="{{ comic.comic_name }}" onchange="syncComicSelection()">
+            <span class="md-novel-select-card">
+                <img src="{{ cover_image_url(comic.comic_name) }}" alt="" loading="lazy" decoding="async" data-fallback="{{ asset_url('cover/cover.png') }}">
+                <span class="md-novel-select-copy">
+                    <strong>{{ comic.comic_name }}</strong>
+                    <small>{{ comic.available_chapters }} 章 · {{ 'PDF' if comic.comic_format == 1 else 'CBZ' }}</small>
+                    <em><i class="fa fa-folder-o"></i>{{ comic.group }}</em>
+                </span>
+                <span class="md-novel-select-check"><i class="fa fa-check"></i></span>
+            </span>
+        </label>
+        {% endfor %}
+    </div>
+    <div id="comic-group-empty" class="md-empty mt-5" hidden>没有匹配的漫画。</div>
+    {% else %}
+    <div class="md-empty mt-5">暂未下载到任何漫画。</div>
+    {% endif %}
+</form>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const comicSearchInput = document.getElementById('comic-group-search');
+    const comicItems = Array.from(document.querySelectorAll('.md-novel-select-item'));
+
+    function syncComicSelection() {
+        const selectedCount = comicItems.filter((item) => item.querySelector('input[type="checkbox"]').checked).length;
+        document.getElementById('comic-selected-count').textContent = selectedCount;
+        document.getElementById('comic-batch-submit').disabled = selectedCount === 0;
+    }
+
+    function filterComicItems() {
+        const term = (comicSearchInput?.value || '').trim().toLowerCase();
+        let visibleCount = 0;
+        comicItems.forEach((item) => {
+            const visible = !term || item.dataset.search.includes(term);
+            item.hidden = !visible;
+            if (visible) visibleCount += 1;
+        });
+        const empty = document.getElementById('comic-group-empty');
+        if (empty) empty.hidden = visibleCount !== 0;
+    }
+
+    function selectVisibleComics(checked) {
+        comicItems.forEach((item) => {
+            if (!item.hidden) item.querySelector('input[type="checkbox"]').checked = checked;
+        });
+        syncComicSelection();
+    }
+
+    comicSearchInput?.addEventListener('input', filterComicItems);
+    syncComicSelection();
+</script>
+{% endblock %}

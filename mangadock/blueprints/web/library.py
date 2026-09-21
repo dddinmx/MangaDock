@@ -15,6 +15,7 @@ from mangadock.pagination import paginate_sequence
 from mangadock.services.groups import (
     assign_comic_group,
     delete_comic_group,
+    enrich_comics_with_groups,
     ensure_comic_group,
     filter_grouped_comics_for_user,
     get_admin_hidden_targets,
@@ -111,44 +112,19 @@ def comics_list():
             if group_name in hidden_group_names:
                 grouped_lookup.pop(group_name, None)
 
-    ordered_group_names = []
-    seen_group_names = set()
-    for comic in display_comics:
-        comic_group = normalize_group_name(comic.get('group')) or '默认分组'
-        if comic_group in group_names and comic_group not in seen_group_names:
-            ordered_group_names.append(comic_group)
-            seen_group_names.add(comic_group)
-
-    for group_name in group_names:
-        if group_name not in seen_group_names:
-            ordered_group_names.append(group_name)
-
-    group_names = ordered_group_names
-
+    # 分组顺序沿用 get_all_comic_groups() 的稳定序（默认分组在前、其余按创建时间），
+    # 与小说书架的「分组管理」页保持一致；不再按阅读热度重排（下拉列表会跳来跳去）。
     if group_filter != '全部' and group_filter not in grouped_lookup:
         group_filter = '全部'
 
     save_group_filter(group_filter, current_user_id)
 
-    grouped_tasks = []
+    # 与小说书架一致：单层平铺网格 + 分页；「全部分组」不再按分组切成横滑轨
     if group_filter == '全部':
         selected_comics = display_comics
-        page_comics = display_comics
-        pagination = None
-        for group_name in group_names:
-            comics_in_group = grouped_lookup.get(group_name, [])[:10]
-            if comics_in_group:
-                grouped_tasks.append({
-                    'name': group_name,
-                    'tasks': comics_in_group
-                })
     else:
         selected_comics = grouped_lookup.get(group_filter, [])
-        page_comics, pagination = paginate_sequence(selected_comics, request.args.get('page'))
-        grouped_tasks.append({
-            'name': group_filter,
-            'tasks': page_comics
-        })
+    page_comics, pagination = paginate_sequence(selected_comics, request.args.get('page'))
 
     recent_comic = None
     recent_progress = None
@@ -162,7 +138,6 @@ def comics_list():
     return render_template(
         'comics.html',
         tasks=page_comics,
-        grouped_tasks=grouped_tasks,
         recent_comic=recent_comic,
         recent_progress=recent_progress,
         progresses=progresses,
@@ -347,3 +322,81 @@ def delete_comic_group_route():
     if return_to == 'detail' and return_task_id:
         return redirect(url_for('comic_detail', task_id=return_task_id))
     return redirect(url_for('comics_list', group=redirect_group))
+
+
+# --------------------------------------------------------------------------
+# 漫画分组管理页（对齐小说的 /novels/groups，2026-09-21）
+# --------------------------------------------------------------------------
+
+@app.route('/comics/groups')
+@login_required
+@admin_required
+def comic_group_manager():
+    """漫画分组管理页：新建分组 / 勾选批量移动 / 删除分组"""
+    comics, groups, group_counts, _ = enrich_comics_with_groups(get_available_comics())
+    comics.sort(key=lambda item: (item.get('group') or '', item.get('comic_name') or ''))
+    return render_template(
+        'comic_groups.html',
+        comics=comics,
+        groups=groups,
+        group_counts=group_counts,
+        current_user=get_current_user(),
+    )
+
+
+@app.route('/comics/groups/create', methods=['POST'])
+@login_required
+@admin_required
+def create_comic_group():
+    group_name = normalize_group_name(request.form.get('group_name'))
+    if not group_name:
+        flash('分组名称不能为空')
+    elif group_name == '全部':
+        flash('“全部”是系统筛选项，不能作为分组名称')
+    elif group_name in set(get_all_comic_groups()):
+        flash('分组已存在')
+    elif ensure_comic_group(group_name):
+        flash(f'已创建漫画分组：{group_name}')
+    else:
+        flash('创建分组失败，请重试')
+    return redirect(url_for('comic_group_manager'))
+
+
+@app.route('/comics/groups/assign', methods=['POST'])
+@login_required
+@admin_required
+def batch_assign_comic_group():
+    group_name = normalize_group_name(request.form.get('group_name'))
+    selected_comics = request.form.getlist('comic_names')
+    valid_names = {comic['comic_name'] for comic in get_available_comics()}
+    if group_name not in set(get_all_comic_groups()):
+        flash('请选择有效的目标分组')
+    elif not selected_comics:
+        flash('请至少选择一本漫画')
+    else:
+        assigned_count = sum(
+            1
+            for comic_name in selected_comics
+            if comic_name in valid_names and assign_comic_group(comic_name, group_name)
+        )
+        if assigned_count:
+            flash(f'已将 {assigned_count} 本漫画加入「{group_name}」')
+        else:
+            flash('没有可分配的漫画，请重新选择')
+    return redirect(url_for('comic_group_manager'))
+
+
+@app.route('/comics/groups/delete', methods=['POST'])
+@login_required
+@admin_required
+def remove_comic_group():
+    group_name = normalize_group_name(request.form.get('group_name'))
+    if not group_name:
+        flash('请选择要删除的分组')
+    elif group_name == '默认分组':
+        flash('默认分组不能删除')
+    elif delete_comic_group(group_name):
+        flash(f'已删除分组「{group_name}」，其中漫画已移回默认分组')
+    else:
+        flash('分组不存在或删除失败')
+    return redirect(url_for('comic_group_manager'))

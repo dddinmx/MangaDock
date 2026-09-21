@@ -81,6 +81,23 @@ BAOZIMH_ORG_ENCODED_IMAGE_TRANSLATION = str.maketrans(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 )
 
+# 嬉皮漫畫 (hipmh.com)：Astro 前端 + S3 静态图床。
+# 作品页只给 mid；章节列表在 v1 API；阅读页给「章节 API hid」与图床基址；
+# 章节图片在 v2 API，images 字段是混淆串（解码实现见 providers/hipmh.py）。
+HIPMH_API_BASE_URL = "https://hipapi1.s3file.top"
+HIPMH_READER_BASE_URL = "https://reader.hipmh.top"
+HIPMH_DEFAULT_IMAGE_HOST = "https://hip-tx-1.s3imgs.top"
+HIPMH_SITE_REFERER = "https://m.hipmh.com/"
+HIPMH_READER_REFERER = "https://reader.hipmh.top/"
+HIPMH_IMAGE_PAYLOAD_PREFIX = "qM9"
+HIPMH_IMAGE_PAYLOAD_SUFFIX = "Z7"
+HIPMH_IMAGE_PAYLOAD_INNER_MARKER = "Vx"
+HIPMH_IMAGE_PAYLOAD_SPLIT_MARKER = "pL0"
+HIPMH_ENCODED_IMAGE_TRANSLATION = str.maketrans(
+    "_-9876543210abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
+
 # 漫画柜 (manhuagui.com)：章节页内联 Dean Edwards packer 混淆的图片配置（纯静态）。
 # 图片直链 https://{图床}{path}{file}?e=&m= 的签名由服务端下发，必须带 Referer。
 # 注意：图床 hamreus.com 直连不可达，必须走代理（由 start-macos.sh 的代理自检保证）。
@@ -102,6 +119,11 @@ SAFE_HTTP_ALLOWED_HOST_SUFFIXES = (
     'mxs12.cc',
     'twbzmg.com',
     'wzd1.cc',
+    # 嬉皮漫畫：主站 hipmh.com、阅读器 reader.hipmh.top、API hipapi1.s3file.top、图床 *.s3imgs.top
+    'hipmh.com',
+    'hipmh.top',
+    's3file.top',
+    's3imgs.top',
     # 漫画柜：主站 manhuagui.com、封面 CDN cf.mhgui.com、图床 *.hamreus.com
     'manhuagui.com',
     'mhgui.com',

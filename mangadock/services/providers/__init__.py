@@ -73,6 +73,14 @@ register(
     module='mangadock.services.providers.baozimhcn',
     load_source='load_baozimhcn_source',
 )
+register(
+    'hipmh',
+    hosts=('hipmh.com',),
+    pattern=r'^https?://(?:m\.|www\.)?hipmh\.com/(?:[a-z]{2}/)?works/[^/?#]+/?$',
+    module='mangadock.services.providers.hipmh',
+    load_source='load_hipmh_source',
+    download_chapter='download_hipmh_chapter',
+)
 
 
 def _resolve(ref):
