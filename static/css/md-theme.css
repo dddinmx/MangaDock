@@ -3016,3 +3016,27 @@ html:not(.theme-dark) .md-lib-select {
 .md-fanqie-alert span {
   color: var(--md-text);
 }
+
+/* ---- 深色主题输入框背景还原（2026-09-20 code review P2）----
+   base.html 里的全局兜底：
+     html.theme-dark input/select/textarea { background:#1d1d1d !important;
+                                             color:#e5e7eb !important; ... }
+   特异度 (0,1,2) 且带 !important，会刷掉组件自己声明的半透明 / 多层背景
+   （下拉箭头整条消失那类事故也是同一个根因）。
+   下面用更高特异度 html.theme-dark <selector> （(0,2,1) 及以上）+ !important 还原。
+   注意：只还原 background / color，不动 :focus —— 免得把聚焦态的品牌色边框一起压掉。
+   新增同类组件时请追加到这里，而不是去掉 base.html 的兜底。 */
+html.theme-dark .md-fanqie-input {
+  background: var(--md-bg) !important;
+  color: var(--md-text) !important;
+}
+
+html.theme-dark .md-input {
+  background: rgba(11, 11, 15, 0.9) !important;
+  color: #fff !important;
+}
+
+html.theme-dark .md-detail-search input {
+  background: rgba(11, 11, 15, 0.8) !important;
+  color: #fff !important;
+}

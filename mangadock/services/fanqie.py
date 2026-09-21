@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from mangadock.services.fanqie_api import FanqieApiError, get_client
 from mangadock.services.tasks import get_task, update_task
-from mangadock.settings import FANQIE_API_POLL_INTERVAL, NOVEL_ROOT, china_tz
+from mangadock.settings import FANQIE_API_MAX_POLL_SECONDS, FANQIE_API_POLL_INTERVAL, NOVEL_ROOT, china_tz
 from mangadock.utils.media import sanitize_filename
 
 
@@ -113,9 +113,20 @@ def execute_fanqie_task(task_id: str) -> bool:
         if not api_job_id:
             raise FanqieApiError("番茄 API 未返回任务 ID", "INVALID_RESPONSE")
         update_task(task_id, log=f"番茄 API 任务已创建：{api_job_id}")
+        poll_deadline = time.monotonic() + FANQIE_API_MAX_POLL_SECONDS
 
         while api_job.get("status") in {"queued", "running"}:
             _check_cancelled(task_id, api_job_id)
+            # 2026-09-20 code review P2：加总超时，避免远端作业卡死时永久占用 worker
+            if time.monotonic() > poll_deadline:
+                try:
+                    client.cancel_job(api_job_id)
+                except Exception:
+                    pass
+                raise FanqieApiError(
+                    f"番茄 API 任务超过 {FANQIE_API_MAX_POLL_SECONDS // 60} 分钟未完成，已中止",
+                    "TIMEOUT",
+                )
             metadata = api_job.get("metadata") or {}
             fields = {
                 "progress_percent": max(1, min(99, int(api_job.get("progress") or 0))),

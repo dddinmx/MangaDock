@@ -7,6 +7,11 @@
 (function (global) {
     'use strict';
 
+    // 2026-09-20 code review P2：之前 fetch 完全没有超时。服务端挂起（隧道假死 /
+    // 反向代理卡住）时 fetch 既不 resolve 也不 reject，表单按钮会永久停在
+    // 「登录中…」等状态，只能刷新页面。默认 20 秒后中止并给出可读提示。
+    var DEFAULT_TIMEOUT_MS = 20000;
+
     function getCsrfToken(explicitToken) {
         if (explicitToken) {
             return explicitToken;
@@ -75,7 +80,14 @@
             }
         }
 
-        return fetch(path, init).then(function (response) {
+        var timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
+        var controller = null;
+        if (typeof AbortController !== 'undefined' && timeoutMs > 0) {
+            controller = new AbortController();
+            init.signal = controller.signal;
+        }
+
+        var requestPromise = fetch(path, init).then(function (response) {
             return parseJsonSafe(response).then(function (payload) {
                 var ok = !!(payload && payload.ok === true);
                 return {
@@ -88,6 +100,33 @@
                     response: response,
                 };
             });
+        });
+
+        if (!controller) {
+            return requestPromise;
+        }
+
+        var timeoutId = setTimeout(function () {
+            controller.abort();
+        }, timeoutMs);
+
+        return requestPromise.then(function (result) {
+            clearTimeout(timeoutId);
+            return result;
+        }, function (error) {
+            clearTimeout(timeoutId);
+            if (error && error.name === 'AbortError') {
+                return {
+                    ok: false,
+                    status: 0,
+                    data: null,
+                    error: { code: 'TIMEOUT', message: '请求超时' },
+                    message: '请求超时，请检查网络或服务状态后重试',
+                    raw: null,
+                    response: null,
+                };
+            }
+            throw error;
         });
     }
 

@@ -3,6 +3,7 @@
 import ipaddress
 import os
 import socket
+import time
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -152,6 +153,24 @@ def write_limited_response_to_file(response, output_path, max_bytes):
                 if written > max_bytes:
                     raise ValueError('下载内容超过大小限制')
                 output_file.write(chunk)
+        # 2026-09-20 code review P2：之前写 0 字节也当成功返回，调用方按「已成功」
+        # 计数，于是空响应 / 风控页 / SMB 截断都会被静默当成有效图片。
+        if written <= 0:
+            raise ValueError('上游返回了空响应体')
+        # 落盘字节数复核：SMB 上 stat 读回可能有短暂滞后，所以给几次重试机会，
+        # 只有始终不符才判定写坏（避免把 SMB 抖动误判成下载失败）。
+        for attempt in range(3):
+            try:
+                output_file_size = os.path.getsize(output_path)
+            except OSError:
+                output_file_size = -1
+            if output_file_size == written:
+                break
+            if attempt == 2:
+                raise ValueError(
+                    f'落盘字节数不符（写入 {written}，磁盘上 {output_file_size}）'
+                )
+            time.sleep(0.2)
     except Exception:
         try:
             os.remove(output_path)

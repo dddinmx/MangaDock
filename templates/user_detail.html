@@ -236,7 +236,7 @@
         <h2 class="md-setting-group__title">危险操作</h2>
         <div class="md-setting-list">
             <div class="md-setting-panel md-ud-danger">
-                <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" data-api-v1="user-delete" data-user-id="{{ user.id }}" data-api-confirm="确定删除用户 {{ user.username }} 吗？该用户的阅读进度、分组授权等数据将一并删除，此操作不可恢复。">
+                <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" data-api-v1="user-delete" data-user-id="{{ user.id }}" data-api-redirect="{{ url_for('users') }}" data-api-confirm="确定删除用户 {{ user.username }} 吗？该用户的阅读进度、分组授权等数据将一并删除，此操作不可恢复。">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="md-ud-danger-btn action-press">
                         <i class="fa fa-trash-o"></i>删除用户 {{ user.username }}

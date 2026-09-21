@@ -52,6 +52,7 @@ from mangadock.services.reading import (
     save_reading_progress,
 )
 from mangadock.settings import COVER_ROOT, china_tz
+from mangadock.utils import safe_int
 from mangadock.utils.files import resolve_file_under_directory
 from mangadock.utils.media import repair_pdf_for_reading
 
@@ -124,8 +125,14 @@ def api_comics():
     current_user_id = current_user.id
     query = (request.args.get('query') or '').strip().lower()
     group_name = normalize_group_name(request.args.get('group'))
-    page = max(1, int(request.args.get('page', 1) or 1))
-    page_size = min(100, max(1, int(request.args.get('page_size', 50) or 50)))
+    try:
+        page = max(1, int(request.args.get('page', 1) or 1))
+    except (TypeError, ValueError):
+        page = 1  # 2026-09-20 P2：恶意/异常参数回落默认值而非 500
+    try:
+        page_size = min(100, max(1, int(request.args.get('page_size', 50) or 50)))
+    except (TypeError, ValueError):
+        page_size = 50
 
     comics = get_available_comics()
     comics, _, _, _ = filter_grouped_comics_for_user(comics, current_user)
@@ -219,7 +226,10 @@ def api_comic_cover(comic_id):
             time.sleep(delay)
         if os.path.exists(cover_path):
             return send_from_directory(COVER_ROOT, cover_filename)
-    return send_from_directory(os.path.join(app.static_folder, 'cover'), 'cover.png')
+    resp = send_from_directory(os.path.join(app.static_folder, 'cover'), 'cover.png')
+    # 占位图禁止长缓存：真封面就绪后客户端要能立即换新（2026-09-20 P2）
+    resp.headers['Cache-Control'] = 'no-cache, max-age=0'
+    return resp
 
 
 @app.route('/api/comics/<comic_id>/chapters')
@@ -391,12 +401,12 @@ def api_save_comic_progress(comic_id):
         return api_error('FORBIDDEN', '当前账号未被授权访问该分组漫画', 403)
 
     data = request.get_json(silent=True) or {}
-    chapter_index = int(data.get('chapter_index', 0) or 0)
-    page_index = int(data.get('page_index', 0) or 0)
-    scroll_position = int(data.get('scroll_position', 0) or 0)
-    total_chapters = int(data.get('total_chapters', 0) or 0)
-    total_pages = int(data.get('total_pages', 0) or 0)
-    reading_time_seconds = int(data.get('reading_time_seconds', 0) or 0)
+    chapter_index = safe_int(data.get('chapter_index'))
+    page_index = safe_int(data.get('page_index'))
+    scroll_position = safe_int(data.get('scroll_position'))
+    total_chapters = safe_int(data.get('total_chapters'))
+    total_pages = safe_int(data.get('total_pages'))
+    reading_time_seconds = safe_int(data.get('reading_time_seconds'))
     reading_session_id = (data.get('reading_session_id') or '').strip()
 
     progress = save_reading_progress(
@@ -421,7 +431,10 @@ def api_save_comic_progress(comic_id):
 @api_login_required
 def api_statistics():
     try:
-        requested_year = int(request.args.get('year') or datetime.now(china_tz).year)
+        try:
+            requested_year = int(request.args.get('year') or datetime.now(china_tz).year)
+        except (TypeError, ValueError):
+            requested_year = datetime.now(china_tz).year
     except (TypeError, ValueError):
         return api_error('INVALID_YEAR', '统计年份无效', 400)
 

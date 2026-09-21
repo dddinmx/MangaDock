@@ -21,8 +21,8 @@ from mangadock.settings import WORKER_POLL_INTERVAL_SECONDS, WORKER_SCHEDULE_HEA
 
 def start_download_task(url, comic_format, allow_adult=False):
     """创建下载任务并加入后台队列（allow_adult=创建者的 18+ 覆盖授权快照）"""
-    task_id = create_task(url, comic_format)
-    update_task(task_id, log="任务已加入后台队列，等待 worker 处理", allow_adult=bool(allow_adult))
+    task_id = create_task(url, comic_format, allow_adult=bool(allow_adult))
+    update_task(task_id, log="任务已加入后台队列，等待 worker 处理")
     return task_id
 
 def start_update_task(comic_name, comic_format, url):
@@ -206,7 +206,16 @@ def run_task_worker(worker_index):
         while True:
             task_id = claim_next_pending_task()
             if task_id:
-                execute_download_task(task_id)
+                try:
+                    execute_download_task(task_id)
+                except Exception as e:
+                    # 2026-09-20 code review：未捕获异常会杀死 worker 循环，
+                    # 后续任务永久卡 pending（仅重启可恢复）。兜底：任务置 error 后继续。
+                    print(f"❌ 任务 {task_id} 执行异常：{e}")
+                    try:
+                        update_task(task_id, status='error', log=f"执行异常：{e}")
+                    except Exception:
+                        pass
                 continue
 
             time.sleep(WORKER_POLL_INTERVAL_SECONDS)

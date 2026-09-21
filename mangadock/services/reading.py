@@ -172,9 +172,18 @@ def record_reading_time(comic_name, duration_seconds, user_id, session_key=None)
                 db.session.commit()
                 return None
 
-            session_state.last_reported_seconds = normalized_seconds
+            # 2026-09-20 code review P2：单次上报跨度可能超过 MAX_READING_DELTA_SECONDS
+            # （客户端长时间挂后台后一次性上报累计值）。基线只能前进「实际入库的秒数」；
+            # 若直接把 last_reported_seconds 设为 normalized_seconds，被 cap 掉的部分会
+            # 永久丢失——因为之后上报的累计值小于基线，delta <= 0 会直接 return None。
+            counted_seconds = min(delta_seconds, MAX_READING_DELTA_SECONDS)
+            session_state.last_reported_seconds = (
+                max(session_state.last_reported_seconds or 0, 0) + counted_seconds
+            )
             session_state.updated_at = datetime.now(china_tz)
+            delta_seconds = counted_seconds
 
+        # 无 session_key 时没有去重基线，只能按「单次增量」记账并套用同一上限
         delta_seconds = min(delta_seconds, MAX_READING_DELTA_SECONDS)
         if delta_seconds <= 0:
             db.session.commit()

@@ -57,6 +57,12 @@ FANQIE_API_ALLOW_ANONYMOUS = os.environ.get(
 FANQIE_API_POLL_INTERVAL = max(
     1.0, float(os.environ.get("MANGADOCK_FANQIE_API_POLL_INTERVAL", "2"))
 )
+# 2026-09-20 code review P2：远端作业轮询的总超时上限。
+# 此前只靠「远端状态变化」或「用户手动取消」退出轮询，若远端作业卡在 running
+# （worker 失联 / 作业记录丢失），下载 worker 线程会被永久占住，队列其余任务饿死。
+FANQIE_API_MAX_POLL_SECONDS = max(
+    300, int(os.environ.get("MANGADOCK_FANQIE_API_MAX_POLL_SECONDS", "7200"))
+)
 FANQIE_API_MAX_ARTIFACT_BYTES = max(
     64 * 1024 * 1024,
     int(os.environ.get("MANGADOCK_FANQIE_API_MAX_ARTIFACT_MB", "2048")) * 1024 * 1024,

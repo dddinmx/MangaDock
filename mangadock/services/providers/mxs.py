@@ -17,7 +17,6 @@ import requests
 from bs4 import BeautifulSoup
 
 from mangadock.settings import (
-    ADULT_CONTENT_DISABLED_MESSAGE,
     COMIC_MAPPING_FILE,
     COMIC_ROOT,
     COVER_ROOT,
@@ -360,7 +359,10 @@ def crawl_chapter_mxs(chapter_url, folder, chapter, comic_format, task_id):
                             return False, "任务已取消"
                         safe_print(f"章节 {chapter} 图片下载成功: {success_count} 张")
 
-                        if success_count > 0:
+                        # 2026-09-20 code review P2：部分成功也算「不完整」，不再只看 > 0
+                        from mangadock.services.download import incomplete_chapter_reason
+                        incomplete_reason = incomplete_chapter_reason(success_count, len(img_urls))
+                        if not incomplete_reason:
                             if is_task_cancel_requested(task_id):
                                 shutil.rmtree(save_dir, ignore_errors=True)
                                 return False, "任务已取消"
@@ -378,8 +380,8 @@ def crawl_chapter_mxs(chapter_url, folder, chapter, comic_format, task_id):
 
                             return True, f"章节 {chapter} 下载完成（成功 {success_count} 张）"
                         else:
-                            safe_print(f"章节 {chapter} 图片下载全部失败")
-                            shutil.rmtree(save_dir)
+                            safe_print(f"章节 {chapter} 图片下载不完整: {incomplete_reason}")
+                            shutil.rmtree(save_dir, ignore_errors=True)
                     else:
                         safe_print(f"章节 {chapter} 未找到图片")
 
@@ -407,6 +409,7 @@ def download_mxs_chapter(chapter, folder, comic_format, task_id):
         download_chapter_images,
         extract_image_extension,
         finalize_downloaded_chapter,
+        incomplete_chapter_reason,
     )
 
     ensure_directory(save_dir)
@@ -445,9 +448,12 @@ def download_mxs_chapter(chapter, folder, comic_format, task_id):
         if cancelled:
             shutil.rmtree(save_dir, ignore_errors=True)
             return False, "任务已取消"
-        if success_count == 0:
+        # 2026-09-20 code review P2：不能只看 success_count == 0，
+        # 部分成功会 finalize 出缺页 CBZ/PDF 且更新检查认为已是最新。
+        incomplete_reason = incomplete_chapter_reason(success_count, len(image_jobs))
+        if incomplete_reason:
             shutil.rmtree(save_dir, ignore_errors=True)
-            return False, f"章节 {chapter['title']} 下载失败"
+            return False, f"章节 {chapter['title']} 下载失败：{incomplete_reason}"
 
         if is_task_cancel_requested(task_id):
             shutil.rmtree(save_dir, ignore_errors=True)
@@ -464,86 +470,3 @@ def download_mxs_chapter(chapter, folder, comic_format, task_id):
         shutil.rmtree(save_dir, ignore_errors=True)
         return False, f"章节 {chapter['title']} 下载失败: {exc}"
 
-
-def download_complete_book_mxs(url, comic_format, task_id):
-    """下载整本漫画（mxs12.cc 专用）"""
-    try:
-        update_task(task_id, status='running')
-
-        from mangadock.services.download import is_adult_content_blocked
-        if is_adult_content_blocked(url):
-            raise ValueError(ADULT_CONTENT_DISABLED_MESSAGE)
-
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-
-        folder, chapter_max, html_content = title(url)
-        update_task(task_id, comic_name=folder)
-        update_task(task_id, log=f"开始下载漫画: {folder}")
-        update_task(task_id, log=f"总章节数: {chapter_max}")
-
-        if chapter_max <= 0:
-            update_task(task_id, log="错误：未获取到有效的章节数，无法开始下载")
-            update_task(task_id, log=f"请检查URL是否正确: {url}")
-            update_task(task_id, status='error')
-            return
-
-        update_task(task_id, total_chapters=chapter_max)
-
-        # 解析章节链接
-        soup = BeautifulSoup(html_content, 'html.parser')
-        links = soup.select('ul#detail-list-select li a')
-        base_url = "https://mxs12.cc"
-        chapter_urls = [base_url + a['href'] for a in links]
-
-        json_file_path = COMIC_MAPPING_FILE
-        try:
-            if os.path.exists(json_file_path):
-                if os.path.getsize(json_file_path) > 0:
-                    with open(json_file_path, "r", encoding="utf-8") as json_file:
-                        existing_data = json.load(json_file)
-                else:
-                    existing_data = {}  # 空文件时初始化空字典
-            else:
-                existing_data = {}
-
-            existing_data[folder] = url
-            with open(json_file_path, "w", encoding="utf-8") as json_file:
-                json.dump(existing_data, json_file, ensure_ascii=False, indent=4)
-        except json.JSONDecodeError:
-            error_msg = f"JSON文件格式错误，已创建新文件: {json_file_path}"
-            update_task(task_id, log=error_msg)
-            with open(json_file_path, "w", encoding="utf-8") as json_file:
-                json.dump({folder: url}, json_file, ensure_ascii=False, indent=4)
-        except Exception as e:
-            error_msg = f"处理JSON文件失败: {str(e)}"
-            update_task(task_id, log=error_msg)
-
-        comic_path = os.path.join(COMIC_ROOT, folder)
-        if not os.path.exists(comic_path):
-            os.makedirs(comic_path)
-
-        for idx, chapter_url in enumerate(chapter_urls, start=1):
-            task = get_task(task_id)
-            if task and task.status == 'cancelled':
-                update_task(task_id, log="任务已取消")
-                return
-
-            update_task(task_id, log=f"开始处理第 {idx} 章")
-            success, msg = crawl_chapter_mxs(chapter_url, folder, idx, comic_format, task_id)
-            update_task(task_id, log=msg)
-
-            if task:
-                new_completed = task.completed_chapters + 1
-                progress = int((new_completed / chapter_max) * 100)
-                update_task(task_id, completed_chapters=new_completed, progress_percent=progress)
-            time.sleep(2)  # 减小延迟，避免被封禁
-
-        update_task(task_id, status='completed', end_time=datetime.now(china_tz))
-        update_task(task_id, log="所有章节处理完成")
-
-    except Exception as e:
-        error_msg = f"下载过程出错: {str(e)}"
-        update_task(task_id, log=error_msg)
-        update_task(task_id, status='error', end_time=datetime.now(china_tz))

@@ -1,7 +1,12 @@
-const STATIC_CACHE_NAME = 'mangadock-static-v7';
-const PAGE_CACHE_NAME = 'mangadock-pages-v13';
-const NAVIGATION_TIMEOUT_MS = 1200;
+const STATIC_CACHE_NAME = 'mangadock-static-v8';
+const PAGE_CACHE_PREFIX = 'mangadock-pages-';
 
+// 2026-09-20 code review P2：不再缓存任何 HTML 导航响应。
+// 本应用所有页面都由服务端按「当前登录用户」渲染（顶栏用户名、私有书架 /
+// 历史 / 统计 / 任务列表），旧实现把它们按 origin 共享缓存，并在 1200ms 超时
+// 或网络异常时直接吐出缓存 —— 会话静默过期或同一浏览器换号后，可看到上一账号
+// 的页面内容（跨会话信息泄露）；缓存下来的登录页还会带上失效的 CSRF token。
+// 现在导航请求一律直连网络（见文件末尾 fetch 监听器），SW 只负责 /static/。
 const PRECACHE_URLS = [
   '/static/favicon.png',
   '/static/logo-192.png',
@@ -9,6 +14,8 @@ const PRECACHE_URLS = [
   '/static/css/font-awesome.min.css',
 ];
 
+// /static/ 里也不能缓存的路径：漫画图片体积大且属用户私有内容，
+// 接口类路径同样只走网络。
 const UNCACHEABLE_PREFIXES = [
   '/api/',
   '/novel',
@@ -31,14 +38,6 @@ function isSameOrigin(url) {
 
 function isUncacheablePath(pathname) {
   return UNCACHEABLE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-}
-
-function shouldHandleNavigation(request, url) {
-  if (request.method !== 'GET') {
-    return false;
-  }
-
-  return isSameOrigin(url) && request.mode === 'navigate' && !isUncacheablePath(url.pathname);
 }
 
 function shouldHandleStatic(request, url) {
@@ -72,47 +71,33 @@ async function handleStaticRequest(request) {
   return cachedResponse || networkFetch;
 }
 
-async function handleNavigationRequest(request) {
-  const cache = await caches.open(PAGE_CACHE_NAME);
-  const cachedResponse = await cache.match(request);
-  const networkFetch = fetch(request)
-    .then(async (response) => {
-      const contentType = response.headers.get('content-type') || '';
-      if (response.status === 200 && contentType.includes('text/html')) {
-        await cache.put(request, response.clone());
-      }
-      return response;
-    });
-
-  if (!cachedResponse) {
-    return networkFetch;
-  }
-
-  const timeoutFallback = new Promise((resolve) => {
-    setTimeout(() => resolve(cachedResponse), NAVIGATION_TIMEOUT_MS);
-  });
-
-  try {
-    return await Promise.race([networkFetch, timeoutFallback]);
-  } catch (error) {
-    return cachedResponse;
-  }
-}
-
 async function clearPageCache() {
-  await caches.delete(PAGE_CACHE_NAME);
+  // 页面缓存已整体停用；这里只负责清掉历史版本遗留的 page cache，
+  // 兼容旧客户端（login.html）发来的 CLEAR_PAGE_CACHE 指令。
+  const cacheNames = await caches.keys();
+  await Promise.all(
+    cacheNames
+      .filter((cacheName) => cacheName.startsWith(PAGE_CACHE_PREFIX))
+      .map((cacheName) => caches.delete(cacheName))
+  );
 }
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE_NAME)
       .then((cache) => cache.addAll(PRECACHE_URLS))
+      .catch((error) => {
+        // addAll 是原子操作：任一预缓存资源 404（例如 css 改名）都会整体 reject。
+        // 不能让安装因此失败，否则 PWA 彻底不生效；记录后照常激活。
+        console.warn('[sw] 预缓存资源失败，跳过但继续激活:', error);
+      })
       .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener('activate', (event) => {
-  const cacheWhitelist = [STATIC_CACHE_NAME, PAGE_CACHE_NAME];
+  // 只保留当前静态缓存；page cache 等历史缓存全部清掉。
+  const cacheWhitelist = [STATIC_CACHE_NAME];
 
   event.waitUntil(
     caches.keys()
@@ -137,11 +122,7 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  if (shouldHandleNavigation(event.request, url)) {
-    event.respondWith(handleNavigationRequest(event.request));
-    return;
-  }
-
+  // 导航请求（含 HTML 页面）不拦截：直连网络，避免跨会话/跨账号的缓存泄露。
   if (shouldHandleStatic(event.request, url)) {
     event.respondWith(handleStaticRequest(event.request));
   }

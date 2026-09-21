@@ -10,10 +10,11 @@ from functools import wraps
 from flask import flash, g, jsonify, redirect, request, session, url_for
 from flask_wtf.csrf import CSRFError
 from PIL import Image
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from mangadock.core import app, is_safe_next_target
-from mangadock.extensions import csrf, db, login_failures
-from mangadock.models import LoginLog, User
+from mangadock.extensions import csrf, db
+from mangadock.models import LoginFailure, LoginLog, User
 from mangadock.settings import COVER_ROOT, LOGIN_LOCKOUT_DURATION, LOGIN_MAX_ATTEMPTS, china_tz
 
 
@@ -221,12 +222,22 @@ def inject_user_context():
     }
 
 def api_error(code, message, status=400):
-    return jsonify({
+    headers = None
+    if status == 401:
+        # 2026-09-20：带 Basic 挑战头，iOS URLSession / OkHttp 等客户端在
+        # 收到 challenge 时可用已存凭据自动重试（扩展偶发丢凭据的场景）
+        headers = {'WWW-Authenticate': 'Basic realm="MangaDock"'}
+    resp = jsonify({
         'error': {
             'code': code,
             'message': message,
         }
-    }), status
+    })
+    resp.status_code = status
+    if headers:
+        for k, v in headers.items():
+            resp.headers[k] = v
+    return resp, status
 
 
 def serialize_api_user(user):
@@ -270,12 +281,107 @@ def validate_user_credentials(username, password):
     return user if user.check_password(raw_password) else None
 
 
-def login_failure_key(username, ip_address=None):
-    del ip_address
+def login_failure_keys(username, ip_address=None):
+    """按「用户名 + IP」双维度生成锁定键，任一键被锁即拒绝：
+    user 键防跨 IP 撞同一账号，ip 键防单 IP 用户名喷洒；第三方无法用单一维度恶意锁死别人。"""
     normalized_username = (username or '').strip().lower()
-    if not normalized_username:
-        return 'unknown'
-    return f'user:{normalized_username}'
+    keys = []
+    if normalized_username:
+        keys.append(f'user:{normalized_username}')
+    if ip_address:
+        keys.append(f'ip:{ip_address}')
+    return keys or ['unknown']
+
+
+def _as_aware_china(value):
+    """SQLite 存的是 naive datetime，读回来要补上 China 时区再参与比较。"""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=china_tz)
+    return value
+
+
+def login_lock_state(keys):
+    """检查锁定状态，返回 (locked, remaining_minutes, hit_key)；过期的锁定记录顺手清除。
+
+    2026-09-20 code review P2：失败计数改为落库（models.LoginFailure）。
+    此前用模块级内存 dict，而 gunicorn 起 2~4 个 worker 进程，各持一份计数，
+    攻击者把尝试分散到不同进程即可让任一进程都达不到阈值 → 登录锁定被绕过。
+    现在多进程共享同一份 DB 计数，并用 SQLite 原子 UPSERT 累加。
+    """
+    if not keys:
+        return False, 0, None
+    now = datetime.now(china_tz)
+    rows = LoginFailure.query.filter(LoginFailure.failure_key.in_(list(keys))).all()
+    expired_rows = []
+    for row in rows:
+        if row.fail_count < LOGIN_MAX_ATTEMPTS:
+            continue
+        last_failure_at = _as_aware_china(row.last_failure_at) or now
+        elapsed = now - last_failure_at
+        if elapsed < LOGIN_LOCKOUT_DURATION:
+            remaining_time = LOGIN_LOCKOUT_DURATION - elapsed
+            return True, max(1, remaining_time.seconds // 60), row.failure_key
+        expired_rows.append(row)
+    if expired_rows:
+        for row in expired_rows:
+            db.session.delete(row)
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.warning('清除过期登录锁定记录失败: %s', exc)
+    return False, 0, None
+
+
+def login_record_failure(keys):
+    """对每个键原子累加失败次数并刷新时间戳，返回最大计数（用于剩余次数提示）。"""
+    if not keys:
+        return 1
+    now = datetime.now(china_tz)
+    for key in keys:
+        statement = sqlite_insert(LoginFailure).values(
+            failure_key=key,
+            fail_count=1,
+            last_failure_at=now,
+            updated_at=now,
+        ).on_conflict_do_update(
+            index_elements=[LoginFailure.failure_key],
+            set_={
+                'fail_count': LoginFailure.fail_count + 1,
+                'last_failure_at': now,
+                'updated_at': now,
+            },
+        )
+        db.session.execute(statement)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        # 计数写失败不应让登录流程 500：退回「至少记了 1 次」的语义
+        db.session.rollback()
+        app.logger.warning('记录登录失败次数失败: %s', exc)
+        return 1
+
+    counts = [
+        row.fail_count
+        for row in LoginFailure.query.filter(LoginFailure.failure_key.in_(list(keys))).all()
+    ]
+    return max(counts) if counts else 1
+
+
+def login_clear_failures(keys):
+    """登录成功后清除该用户名/IP 的全部失败计数。"""
+    if not keys:
+        return
+    try:
+        LoginFailure.query.filter(LoginFailure.failure_key.in_(list(keys))).delete(
+            synchronize_session=False
+        )
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.warning('清除登录失败计数失败: %s', exc)
 
 
 def authenticate_api_credentials(username, password, ip_address, user_agent):
@@ -285,34 +391,27 @@ def authenticate_api_credentials(username, password, ip_address, user_agent):
     if not normalized_username or not raw_password:
         return None, api_error('INVALID_CREDENTIALS', '用户名或密码错误', 401)
 
-    failure_key = login_failure_key(normalized_username, ip_address)
-    if failure_key in login_failures:
-        fail_count, lock_time = login_failures[failure_key]
-        if fail_count >= LOGIN_MAX_ATTEMPTS:
-            if datetime.now(china_tz) - lock_time < LOGIN_LOCKOUT_DURATION:
-                remaining_time = LOGIN_LOCKOUT_DURATION - (datetime.now(china_tz) - lock_time)
-                remaining_minutes = max(1, remaining_time.seconds // 60)
-                record_login_log(
-                    normalized_username,
-                    ip_address,
-                    user_agent,
-                    False,
-                    f'账户已锁定，剩余锁定时间 {remaining_minutes} 分钟'
-                )
-                return None, api_error('ACCOUNT_LOCKED', f'登录失败次数过多，请在 {remaining_minutes} 分钟后重试', 423)
-            del login_failures[failure_key]
+    failure_keys = login_failure_keys(normalized_username, ip_address)
+    locked, remaining_minutes, _hit = login_lock_state(failure_keys)
+    if locked:
+        record_login_log(
+            normalized_username,
+            ip_address,
+            user_agent,
+            False,
+            f'账户已锁定，剩余锁定时间 {remaining_minutes} 分钟'
+        )
+        return None, api_error('ACCOUNT_LOCKED', f'登录失败次数过多，请在 {remaining_minutes} 分钟后重试', 423)
 
     user = validate_user_credentials(normalized_username, raw_password)
     login_success = user is not None
 
     if login_success and user:
-        login_failures.pop(failure_key, None)
+        login_clear_failures(failure_keys)
         record_login_log(normalized_username, ip_address, user_agent, True, '登录成功')
         return user, None
 
-    fail_count, _lock_time = login_failures.get(failure_key, (0, datetime.now(china_tz)))
-    new_fail_count = fail_count + 1
-    login_failures[failure_key] = (new_fail_count, datetime.now(china_tz))
+    new_fail_count = login_record_failure(failure_keys)
     remaining_attempts = LOGIN_MAX_ATTEMPTS - new_fail_count
     if remaining_attempts > 0:
         failure_message = f'用户名或密码错误，还有 {remaining_attempts} 次尝试机会'
@@ -561,6 +660,7 @@ def get_api_comic_entry(comic_id):
 
 
 def build_api_statistics_payload(year, user_id):
+    from mangadock.services.groups import filter_grouped_comics_for_user
     from mangadock.services.library import get_available_comics, load_comic_mapping
     from mangadock.services.reading import (
         get_reading_time_by_comic,
@@ -572,16 +672,34 @@ def build_api_statistics_payload(year, user_id):
     reading_time_rank = get_reading_time_by_comic(user_id)
     reading_time_monthly = get_reading_time_monthly_for_year(year, user_id)
     reading_time_daily = get_reading_time_daily_for_year(year, user_id)
+    # 2026-09-20 code review P2：排名也要按分组权限过滤。
+    # 否则「曾被授权、读过、之后被撤权」的漫画标题仍会出现在 /api/statistics，
+    # 与已经修好的 /history 口径不一致（信息泄露）。
+    # 注意只剔除「确实存在于漫画库、但当前账号无权的分组」的条目；
+    # 小说等不在 get_available_comics() 里的条目继续走 build_local_comic_entry 兜底。
+    all_comics = get_available_comics()
+    statistic_user = User.query.filter_by(id=user_id).first()
+    accessible_comics, _stat_groups, _stat_counts, _stat_lookup = filter_grouped_comics_for_user(
+        all_comics, statistic_user
+    )
     comic_lookup = {
-        comic['comic_name']: comic
-        for comic in get_available_comics()
+        comic.get('comic_name'): comic
+        for comic in accessible_comics
+        if comic.get('comic_name')
     }
+    restricted_comic_names = {
+        comic.get('comic_name')
+        for comic in all_comics
+        if comic.get('comic_name')
+    } - set(comic_lookup)
     source_mapping = load_comic_mapping()
     ranking_items = []
 
     for index, entry in enumerate(reading_time_rank, start=1):
         comic_name = entry.get('comic_name')
         if not comic_name:
+            continue
+        if comic_name in restricted_comic_names:
             continue
 
         comic_entry = comic_lookup.get(comic_name) or build_local_comic_entry(comic_name)

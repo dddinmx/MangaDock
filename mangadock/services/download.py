@@ -61,7 +61,6 @@ from mangadock.services.providers.baozimh_org import (
 from mangadock.services.providers.baozimhcn import load_baozimhcn_source
 from mangadock.services.providers.mxs import (
     crawl_chapter_mxs,
-    download_complete_book_mxs,
     download_image_mxs,
     download_images_concurrently_mxs,
     download_mxs_chapter,
@@ -292,6 +291,7 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
             stop_flag = False
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                consecutive_empty_batches = 0  # 2026-09-20 code review：防站点宕机时无限扫描
                 while not stop_flag:
                     # 检查任务是否已取消
                     if is_task_cancel_requested(task_id):
@@ -299,6 +299,7 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
                         return False, "任务已取消"
 
                     futures = []
+                    batch_success = 0
                     for _ in range(max_workers * 2):
                         futures.append(executor.submit(
                             download_image, session, base_url, save_dir, n, task_id
@@ -313,12 +314,23 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
                         success, num, stop_download = future.result()
                         if success:
                             success_count += 1
+                            batch_success += 1
                         else:
                             if stop_download:
                                 stop_flag = True
                                 executor.shutdown(wait=False)
                                 break
 
+                    if not stop_flag:
+                        if batch_success == 0:
+                            consecutive_empty_batches += 1
+                            if consecutive_empty_batches >= 3:
+                                executor.shutdown(wait=False)
+                                msg = f"章节 {chapter} 连续 {consecutive_empty_batches} 轮无任何图片下载成功，判定源站异常，中止"
+                                update_task(task_id, log=msg)
+                                return False, msg
+                        else:
+                            consecutive_empty_batches = 0
                     time.sleep(random.uniform(*CONFIG['delay_range']))
 
             if is_task_cancel_requested(task_id):
@@ -349,6 +361,11 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
         error_msg = f"章节处理异常：{str(e)}"
         update_task(task_id, log=error_msg)
         return False, error_msg
+    finally:
+        # 2026-09-20 code review P2：失败 / 取消 / 异常路径此前都不清 save_dir，
+        # 已下载的部分章节图会永久残留在 NAS 上。统一在 finally 收口，
+        # （成功路径原本就会删，这里重复删也无害）。
+        shutil.rmtree(save_dir, ignore_errors=True)
 
 
 def extract_image_extension(image_url, default_ext=".jpg"):
@@ -364,20 +381,22 @@ def download_binary_image(image_url, save_path, referer=None, verify=True, retri
         if cancel_checker and cancel_checker():
             return False, "cancelled"
         try:
-            response = safe_http_get(
+            # 2026-09-20 code review P2：必须用 with 关闭响应，否则连接不归还
+            # requests 连接池（每 host 默认 10），高并发下载会耗尽池导致后续请求阻塞。
+            with safe_http_get(
                 image_url,
                 headers=headers,
                 stream=True,
                 timeout=30,
                 verify=verify,
                 max_bytes=MAX_IMAGE_RESPONSE_BYTES
-            )
-            if response.status_code == 200:
-                if cancel_checker and cancel_checker():
-                    return False, "cancelled"
-                write_limited_response_to_file(response, save_path, MAX_IMAGE_RESPONSE_BYTES)
-                return True, save_path
-            safe_print(f"图片下载失败，状态码: {response.status_code}，第{attempt + 1}次重试")
+            ) as response:
+                if response.status_code == 200:
+                    if cancel_checker and cancel_checker():
+                        return False, "cancelled"
+                    write_limited_response_to_file(response, save_path, MAX_IMAGE_RESPONSE_BYTES)
+                    return True, save_path
+                safe_print(f"图片下载失败，状态码: {response.status_code}，第{attempt + 1}次重试")
         except Exception as exc:
             safe_print(f"图片下载异常: {exc}，第{attempt + 1}次重试")
 
@@ -445,6 +464,28 @@ def download_chapter_images(image_jobs, save_dir, referer=None, verify=True, max
     return success_count, failed_items, False
 
 
+# 2026-09-20 code review P2：章节完整性判定。
+# 此前只判 success_count == 0，40 张里成功 1 张也算「章节成功」，
+# 于是 finalize 出缺页 CBZ/PDF（阅读器裂图），且更新检查认为「已是最新」不再补下。
+# 现在允许最多 1 张缺失（源站偶发单图失败不必整章反复重下），超过即判章节失败。
+CHAPTER_MISSING_IMAGE_TOLERANCE = 1
+
+
+def incomplete_chapter_reason(success_count, expected_count):
+    """章节下载不完整时返回原因文本；完整则返回 None。"""
+    # 2026-09-20 code review 复核补充：`success_count == 0` 必须无条件判失败。
+    # 否则「只有 1 张图的章节、且这 1 张也没下下来」会走成 missing(1) <= 容忍度(1)
+    # → 返回 None → 被当成完整章节 finalize 出一个 0 页的空 CBZ。
+    if success_count <= 0:
+        return '没有任何图片下载成功'
+    if expected_count <= 0:
+        return None
+    missing = expected_count - success_count
+    if missing <= CHAPTER_MISSING_IMAGE_TOLERANCE:
+        return None
+    return f'图片不完整（成功 {success_count}/{expected_count} 张，缺失 {missing} 张）'
+
+
 def finalize_downloaded_chapter(save_dir, comic_format):
     if comic_format == 1:
         return images_to_pdf(save_dir)
@@ -498,6 +539,7 @@ def download_complete_book(url, comic_format, task_id):
         elif source.get('description'):
             update_task(task_id, log="作品简介保存失败，可稍后在详情页重试补全")
 
+        failed_chapters = []  # 2026-09-20 P2：单章失败不再放大为整任务失败
         for index, chapter in enumerate(chapters, start=1):
             task = get_task(task_id)
             if task and task.status == 'cancelled':
@@ -508,8 +550,9 @@ def download_complete_book(url, comic_format, task_id):
             success, message = download_provider_chapter(source, chapter, folder, comic_format, task_id)
             update_task(task_id, log=message)
             if not success:
-                update_task(task_id, status='error', end_time=datetime.now(china_tz))
-                return
+                # 记失败并继续，最后汇总（2026-09-20 P2）
+                failed_chapters.append(chapter['title'])
+                continue
 
             progress = int((index / len(chapters)) * 100)
             update_task(task_id, completed_chapters=index, progress_percent=progress)
@@ -517,8 +560,13 @@ def download_complete_book(url, comic_format, task_id):
             if source['provider'] == 'baozimhcn':
                 time.sleep(2)
 
-        update_task(task_id, status='completed', end_time=datetime.now(china_tz))
-        update_task(task_id, log="所有章节处理完成")
+        if failed_chapters:
+            summary = ', '.join(failed_chapters[:10]) + ('…' if len(failed_chapters) > 10 else '')
+            update_task(task_id, status='error', end_time=datetime.now(china_tz))
+            update_task(task_id, log=f"任务结束：{len(chapters) - len(failed_chapters)}/{len(chapters)} 章成功，失败章节: {summary}")
+        else:
+            update_task(task_id, status='completed', end_time=datetime.now(china_tz))
+            update_task(task_id, log="所有章节处理完成")
     except Exception as exc:
         error_msg = f"下载过程出错: {exc}"
         update_task(task_id, log=error_msg)
@@ -578,6 +626,7 @@ def update_comic(comic_name, comic_format, task_id):
         update_task(task_id, total_chapters=len(chapters_to_download))
         update_task(task_id, log=f"找到 {len(chapters_to_download)} 个新章节，开始下载")
 
+        failed_chapters = []  # 与整本下载一致：单章失败记下继续（2026-09-20 P2）
         for index, chapter in enumerate(chapters_to_download, start=1):
             task = get_task(task_id)
             if task and task.status == 'cancelled':
@@ -588,8 +637,9 @@ def update_comic(comic_name, comic_format, task_id):
             success, message = download_provider_chapter(source, chapter, comic_name, comic_format, task_id)
             update_task(task_id, log=message)
             if not success:
-                update_task(task_id, status='error', end_time=datetime.now(china_tz))
-                return
+                # 记失败并继续，最后汇总（2026-09-20 P2）
+                failed_chapters.append(chapter['title'])
+                continue
 
             progress = int((index / len(chapters_to_download)) * 100)
             update_task(task_id, completed_chapters=index, progress_percent=progress)
@@ -597,8 +647,13 @@ def update_comic(comic_name, comic_format, task_id):
             if source['provider'] == 'baozimhcn':
                 time.sleep(2)
 
-        update_task(task_id, status='completed', end_time=datetime.now(china_tz))
-        update_task(task_id, log="所有更新章节处理完成")
+        if failed_chapters:
+            summary = ', '.join(failed_chapters[:10]) + ('…' if len(failed_chapters) > 10 else '')
+            update_task(task_id, status='error', end_time=datetime.now(china_tz))
+            update_task(task_id, log=f"更新结束：{len(chapters_to_download) - len(failed_chapters)}/{len(chapters_to_download)} 章成功，失败章节: {summary}")
+        else:
+            update_task(task_id, status='completed', end_time=datetime.now(china_tz))
+            update_task(task_id, log="所有更新章节处理完成")
 
     except Exception as e:
         error_msg = f"更新过程出错: {str(e)}"

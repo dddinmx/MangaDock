@@ -46,6 +46,7 @@ from mangadock.services.reading import (
     user_can_access_progress_key,
 )
 from mangadock.services.tasks import get_task
+from mangadock.utils import safe_int
 from mangadock.utils.media import repair_pdf_for_reading
 from mangadock.blueprints.web.common import safe_print
 
@@ -239,7 +240,8 @@ def comic_reader(task_id):
     # 检查是否有指定的起始章节
     start_chapter = request.args.get('start_chapter', None)
     if start_chapter is not None:
-        start_chapter = int(start_chapter)
+        # 2026-09-20 code review P2：?start_chapter=abc 此前直接 int() → 500
+        start_chapter = safe_int(start_chapter)
     else:
         start_chapter = progress.last_chapter if progress else 0
     start_page = progress.last_page if progress else 0

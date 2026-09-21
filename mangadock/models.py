@@ -25,7 +25,7 @@ class DownloadTask(db.Model):
     log = db.Column(db.Text, default='')
     start_time = db.Column(db.DateTime)
     end_time = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.now(china_tz))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
     is_update = db.Column(db.Boolean, default=False)
     group = db.Column(db.String(255), default='默认分组')  # 分组字段
     # 任务创建者的 18+ 覆盖授权快照（can_view_adult 用户在全局关闭时仍可下 mxs 源）
@@ -42,8 +42,8 @@ class ReadingProgress(db.Model):
     anchor_offset = db.Column(db.Integer)
     total_chapters = db.Column(db.Integer, default=0)
     total_pages = db.Column(db.Integer, default=0)
-    last_read_at = db.Column(db.DateTime, default=datetime.now(china_tz))
-    created_at = db.Column(db.DateTime, default=datetime.now(china_tz))
+    last_read_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
 
 
 class ReadingTime(db.Model):
@@ -53,7 +53,7 @@ class ReadingTime(db.Model):
     duration = db.Column(db.Integer, nullable=False)  # in minutes
     duration_seconds = db.Column(db.Integer, nullable=False, default=0)
     read_at = db.Column(db.DateTime, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now(china_tz))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
 
 
 class ReadingSessionState(db.Model):
@@ -62,11 +62,11 @@ class ReadingSessionState(db.Model):
     comic_name = db.Column(db.String(255), nullable=False)
     session_key = db.Column(db.String(128), nullable=False)
     last_reported_seconds = db.Column(db.Integer, nullable=False, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.now(china_tz))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
     updated_at = db.Column(
         db.DateTime,
-        default=datetime.now(china_tz),
-        onupdate=datetime.now(china_tz)
+        default=lambda: datetime.now(china_tz),
+        onupdate=lambda: datetime.now(china_tz)
     )
 
     __table_args__ = (
@@ -223,9 +223,27 @@ class LoginLog(db.Model):
     username = db.Column(db.String(80), nullable=False)
     ip_address = db.Column(db.String(45), nullable=False)
     user_agent = db.Column(db.String(500))
-    login_time = db.Column(db.DateTime, default=datetime.now(china_tz))
+    login_time = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
     success = db.Column(db.Boolean, nullable=False)
     message = db.Column(db.String(200))
+
+
+class LoginFailure(db.Model):
+    """登录失败计数器（2026-09-20 code review P2）。
+
+    之前用模块级内存 dict，但 gunicorn 起 2~4 个 worker 进程，每个进程各持一份，
+    计数无法跨进程聚合 → 登录锁定可被「多连接分摊到不同进程」绕过，且重启即清零。
+    改为落库后用 SQLite 的原子 UPSERT 累加，多进程共享同一份计数。
+    """
+    failure_key = db.Column(db.String(255), primary_key=True)
+    fail_count = db.Column(db.Integer, nullable=False, default=0)
+    last_failure_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(china_tz))
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(china_tz),
+        onupdate=lambda: datetime.now(china_tz)
+    )
+
 
 def ensure_sqlite_column(table_name, column_name, ddl):
     with db.engine.begin() as connection:

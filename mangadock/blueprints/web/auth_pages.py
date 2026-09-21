@@ -3,6 +3,7 @@
 import json
 import os
 import random
+import threading
 import time
 from datetime import datetime
 
@@ -17,11 +18,14 @@ from flask import (
 
 from mangadock.auth import (
     is_safe_next_target,
-    login_failure_key,
+    login_clear_failures,
+    login_failure_keys,
+    login_lock_state,
+    login_record_failure,
     login_required,
 )
 from mangadock.core import app
-from mangadock.extensions import db, login_failures
+from mangadock.extensions import db
 from mangadock.models import LoginLog, User
 from mangadock.services.providers.mxs import is_mxs_url
 from mangadock.settings import (
@@ -37,6 +41,7 @@ from mangadock.settings import (
 _LOGIN_COMIC_COVER_COUNT = 24
 _LOGIN_COVER_POOL_TTL = 600
 _login_cover_pool_cache = {'at': 0.0, 'names': []}
+_login_cover_pool_lock = threading.Lock()
 
 
 def _eligible_comic_cover_names():
@@ -69,11 +74,12 @@ def _pick_comic_covers(count=_LOGIN_COMIC_COVER_COUNT):
     """按日期做确定性抽样：随机种子 = 当天日期（中国时区），同一天内
     所有请求、所有访客得到同一批封面；候选池带 10 分钟进程内缓存。
     池先排序再抽样，保证不受目录枚举顺序影响。"""
-    now = time.time()
-    if now - _login_cover_pool_cache['at'] > _LOGIN_COVER_POOL_TTL:
-        _login_cover_pool_cache['at'] = now
-        _login_cover_pool_cache['names'] = _eligible_comic_cover_names()
-    pool = sorted(_login_cover_pool_cache['names'])
+    with _login_cover_pool_lock:
+        now = time.time()
+        if now - _login_cover_pool_cache['at'] > _LOGIN_COVER_POOL_TTL:
+            _login_cover_pool_cache['at'] = now
+            _login_cover_pool_cache['names'] = _eligible_comic_cover_names()
+        pool = sorted(_login_cover_pool_cache['names'])
     if not pool:
         return []
     today = datetime.now(china_tz).date().isoformat()
@@ -108,30 +114,23 @@ def login():
         # 获取用户IP和User-Agent
         ip_address = request.remote_addr
         user_agent = request.user_agent.string
-        failure_key = login_failure_key(username, ip_address)
+        failure_keys = login_failure_keys(username, ip_address)
 
-        # 检查登录失败次数和锁定状态
-        if failure_key in login_failures:
-            fail_count, lock_time = login_failures[failure_key]
-            if fail_count >= LOGIN_MAX_ATTEMPTS:
-                # 检查锁定是否已过期
-                if datetime.now(china_tz) - lock_time < LOGIN_LOCKOUT_DURATION:
-                    remaining_time = LOGIN_LOCKOUT_DURATION - (datetime.now(china_tz) - lock_time)
-                    flash(f'登录失败次数过多，请在 {remaining_time.seconds // 60} 分钟后重试')
-                    # 记录登录失败日志
-                    login_log = LoginLog(
-                        username=username,
-                        ip_address=ip_address,
-                        user_agent=user_agent,
-                        success=False,
-                        message=f'账户已锁定，剩余锁定时间 {remaining_time.seconds // 60} 分钟'
-                    )
-                    db.session.add(login_log)
-                    db.session.commit()
-                    return render_login_page()
-                else:
-                    # 锁定过期，重置失败计数
-                    del login_failures[failure_key]
+        # 检查登录失败次数和锁定状态（用户名 + IP 双维度，2026-09-20 P2）
+        locked, remaining_minutes, _hit = login_lock_state(failure_keys)
+        if locked:
+            flash(f'登录失败次数过多，请在 {remaining_minutes} 分钟后重试')
+            # 记录登录失败日志
+            login_log = LoginLog(
+                username=username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                success=False,
+                message=f'账户已锁定，剩余锁定时间 {remaining_minutes} 分钟'
+            )
+            db.session.add(login_log)
+            db.session.commit()
+            return render_login_page()
 
         # 验证用户信息
         user = User.query.filter_by(username=username).first()
@@ -140,8 +139,7 @@ def login():
 
             if login_success:
                 # 登录成功，清除失败计数
-                if failure_key in login_failures:
-                    del login_failures[failure_key]
+                login_clear_failures(failure_keys)
                 # 登录成功，保存用户ID到session
                 session.permanent = True
                 session['user_id'] = user.id
@@ -164,11 +162,7 @@ def login():
                 return redirect(next_page or url_for('index'))
             else:
                 # 用户存在但密码错误，记录失败次数
-                if failure_key not in login_failures:
-                    login_failures[failure_key] = (0, datetime.now(china_tz))
-                fail_count, lock_time = login_failures[failure_key]
-                new_fail_count = fail_count + 1
-                login_failures[failure_key] = (new_fail_count, datetime.now(china_tz))
+                new_fail_count = login_record_failure(failure_keys)
 
                 # 显示剩余尝试次数
                 remaining_attempts = LOGIN_MAX_ATTEMPTS - new_fail_count
@@ -193,11 +187,7 @@ def login():
                 return render_login_page()
         else:
             # 用户不存在，记录失败次数
-            if failure_key not in login_failures:
-                login_failures[failure_key] = (0, datetime.now(china_tz))
-            fail_count, lock_time = login_failures[failure_key]
-            new_fail_count = fail_count + 1
-            login_failures[failure_key] = (new_fail_count, datetime.now(china_tz))
+            new_fail_count = login_record_failure(failure_keys)
 
             # 显示剩余尝试次数
             remaining_attempts = LOGIN_MAX_ATTEMPTS - new_fail_count

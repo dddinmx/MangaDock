@@ -42,6 +42,7 @@ from mangadock.settings import (
     china_tz,
 )
 from mangadock.blueprints.web.common import safe_print
+from mangadock.utils import safe_int
 
 
 @app.route('/download', methods=['GET', 'POST'])
@@ -51,7 +52,7 @@ def download():
     adult_enabled_for_user = is_adult_content_enabled_for(current_user)
     if request.method == 'POST':
         comic_url = request.form.get('comic_url')
-        comic_format = int(request.form.get('format', 2))
+        comic_format = safe_int(request.form.get('format'), default=2)
 
         if not is_supported_comic_url(comic_url):
             return render_template(
@@ -90,7 +91,7 @@ def update():
 
     if request.method == 'POST':
         comic_name = request.form.get('comic_name')
-        comic_format = int(request.form.get('format', 2))
+        comic_format = safe_int(request.form.get('format'), default=2)
 
         # 获取该漫画的URL
         comic_url = comic_data.get(comic_name)

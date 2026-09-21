@@ -178,7 +178,10 @@ def search_page():
 @login_required
 def history_page():
     user_id = session.get('user_id')
+    current_user = get_current_user()
     comics = get_available_comics() or []
+    # 与书架一致：按分组归属 + 用户分组权限过滤，防止已撤权漫画在历史页泄露标题/封面（2026-09-20 P2）
+    comics, _, _, _ = filter_grouped_comics_for_user(comics, current_user)
     comic_lookup = {c.get('comic_name'): c for c in comics}
     progresses = get_all_reading_progress(user_id) or []
     items = []

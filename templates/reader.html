@@ -8,8 +8,10 @@
     <title>{{ task.comic_name }} - 阅读</title>
     <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
     <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
-    <script src="{{ asset_url('js/vendor/pdf.min.js') }}"></script>
-    <script src="{{ asset_url('js/vendor/jszip.min.js') }}"></script>
+    {# 2026-09-20 code review P2：这两个 vendor 库合计约 380KB，同步放在 head 会阻塞
+       首屏解析；用法都在函数体内（loadPdfChapter / JSZip 调用），加 defer 安全。 #}
+    <script defer src="{{ asset_url('js/vendor/pdf.min.js') }}"></script>
+    <script defer src="{{ asset_url('js/vendor/jszip.min.js') }}"></script>
     
     <style>
         * {

@@ -109,6 +109,13 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'download_tasks.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# 2026-09-20 code review P2：数据库文件在 SMB 网络盘上，写者包括 4 个 gunicorn
+# 进程 + 2 个 task worker + 1 个 command worker，DB 默认 5 秒忙等很容易撞上
+# "database is locked"。提到 30 秒让写锁竞争变成等待而非直接报错。
+# 刻意不启用 WAL：WAL 依赖共享内存 + 文件锁语义，在网络文件系统上不可靠。
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'connect_args': {'timeout': 30},
+}
 app.session_interface = MangaDockSessionInterface()
 
 if not os.path.exists(app.instance_path):

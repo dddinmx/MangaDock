@@ -14,7 +14,7 @@ def safe_print(message, end="\n", flush=False):
     """安全打印函数，用于日志记录"""
     print(message, end=end, flush=flush)
 
-def create_task(url, comic_format, is_update=False, comic_name=None):
+def create_task(url, comic_format, is_update=False, comic_name=None, allow_adult=None):
     """创建新任务并返回任务ID"""
     with app.app_context():
         task_id = str(uuid.uuid4())
@@ -34,6 +34,9 @@ def create_task(url, comic_format, is_update=False, comic_name=None):
             start_time=datetime.now(china_tz),
             is_update=is_update
         )
+        if allow_adult is not None:
+            # 2026-09-20 P2：快照随 create_task 一次写入，消除落库→改列间隙被 worker 抢跑的窗口
+            task.allow_adult = bool(allow_adult)
         db.session.add(task)
         db.session.commit()
         

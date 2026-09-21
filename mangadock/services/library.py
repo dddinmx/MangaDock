@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Local comic library: scan roots, identity, chapters, cache."""
+import fcntl
 import hashlib
 import json
 import os
@@ -854,19 +855,71 @@ def schedule_comics_cache_refresh():
 
 
 def save_comic_mapping(comic_name, url):
+    """更新 comic.json 的「漫画名 → 源 URL」映射（跨进程加锁 + 原子替换）。
+
+    2026-09-20 code review P2，修两个问题：
+    ① 读失败时旧实现把 existing_data 重置成 {}，一旦 comic.json 损坏，写回就
+       只剩当前这一条，**其余漫画的源 URL 全部丢失**；现在读失败直接放弃本次
+       写入，保留原文件不动。
+    ② 旧实现 `open(..., 'w')` 截断重写，多个 task worker 进程并发写会互相覆盖，
+       中途崩溃还会留下半截 JSON；现在改为「进程间 flock + 同目录临时文件 +
+       os.replace 原子替换」。
+    """
     json_file_path = COMIC_MAPPING_FILE
+    lock_path = os.path.join(app.instance_path, 'comic_mapping.lock')
+
     try:
+        os.makedirs(app.instance_path, exist_ok=True)
+        lock_handle = open(lock_path, 'a+')
+    except OSError as exc:
+        safe_print(f"comic.json 加锁失败，跳过本次映射写入：{exc}")
+        return False
+
+    try:
+        fcntl.flock(lock_handle, fcntl.LOCK_EX)
+
         if os.path.exists(json_file_path) and os.path.getsize(json_file_path) > 0:
-            with open(json_file_path, "r", encoding="utf-8") as json_file:
-                existing_data = json.load(json_file)
+            try:
+                with open(json_file_path, "r", encoding="utf-8") as json_file:
+                    existing_data = json.load(json_file)
+            except Exception as exc:
+                safe_print(f"comic.json 读取失败，放弃本次写入以免覆盖原映射：{exc}")
+                return False
+            if not isinstance(existing_data, dict):
+                safe_print("comic.json 结构异常（顶层不是对象），放弃本次写入")
+                return False
         else:
             existing_data = {}
-    except Exception:
-        existing_data = {}
 
-    existing_data[comic_name] = url
-    with open(json_file_path, "w", encoding="utf-8") as json_file:
-        json.dump(existing_data, json_file, ensure_ascii=False, indent=4)
+        existing_data[comic_name] = url
+
+        directory = os.path.dirname(json_file_path) or '.'
+        temp_path = None
+        try:
+            os.makedirs(directory, exist_ok=True)
+            temp_descriptor, temp_path = tempfile.mkstemp(
+                prefix='.comic-json-', suffix='.tmp', dir=directory
+            )
+            with os.fdopen(temp_descriptor, 'w', encoding='utf-8') as temp_file:
+                json.dump(existing_data, temp_file, ensure_ascii=False, indent=4)
+            os.replace(temp_path, json_file_path)
+            temp_path = None
+            return True
+        except Exception as exc:
+            safe_print(f"comic.json 写入失败：{exc}")
+            return False
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+    finally:
+        try:
+            fcntl.flock(lock_handle, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        lock_handle.close()
 
 
 def save_cover_image(comic_name, cover_url, referer=None, verify=True):

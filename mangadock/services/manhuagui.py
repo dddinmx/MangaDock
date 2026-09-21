@@ -461,6 +461,7 @@ def download_manhuagui_chapter(source, chapter, folder, comic_format, task_id):
     from mangadock.services.download import (
         download_chapter_images,
         finalize_downloaded_chapter,
+        incomplete_chapter_reason,
         is_task_cancel_requested,
         update_task,
     )
@@ -503,9 +504,12 @@ def download_manhuagui_chapter(source, chapter, folder, comic_format, task_id):
         if cancelled:
             _cleanup(save_dir)
             return False, "任务已取消"
-        if success_count == 0:
+        # 2026-09-20 code review P2：不能只看 success_count == 0，
+        # 部分成功会 finalize 出缺页 CBZ/PDF 且更新检查认为已是最新。
+        incomplete_reason = incomplete_chapter_reason(success_count, len(image_jobs))
+        if incomplete_reason:
             _cleanup(save_dir)
-            return False, f"章节 {chapter['title']} 下载失败"
+            return False, f"章节 {chapter['title']} 下载失败：{incomplete_reason}"
 
         if is_task_cancel_requested(task_id):
             _cleanup(save_dir)

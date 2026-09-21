@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Server-rendered routes for the local EPUB novel mode."""
 from io import BytesIO
+import time
 
 from flask import abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 
@@ -393,7 +394,10 @@ def novel_cover(novel_id):
         if cover:
             break
     if not cover:
-        return app.send_static_file('cover/cover.png')
+        resp = app.send_static_file('cover/cover.png')
+        # 占位图禁止长缓存：真封面就绪后客户端要能立即换新（2026-09-20 P2）
+        resp.headers['Cache-Control'] = 'no-cache, max-age=0'
+        return resp
     cover_path, mimetype = cover
     response = send_file(
         cover_path,
