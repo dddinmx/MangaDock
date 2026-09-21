@@ -8,7 +8,7 @@
   <a href="https://hub.docker.com/r/dddinmx/mangadock"><img alt="Platforms" src="https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-2496ED"></a>
 </p>
 
-MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工具。漫画书架与小说书架采用同一套交互：单层平铺封面网格、分页浏览、分组下拉筛选与独立的分组管理页。另提供响应式 Web/PWA 阅读器、阅读进度、更新检查、封面加固与 Basic Auth API。
+MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工具。
 
 ## 支持的内容来源
 
