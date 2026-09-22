@@ -33,6 +33,8 @@ ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
 ENV TZ=Asia/Shanghai
+# Gunicorn must bind 0.0.0.0 inside the container, or port publishing cannot reach it.
+ENV MANGADOCK_BIND=0.0.0.0:5001
 
 EXPOSE 5001
 
