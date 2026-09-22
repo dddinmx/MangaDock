@@ -217,12 +217,18 @@ def _resolve_and_validate_host(host, port):
 # === DNS 重绑定防护：自定义连接类，在 _new_conn 阶段固定到已校验 IP =================
 # 走代理时 urllib3 会把 self.proxy 置为代理地址、self.host 指向代理，此时对端是受信任
 # 代理本身、DNS 由代理负责解析，直接走默认逻辑（跳过本机校验），避免误伤本机代理。
+# 注意：建连必须用 urllib3.util.connection.create_connection（支持 socket_options
+# 关键字并负责逐项 setsockopt）；标准库 socket.create_connection 不接受该参数，
+# 直接传会导致所有直连建连抛 TypeError（v2.10.0 发版当日事故）。
+from urllib3.util.connection import create_connection as _urllib3_create_connection
+
+
 class _SafeHTTPConnection(_HTTPConnection):
     def _new_conn(self):
         if getattr(self, 'proxy', None):
             return super()._new_conn()
         validated_ip = _resolve_and_validate_host(self.host, self.port)
-        return socket.create_connection(
+        return _urllib3_create_connection(
             (validated_ip, self.port),
             self.timeout,
             source_address=self.source_address,
