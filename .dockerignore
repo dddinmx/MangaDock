@@ -26,7 +26,13 @@ node_modules/
 tests/
 old/
 scripts/
-tools/
+# tools/ 只放行封面超分链路（worker + ONNX 模型 + 批量工具），
+# 其余开发脚本不进镜像。git 里仍完整保留 tools/。
+tools/*
+!tools/cover_sr_worker.py
+!tools/refresh_hero_covers.py
+!tools/models
+!tools/models/*.onnx
 
 # The private Fanqie implementation is deployed separately and must never be
 # copied into a public source package or image build context.
