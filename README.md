@@ -15,8 +15,8 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 - 包子漫画（`baozimh.org` / `cn.baozimhcn.com`）
 - 漫画柜（`manhuagui.com`）
 - 嬉皮漫畫（`hipmh.com`）
-- 漫小肆漫画源（18+，需在「我的」页开启「18+ 内容来源」后才会出现在下载页）
-- 瓜子漫画 (guazimanhua.com)
+- 漫小肆漫画源
+- 瓜子漫画 (`guazimanhua.com`)
 - 番茄漫画
 - 番茄小说（搜索、下载、更新、EPUB 阅读）
 - 本地漫画和 EPUB 导入
