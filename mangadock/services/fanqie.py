@@ -67,6 +67,50 @@ def book_id_from_task_url(url: str) -> str | None:
         return None
 
 
+def classify_fanqie_target(target: str) -> dict | None:
+    """判定番茄目标的作品类型（图片漫画 / 小说）。
+
+    番茄小说与番茄图片漫画共用 ``fanqienovel.com`` 域名，光看 URL 无法分辨，
+    因此把类型判定交给中转 API：非图片漫画作品按 ``comic`` 解析会返回
+    ``INVALID_TARGET``（"该作品不是图片漫画，请在小说模块下载"），据此回落小说。
+
+    返回 ``{'kind', 'book_id', 'title', 'media_label'}``；非番茄目标返回 None。
+    作品不存在/已下架、中转不可用等错误原样抛 ``FanqieApiError``，由调用方提示用户。
+    """
+    from mangadock.services.fanqie_comics import (
+        api_target_for,
+        is_fanqie_comic_target,
+    )
+
+    text = str(target or "").strip()
+    if not is_fanqie_comic_target(text):
+        return None
+
+    client = get_client()
+    resolved = api_target_for(text)
+    try:
+        data = client.resolve_resource(resolved, "comic")
+    except FanqieApiError as exc:
+        if exc.code != "INVALID_TARGET":
+            raise
+        kind = "novel"
+        data = client.resolve_resource(resolved, "novel")
+    else:
+        kind = "comic"
+
+    metadata = data.get("metadata") or {}
+    book_id = validate_book_id(str(metadata.get("book_id") or ""))
+    title = str(metadata.get("title") or "").strip()
+    if not title:
+        title = f"番茄{'漫画' if kind == 'comic' else '小说'} {book_id}"
+    return {
+        "kind": kind,
+        "book_id": book_id,
+        "title": title,
+        "media_label": "番茄小说" if kind == "novel" else "番茄漫画",
+    }
+
+
 def search_books(query: str, page: int = 1) -> list[dict]:
     query = str(query or "").strip()
     if not query:

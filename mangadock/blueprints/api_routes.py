@@ -206,9 +206,11 @@ def api_comic_detail(comic_id):
     return jsonify({'item': item})
 
 
-@app.route('/api/comics/<comic_id>/cover')
-@api_login_required
-def api_comic_cover(comic_id):
+def _comic_cover_response(comic_id):
+    """封面图片的公共实现，被下面几种路径形态共用。
+
+    只返回两样东西：**真封面本身**，或 404（尚未落盘）。永远不回落占位图。
+    """
     identity, comic_entry = get_api_comic_entry(comic_id)
     if not identity or not comic_entry:
         return api_error('COMIC_NOT_FOUND', '漫画不存在', 404)
@@ -225,11 +227,56 @@ def api_comic_cover(comic_id):
         if delay:
             time.sleep(delay)
         if os.path.exists(cover_path):
-            return send_from_directory(COVER_ROOT, cover_filename)
-    resp = send_from_directory(os.path.join(app.static_folder, 'cover'), 'cover.png')
-    # 占位图禁止长缓存：真封面就绪后客户端要能立即换新（2026-09-20 P2）
-    resp.headers['Cache-Control'] = 'no-cache, max-age=0'
-    return resp
+            # download_name 必须是纯 ASCII 的唯一名。默认它会取磁盘文件名（中文），
+            # Werkzeug 对非 ASCII 走「ASCII 回退」，响应头变成
+            #   Content-Disposition: inline; filename=.jpg; filename*=UTF-8''<中文>.jpg
+            # 纯 ASCII 那半边只剩 `.jpg` —— 一个隐藏文件名，且**每本书都一样**。
+            # iOS 的 URLSession 正是用 Content-Disposition 推导 suggestedFilename，
+            # 拿到 `.jpg` 后落盘/取用都失败，表现就是「图明明下到了，却永远显示不出
+            # 封面」，而且每次重绘都重试一遍（实测单本一天被请求 15~30 次）。章节图
+            # 之所以正常，恰恰因为它们的文件名本来就是 ASCII（0000.webp）。
+            return send_from_directory(
+                COVER_ROOT, cover_filename, download_name=f'{comic_id}.jpg',
+            )
+
+    # 2026-09-22：封面尚未落盘时返回 404，**不再回落「占位图 + 200」**。
+    # 原因：占位图是一张 140x140 的真实 PNG（15.5KB），API 客户端会把它当有效
+    # 图片写进图片缓存，于是真封面就绪后也不会重新请求 —— 实测 Tachimanga 对
+    # /api/comics/c_36d30e30fadd/cover 连请求 33 次拿到占位图后彻底不再请求，
+    # 该漫画从此永远显示占位图（用户报「新下载的漫画显示不出来封面」）。
+    # 改 404 才能让客户端把这次加载当失败、不写缓存，下次展示时重试。
+    # Web 端不受影响（它走 /static/cover/<名>.jpg，不经过这个端点）。
+    return api_error('COVER_NOT_READY', '封面尚未生成', 404)
+
+
+# 三条封面路径形态并存，实现共用 `_comic_cover_response`：
+#   /api/comics/<id>/cover               无扩展名、无查询串（`url_for` 下发的规范形态）
+#   /api/comics/<id>/cover.jpg           历史别名，老客户端可能存过
+#   /api/comics/<id>/cover/<mtime>.jpg   历史版本化形态，保留做兼容
+#
+# 注意两点：
+#   ① `cover.jpg` 必须挂在**独立函数**上。若与 `/cover` 共用同一个 view 函数，
+#      `url_for()` 会取最后注册的规则，下发的地址就会带上 `.jpg`（实测踩过）。
+#   ② 发给 API 客户端的封面地址由 `auth.serialize_api_comic_summary()` 决定，
+#      目前是**静态路径** `/static/cover/<漫画名>.jpg`（与 Web 端同一路径）。
+#      这三个 `/api` 形态保留是为了兼容缓存过旧地址的客户端，同时给
+#      `COVER_NOT_READY` 的 404 语义提供落点。
+@app.route('/api/comics/<comic_id>/cover')
+@api_login_required
+def api_comic_cover(comic_id):
+    return _comic_cover_response(comic_id)
+
+
+@app.route('/api/comics/<comic_id>/cover.jpg')
+@api_login_required
+def api_comic_cover_jpg(comic_id):
+    return _comic_cover_response(comic_id)
+
+
+@app.route('/api/comics/<comic_id>/cover/<int:version>.jpg')
+@api_login_required
+def api_comic_cover_version(comic_id, version):
+    return _comic_cover_response(comic_id)
 
 
 @app.route('/api/comics/<comic_id>/chapters')

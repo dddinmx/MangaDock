@@ -18,7 +18,10 @@ from mangadock.services.adult_content import is_adult_content_enabled, is_adult_
 from mangadock.services.download import (
     is_adult_content_blocked,
     is_supported_comic_url,
+    normalize_target_input,
 )
+from mangadock.services.fanqie import classify_fanqie_target
+from mangadock.services.fanqie_api import FanqieApiError
 from mangadock.services.library import load_comic_mapping
 from mangadock.services.tasks import (
     delete_finished_tasks,
@@ -35,7 +38,7 @@ from mangadock.services.updates import (
     queue_background_command,
     set_comic_update_mode,
 )
-from mangadock.services.workers import start_download_task, start_update_task
+from mangadock.services.workers import start_download_task, start_novel_task, start_update_task
 from mangadock.settings import (
     ADULT_CONTENT_DISABLED_MESSAGE,
     COMIC_UPDATE_MODE_AUTO,
@@ -51,13 +54,14 @@ def download():
     current_user = get_current_user()
     adult_enabled_for_user = is_adult_content_enabled_for(current_user)
     if request.method == 'POST':
-        comic_url = request.form.get('comic_url')
+        comic_url = normalize_target_input(request.form.get('comic_url'))
         comic_format = safe_int(request.form.get('format'), default=2)
 
         if not is_supported_comic_url(comic_url):
             return render_template(
                 'download.html',
-                error='请输入有效的漫画链接或 ID（支持包子漫画、漫画柜、嬉皮漫畫、番茄图片漫画'
+                error='请输入有效的漫画或小说链接/ID（支持包子漫画、漫画柜、嬉皮漫畫、'
+                      '番茄图片漫画、番茄小说'
                       + ('、MXS' if adult_enabled_for_user else '')
                       + '）',
                 adult_content_enabled=adult_enabled_for_user,
@@ -69,6 +73,23 @@ def download():
                 error=ADULT_CONTENT_DISABLED_MESSAGE,
                 adult_content_enabled=adult_enabled_for_user,
             )
+
+        # 番茄小说与图片漫画共用 fanqienovel.com 域名：提交时判定类型再分流
+        # （小说固定走 EPUB 小说流水线，漫画仍走原有图片漫画管线）。
+        try:
+            fanqie_target = classify_fanqie_target(comic_url)
+        except (FanqieApiError, ValueError) as exc:
+            return render_template(
+                'download.html',
+                error=str(exc) or '番茄作品解析失败',
+                adult_content_enabled=adult_enabled_for_user,
+            )
+
+        if fanqie_target and fanqie_target['kind'] == 'novel':
+            task_id, _reused = start_novel_task(
+                fanqie_target['book_id'], title=fanqie_target['title'],
+            )
+            return redirect(url_for('progress', task_id=task_id))
 
         # 启动下载线程并获取任务ID（带创建者 18+ 覆盖授权快照）
         task_id = start_download_task(

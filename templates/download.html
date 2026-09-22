@@ -32,7 +32,7 @@
 
     <header class="md-setting-header">
         <h1 class="md-setting-header__title">整本下载</h1>
-        <p class="md-setting-header__sub">从支持的站点整本抓取到本地书库</p>
+        <p class="md-setting-header__sub">从支持的站点整本抓取漫画或番茄小说到本地书库</p>
     </header>
 
     <!-- 下载表单：提交走 /api/v1/downloads -->
@@ -44,7 +44,7 @@
             <div class="md-setting-list">
                 <div class="md-setting-panel">
                     <div class="md-ios-field">
-                        <label for="comic_url" class="md-ios-field__label">漫画地址</label>
+                        <label for="comic_url" class="md-ios-field__label">作品地址</label>
                         <div class="md-ios-input-wrap">
                             <i class="fa fa-link"></i>
                             <input
@@ -131,10 +131,6 @@
                             </a>
                         </div>
                     </div>
-
-                    <p class="md-setting-group__note">
-                        支持包子漫画、漫画柜、嬉皮漫畫{% if adult_content_enabled %}、MXS{% endif %}，以及番茄图片漫画的详情页、分享链接或书籍 ID；番茄漫剧/短剧视频不属于图片漫画。
-                    </p>
                 </div>
             </div>
         </section>
@@ -159,6 +155,9 @@
                     <input type="radio" name="format" value="2" class="md-ios-radio" checked>
                 </label>
             </div>
+            <p class="md-setting-group__note">
+                仅作用于漫画。番茄小说固定输出 EPUB，会自动忽略这里的选择。
+            </p>
         </section>
 
         <section class="md-setting-group">
@@ -182,7 +181,7 @@
                 <ul class="md-ios-bullets">
                     <li>
                         <i class="fa fa-check-circle"></i>
-                        <span>请确保一次同时只下载或更新一部漫画，同时下载多部流量过大有封 IP 风险</span>
+                        <span>请确保一次同时只下载或更新一部作品，同时下载多部流量过大有封 IP 风险</span>
                     </li>
                     <li>
                         <i class="fa fa-check-circle"></i>
@@ -194,7 +193,7 @@
                     </li>
                     <li>
                         <i class="fa fa-check-circle"></i>
-                        <span>番茄漫画支持 PDF 与 CBZ，下载后会自动进入 MangaDock 漫画书库</span>
+                        <span>番茄漫画支持 PDF 与 CBZ，番茄小说固定 EPUB；下载后会自动进入对应的漫画或小说书架</span>
                     </li>
                 </ul>
             </div>
@@ -247,7 +246,7 @@
 
             const comicUrl = (urlInput.value || '').trim();
             if (!comicUrl) {
-                showError('请输入漫画地址');
+                showError('请输入作品地址');
                 return;
             }
 

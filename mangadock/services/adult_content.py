@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """18+ 内容来源（漫小肆韩漫 / mxs12.cc）的全局开关。
 
-默认关闭。开启后「下载漫画」页才显示漫小肆韩漫入口，并允许从该站点下载。
+默认关闭。开启后「整本下载」页才显示漫小肆韩漫入口，并允许从该站点下载。
 取值落在 AppSetting 表，与 comic_update_mode 同一套持久化机制。
 """
 from mangadock.services.updates import get_app_setting, set_app_setting

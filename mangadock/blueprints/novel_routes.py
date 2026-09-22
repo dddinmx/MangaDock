@@ -30,6 +30,7 @@ from mangadock.services.novels import (
     novel_progress_key,
     save_novel_cover,
 )
+from mangadock.services.download import normalize_target_input
 from mangadock.services.fanqie import (
     fanqie_task_url,
     fetch_book_cover,
@@ -277,7 +278,9 @@ def fanqie_novel_book_cover(book_id):
 @login_required
 @admin_required
 def fanqie_novel_download():
-    target = (request.form.get('book_id') or request.form.get('target') or '').strip()
+    target = normalize_target_input(
+        request.form.get('book_id') or request.form.get('target') or ''
+    )
     try:
         metadata = resolve_novel_target(target)
         book_id = metadata['book_id']

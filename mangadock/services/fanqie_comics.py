@@ -58,7 +58,12 @@ def is_fanqie_comic_target(value: str) -> bool:
     return any(host == suffix or host.endswith(f".{suffix}") for suffix in FANQIE_COMIC_HOSTS)
 
 
-def _target_for_api(target: str) -> str:
+def api_target_for(target: str) -> str:
+    """剥掉内部任务前缀，得到可提交给中转 API 的目标。
+
+    统一入口会把用户粘贴的原始链接/ID 直接交给判定函数，其中可能已带
+    ``fanqie-comic://`` 前缀（例如重放历史任务 URL），必须先剥离再解析。
+    """
     text = str(target or "").strip()
     if text.startswith(FANQIE_COMIC_TASK_PREFIX):
         return text[len(FANQIE_COMIC_TASK_PREFIX):]
@@ -68,7 +73,7 @@ def _target_for_api(target: str) -> str:
 def load_fanqie_comic_source(target: str, client=None) -> dict:
     if not is_fanqie_comic_target(target):
         raise ValueError("请输入有效的番茄漫画链接或书籍 ID")
-    data = (client or get_client()).resolve_resource(_target_for_api(target), "comic")
+    data = (client or get_client()).resolve_resource(api_target_for(target), "comic")
     metadata = data.get("metadata") or {}
     chapters = data.get("chapters") or []
     book_id = str(metadata.get("book_id") or "")

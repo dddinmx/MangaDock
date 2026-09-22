@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Safe outbound HTTP helpers (SSRF protections)."""
 import ipaddress
+import logging
 import os
 import socket
 import time
@@ -14,6 +15,63 @@ from mangadock.settings import (
     SAFE_HTTP_ALLOWED_HOST_SUFFIXES,
     SAFE_HTTP_ALLOWED_PROXY_NETWORKS,
 )
+
+logger = logging.getLogger(__name__)
+
+# === 上游网络层重试（2026-09-21 事故：元数据抓取阶段没有重试） =========================
+# 事故现象：《恨不得吃掉妳》的更新任务在 11 秒内变成 error，日志只有
+#   「更新过程出错: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))」
+# 根因：`load_comic_source()` 走的是本函数的**非流式**分支，而旧实现里那个
+#   `for _ in range(4)` 只用于「跟随重定向」，**不处理任何网络异常** —— 上游（尤其经
+#   本机代理 127.0.0.1:7890 的 hipmh 系域名）偶发 ConnectionReset / SSLEOFError /
+#   ReadTimeout 时，异常直接穿透到 download.py 的 `except Exception`，整个任务报废。
+#   而图片下载之所以只丢几张图，是因为 `download_binary_image()` **自带外层重试**。
+# 修法：非流式请求在此补网络层重试（指数退避）；流式（图片）请求保持 retries=1，
+#   否则重试次数会与外层相乘（3×3=9 次/张图），真正挂掉时把失败代价放大数倍。
+SAFE_HTTP_NETWORK_RETRIES = 3
+SAFE_HTTP_RETRY_BACKOFF_SECONDS = (1.0, 3.0)
+SAFE_HTTP_MAX_REDIRECTS = 4
+SAFE_HTTP_DNS_RETRIES = 3
+SAFE_HTTP_DNS_BACKOFF_SECONDS = (0.5, 1.5)
+
+# 这几类都是「连不上/连接被打断」，属于瞬时故障，重试才有意义。
+# 注意 SSLError、ProxyError 都是 ConnectionError 的子类，一并覆盖；
+# 而 HTTP 4xx/5xx 由调用方按状态码处理，不在此处重试。
+_RETRYABLE_NETWORK_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+)
+
+
+def _retry_delay(backoff_seconds, attempt_index):
+    return backoff_seconds[min(attempt_index, len(backoff_seconds) - 1)]
+
+
+def _send_get_with_retries(requester, url, headers, timeout, stream, verify, retries):
+    """发一次 GET（不跟随重定向），网络类异常按 retries 退避重试。"""
+    last_error = None
+    for attempt in range(max(1, retries)):
+        try:
+            return requester.get(
+                url,
+                headers=headers,
+                timeout=timeout,
+                stream=stream,
+                verify=verify,
+                allow_redirects=False
+            )
+        except Exception as exc:
+            if not isinstance(exc, _RETRYABLE_NETWORK_ERRORS) or attempt >= retries - 1:
+                raise
+            last_error = exc
+            delay = _retry_delay(SAFE_HTTP_RETRY_BACKOFF_SECONDS, attempt)
+            logger.warning(
+                '上游请求瞬时失败（%s: %s），%.1fs 后重试 %d/%d：%s',
+                type(exc).__name__, exc, delay, attempt + 1, retries - 1, url
+            )
+            time.sleep(delay)
+    raise last_error
 
 
 def env_flag(name, default=False):
@@ -79,13 +137,25 @@ def validate_safe_upstream_url(url):
     if literal_ip and not is_public_ip_address(str(literal_ip)):
         raise ValueError('不允许访问内网或保留地址')
 
-    try:
-        resolved_addresses = {
-            result[4][0]
-            for result in socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
-        }
-    except socket.gaierror as exc:
-        raise ValueError('上游域名无法解析') from exc
+    # DNS 抖动与连接抖动是同一类瞬时故障：一次解析失败同样会毁掉整个任务，
+    # 所以这里也退避重试，耗尽后才按原语义抛「上游域名无法解析」。
+    resolved_addresses = set()
+    for dns_attempt in range(SAFE_HTTP_DNS_RETRIES):
+        try:
+            resolved_addresses = {
+                result[4][0]
+                for result in socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+            }
+            break
+        except socket.gaierror as exc:
+            if dns_attempt >= SAFE_HTTP_DNS_RETRIES - 1:
+                raise ValueError('上游域名无法解析') from exc
+            delay = _retry_delay(SAFE_HTTP_DNS_BACKOFF_SECONDS, dns_attempt)
+            logger.warning(
+                '上游域名解析失败（%s），%.1fs 后重试 %d/%d：%s',
+                exc, delay, dns_attempt + 1, SAFE_HTTP_DNS_RETRIES - 1, parsed.hostname
+            )
+            time.sleep(delay)
 
     if not resolved_addresses or any(
         not is_safe_resolved_upstream_address(parsed.hostname, address)
@@ -111,20 +181,19 @@ def enforce_response_size(response, max_bytes, stream=False):
         raise ValueError('上游响应超过大小限制')
 
 
-def safe_http_get(url, headers=None, timeout=None, stream=False, verify=True, max_bytes=MAX_HTML_RESPONSE_BYTES, session_obj=None):
+def safe_http_get(url, headers=None, timeout=None, stream=False, verify=True, max_bytes=MAX_HTML_RESPONSE_BYTES, session_obj=None, retries=None):
     current_url = validate_safe_upstream_url(url)
     requester = session_obj or requests
     timeout = timeout or CONFIG['request_timeout']
     verify = should_verify_upstream_tls(verify)
+    if retries is None:
+        # 非流式 = 元数据/HTML/图片列表，调用方没有别的重试兜底 → 这里重试；
+        # 流式 = 图片字节，调用方 download_binary_image 已重试 → 不叠加。
+        retries = 1 if stream else SAFE_HTTP_NETWORK_RETRIES
 
-    for _ in range(4):
-        response = requester.get(
-            current_url,
-            headers=headers,
-            timeout=timeout,
-            stream=stream,
-            verify=verify,
-            allow_redirects=False
+    for _ in range(SAFE_HTTP_MAX_REDIRECTS):
+        response = _send_get_with_retries(
+            requester, current_url, headers, timeout, stream, verify, retries
         )
         if response.is_redirect or response.is_permanent_redirect:
             location = response.headers.get('Location')

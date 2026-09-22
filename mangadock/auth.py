@@ -4,6 +4,7 @@ import base64
 import os
 import time
 from dataclasses import dataclass
+from urllib.parse import quote
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -584,6 +585,20 @@ def build_local_comic_entry(comic_name):
     }
 
 
+def cover_version_token(comic_name):
+    """封面文件的版本号（mtime 秒）。
+
+    **目前没有任何调用方**（保留备用，例如将来给 Web 端做资源破缓存）。
+    不要把它拼进 API 下发的 `cover_url`：2026-09-22 实测「路径段带版本号」的
+    封面 URL（`/cover/<mtime>.jpg`）会让 Tachimanga 整架显示不出封面，
+    而缺图返回 404 已足够破缓存（客户端不会把 404 写进图片缓存）。
+    """
+    try:
+        return int(os.path.getmtime(os.path.join(COVER_ROOT, f'{comic_name}.jpg')))
+    except OSError:
+        return 0
+
+
 def serialize_api_comic_summary(comic, progress=None, source_mapping=None):
     from mangadock.services.groups import normalize_group_name
     from mangadock.services.library import ensure_comic_identity
@@ -595,7 +610,18 @@ def serialize_api_comic_summary(comic, progress=None, source_mapping=None):
     return {
         'id': identity.comic_id,
         'title': comic_name,
-        'cover_url': url_for('api_comic_cover', comic_id=identity.comic_id),
+        # 封面地址下发 **Web 端一直在用的静态路径**（与 /static/cover/<漫画名>.jpg 同一份文件）：
+        #   ① 绕开需要认证的 /api 端点 ⇒ 响应不带 `Vary: Cookie` / `Set-Cookie`，
+        #      客户端图片缓存才能正常命中，不会每次刷新都重下；
+        #   ② Web 端本来就走这个路径，API 改用它**不新增任何暴露面**；
+        #   ③ 2026-09-22 实测该形态在 Tachimanga(iOS) 下显示正常。
+        # 缺图时静态路径直接 404，不回落占位图，客户端不会把 404 写进图片缓存。
+        #
+        # ⚠️ 不要再给这个地址加版本号（查询串或路径段都不行）—— 当天实测
+        # `/api/comics/<id>/cover/<mtime>.jpg` 会让 Tachimanga 整架显示不出封面。
+        # 顺带记一笔：当天封面不显示的真根因在**扩展侧 OkHttpClient 的派生方式**
+        # （v1.6.5 改回 `network.cloudflareClient` 才恢复），与 URL 形态无关。
+        'cover_url': f'/static/cover/{quote(comic_name, safe="")}.jpg',
         'group_name': normalize_group_name(comic.get('group')) or '默认分组',
         'format': api_comic_format(comic.get('comic_format')),
         'chapter_count': comic.get('available_chapters') or comic.get('total_chapters') or 0,

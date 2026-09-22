@@ -1,7 +1,7 @@
 services:
   mangadock:
     build: .
-    image: ${MANGADOCK_IMAGE:-dddinmx/mangadock:v2.8.0}
+    image: ${MANGADOCK_IMAGE:-dddinmx/mangadock:v2.9.0}
     container_name: MangaDock
     restart: unless-stopped
     ports:

@@ -44,7 +44,13 @@ from mangadock.services.adult_content import (
     is_adult_content_enabled_for,
     set_adult_content_enabled,
 )
-from mangadock.services.download import is_adult_content_blocked, is_supported_comic_url
+from mangadock.services.download import (
+    is_adult_content_blocked,
+    is_supported_comic_url,
+    normalize_target_input,
+)
+from mangadock.services.fanqie import classify_fanqie_target
+from mangadock.services.fanqie_api import FanqieApiError
 from mangadock.services.groups import (
     assign_comic_group,
     delete_comic_group,
@@ -79,7 +85,7 @@ from mangadock.services.updates import (
     queue_background_command,
     set_comic_update_mode,
 )
-from mangadock.services.workers import start_download_task, start_update_task
+from mangadock.services.workers import start_download_task, start_novel_task, start_update_task
 from mangadock.settings import (
     ADULT_CONTENT_DISABLED_MESSAGE,
     APP_VERSION,
@@ -335,7 +341,7 @@ def register_routes(bp):
         if data is None:
             return api_fail('INVALID_JSON', '请求体必须是 JSON 对象')
 
-        comic_url = (data.get('url') or data.get('comic_url') or '').strip()
+        comic_url = normalize_target_input(data.get('url') or data.get('comic_url') or '')
         try:
             comic_format = parse_comic_format(data.get('format'), default=2)
         except ValueError as exc:
@@ -344,13 +350,37 @@ def register_routes(bp):
         if not is_supported_comic_url(comic_url):
             return api_fail(
                 'UNSUPPORTED_URL',
-                '请输入有效的漫画链接或 ID（支持包子漫画、漫画柜、嬉皮漫畫、番茄图片漫画'
+                '请输入有效的漫画或小说链接/ID（支持包子漫画、漫画柜、嬉皮漫畫、'
+                '番茄图片漫画、番茄小说'
                 + ('、MXS' if requester_can_adult else '')
                 + '）',
             )
 
         if is_adult_content_blocked(comic_url, allow_adult=requester_can_adult):
             return api_fail('ADULT_CONTENT_DISABLED', ADULT_CONTENT_DISABLED_MESSAGE, 403)
+
+        # 番茄小说与图片漫画共用 fanqienovel.com 域名，本地无法从 URL 分辨：
+        # 提交时先问中转 API 要类型，小说分流到 EPUB 小说流水线（入小说书架），
+        # 漫画仍走原有图片漫画管线。
+        try:
+            fanqie_target = classify_fanqie_target(comic_url)
+        except FanqieApiError as exc:
+            return api_fail('FANQIE_TARGET_INVALID', str(exc) or '番茄作品解析失败')
+        except ValueError as exc:
+            return api_fail('UNSUPPORTED_URL', str(exc))
+
+        if fanqie_target and fanqie_target['kind'] == 'novel':
+            task_id, reused = start_novel_task(
+                fanqie_target['book_id'], title=fanqie_target['title'],
+            )
+            task = get_task(task_id)
+            return api_ok({
+                'task_id': task_id,
+                'media_kind': 'novel',
+                'media_label': fanqie_target['media_label'],
+                'reused': reused,
+                'task': _serialize_task(task) if task else None,
+            }, status=200 if reused else 201)
 
         task_id = start_download_task(
             comic_url, comic_format,
@@ -359,6 +389,7 @@ def register_routes(bp):
         task = get_task(task_id)
         return api_ok({
             'task_id': task_id,
+            'media_kind': 'comic',
             'task': _serialize_task(task) if task else None,
         }, status=201)
 

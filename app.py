@@ -10,10 +10,20 @@ import atexit
 import os
 import subprocess
 import sys
+import threading
+import time
 
 from mangadock import app
-from mangadock.services.workers import run_command_worker, run_task_worker
+from mangadock.services.workers import (
+    requeue_orphan_running_tasks,
+    run_command_worker,
+    run_task_worker,
+)
 from mangadock.settings import TASK_WORKER_COUNT
+
+# 后台 worker 守护线程的轮询间隔；单个 worker 的重启冷却（避免崩溃循环里疯狂重启）
+SUPERVISE_INTERVAL_SECONDS = 10
+RESTART_COOLDOWN_SECONDS = 60
 
 
 def main():
@@ -26,8 +36,12 @@ def main():
         run_command_worker()
         return
 
-    background_processes = []
+    # 每个后台子进程一个 slot：{'name':…, 'args':(…), 'process': Popen}
+    # 用 slot 而非裸 Popen 列表，是因为守护线程要在进程死后原地重启它。
+    background_slots = []
     background_cleanup_state = {'done': False}
+    supervise_lock = threading.Lock()
+    last_restart_at = {}
 
     def preload_app():
         from sqlalchemy import text
@@ -45,28 +59,39 @@ def main():
             print(f"⚠️  预热失败：{str(e)}")
 
     def start_background_process(process_name, *args):
-        process = subprocess.Popen(
+        return subprocess.Popen(
             [sys.executable, os.path.abspath(__file__), *args],
             close_fds=True,
             start_new_session=True
         )
-        return process
+
+    def spawn_background_process(slot):
+        """按 slot 描述启动或重启子进程，并把它记回 slot。"""
+        slot['process'] = start_background_process(slot['name'], *slot['args'])
+        return slot
+
+    def add_background_process(process_name, *args):
+        slot = {'name': process_name, 'args': args, 'process': None}
+        background_slots.append(slot)
+        return spawn_background_process(slot)
 
     def stop_background_processes():
         if background_cleanup_state['done']:
             return
         background_cleanup_state['done'] = True
 
-        for process in background_processes:
-            if process.poll() is not None:
+        for slot in background_slots:
+            process = slot['process']
+            if process is None or process.poll() is not None:
                 continue
             try:
                 process.terminate()
             except OSError:
                 continue
 
-        for process in background_processes:
-            if process.poll() is not None:
+        for slot in background_slots:
+            process = slot['process']
+            if process is None or process.poll() is not None:
                 continue
             try:
                 process.wait(timeout=5)
@@ -79,6 +104,79 @@ def main():
                 continue
 
     atexit.register(stop_background_processes)
+
+    def supervise_background_processes():
+        """后台 worker 的最小守护（2026-09-21 加）。
+
+        为什么必须有：这 3 个后台进程（2 个下载 worker + 1 个命令 worker）只在启动时
+        fork 一次，之后**没有任何东西照看它们**。gunicorn 的 arbiter 会 `waitpid(-1)`
+        把不属于它的子进程一并回收，只在日志里留一行极易误读的记录 ——
+        `[ERROR] Worker (pid:X) exited with code 1` 看着像 gunicorn worker 死了，
+        其实是下载 worker —— 而且**不会重启它**。
+
+        进程一旦消失，下载队列就永久饿死：任务卡在「等待中 / 任务已加入后台队列，
+        等待 worker 处理」，除整服务重启别无出路（2026-09-21 实际踩到，一天内多次）。
+
+        这里做两件事：
+          ① 发现子进程退出、且已过冷却期，就原地重启它（冷却避免崩溃循环里反复重启）；
+          ② 若一个任务 worker 都不在，把残留的 running 任务退回 pending ——
+             否则它们会永远占着「运行中」。
+        已知局限：只剩部分任务 worker 死亡时无法判定某个 running 任务归属谁，
+        此时只告警不退回（真正的修法是给任务加 worker 归属字段）。
+        """
+        while True:
+            time.sleep(SUPERVISE_INTERVAL_SECONDS)
+            if background_cleanup_state['done']:
+                # 主进程正在/已经收摊，别再补员 —— 否则可能留下一个没人管的孤儿
+                # worker 占着锁，下次启动的 worker 会「跳过重复启动」，
+                # 于是服务带着旧环境继续跑（2026-09-21 复查时想到的窄口子）
+                return
+            try:
+                with supervise_lock:
+                    dead_slots = [
+                        slot for slot in background_slots
+                        if slot['process'] is not None and slot['process'].poll() is not None
+                    ]
+                    if not dead_slots:
+                        continue
+
+                    # 在重启之前判定：还活着的任务 worker 有几条
+                    alive_task_workers = [
+                        slot for slot in background_slots
+                        if slot['name'].startswith('mangadock-task-worker')
+                        and slot['process'] is not None
+                        and slot['process'].poll() is None
+                    ]
+
+                    for slot in dead_slots:
+                        name = slot['name']
+                        previous = slot['process']
+                        now = time.time()
+                        if now - last_restart_at.get(name, 0.0) < RESTART_COOLDOWN_SECONDS:
+                            continue
+                        last_restart_at[name] = now
+                        try:
+                            spawn_background_process(slot)
+                        except OSError as exc:
+                            print(f"⚠️  后台 worker 无法重启：{name}（{exc}）")
+                            continue
+                        print(
+                            f"♻️  后台 worker 已重启：{name}"
+                            f"（原 PID {previous.pid} 已退出，新 PID {slot['process'].pid}）"
+                        )
+
+                    if not alive_task_workers:
+                        try:
+                            requeued = requeue_orphan_running_tasks()
+                            if requeued:
+                                print(f"♻️  任务 worker 全部离线，{requeued} 个孤儿任务已退回队列")
+                        except Exception as exc:
+                            print(f"⚠️  退回孤儿任务失败：{exc}")
+                    elif any(slot['name'].startswith('mangadock-task-worker') for slot in dead_slots):
+                        print("⚠️  有下载 worker 退出（其余仍在运行），若有任务卡在「运行中」需人工确认")
+            except Exception as exc:
+                # 守护线程自己绝不能死，否则又回到「队列饿死」的老路
+                print(f"⚠️  后台 worker 守护异常：{exc}")
 
     class StandaloneGunicornApplication:
         def __init__(self, flask_app, options=None):
@@ -124,16 +222,19 @@ def main():
     }
 
     for worker_index in range(TASK_WORKER_COUNT):
-        background_processes.append(
-            start_background_process(
-                f'mangadock-task-worker-{worker_index + 1}',
-                '--run-task-worker',
-                str(worker_index)
-            )
+        add_background_process(
+            f'mangadock-task-worker-{worker_index + 1}',
+            '--run-task-worker',
+            str(worker_index)
         )
-    background_processes.append(
-        start_background_process('mangadock-command-worker', '--run-command-worker')
-    )
+    add_background_process('mangadock-command-worker', '--run-command-worker')
+
+    threading.Thread(
+        target=supervise_background_processes,
+        name='mangadock-background-supervisor',
+        daemon=True
+    ).start()
+
     preload_app()
     try:
         StandaloneGunicornApplication(app, gunicorn_options).run()

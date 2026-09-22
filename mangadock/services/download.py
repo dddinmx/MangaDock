@@ -114,6 +114,41 @@ def is_supported_comic_url(url):
     return providers.is_supported_url(url)
 
 
+# 「整段分享文本」容错：优先抽 http(s) 链接，其次抽长数字 ID。
+_SHARE_URL_RE = re.compile(
+    r'https?://[^\s<>"\'()\[\]{}'
+    r'\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+'
+)
+_SHARE_ID_RE = re.compile(r'(?<!\d)\d{8,24}(?!\d)')
+_SHARE_TRAILING = '.,;:!?)]}\'"“”‘’、。，；：！？…'
+
+
+def normalize_target_input(value):
+    """把用户粘贴的内容规范成入口可校验的目标。
+
+    App 分享出来的常常是「书名 + 链接」的一整段文本，直接提交会被入口
+    校验拒掉。这里按「第一个链接 → 第一个长数字 ID」的顺序抽取；本身
+    已是受支持的链接/ID 时原样返回，抽不到则原样返回交给上层报错。
+    """
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    if is_supported_comic_url(text):
+        return text
+
+    match = _SHARE_URL_RE.search(text)
+    if match:
+        candidate = match.group(0).rstrip(_SHARE_TRAILING)
+        if candidate:
+            return candidate
+
+    match = _SHARE_ID_RE.search(text)
+    if match:
+        return match.group(0)
+
+    return text
+
+
 def load_comic_source(url):
     return providers.load_source(url)
 

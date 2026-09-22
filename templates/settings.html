@@ -74,9 +74,9 @@
         <h2 class="md-setting-group__title">书库</h2>
         <div class="md-setting-list">
             {% if can_manage_library %}
-            <a href="{{ url_for('download') }}" class="md-setting-row" data-app-loader="true" title="从支持的站点整本下载到本地书库">
+            <a href="{{ url_for('download') }}" class="md-setting-row" data-app-loader="true" title="从支持的站点整本下载漫画或番茄小说到本地书库">
                 <span class="md-setting-row__icon"><i class="fa fa-download"></i></span>
-                <span class="md-setting-row__title">下载漫画</span>
+                <span class="md-setting-row__title">整本下载</span>
                 <i class="fa fa-angle-right md-setting-row__chevron"></i>
             </a>
             <a href="{{ url_for('update') }}" class="md-setting-row" data-app-loader="true" title="扫描已收藏漫画是否有新章节可补">
@@ -171,7 +171,7 @@
                 </button>
             </form>
         </div>
-        <p class="md-setting-group__note">开启后「下载漫画」页才会显示漫小肆韩漫入口并允许从该站点下载；关闭后入口隐藏、下载停用。</p>
+        <p class="md-setting-group__note">开启后「整本下载」页才会显示漫小肆韩漫入口并允许从该站点下载；关闭后入口隐藏、下载停用。</p>
     </section>
 
     <section class="md-setting-group">

@@ -32,6 +32,36 @@ def start_update_task(comic_name, comic_format, url):
     return task_id
 
 
+def start_novel_task(book_id, title=None):
+    """把番茄小说加入后台队列，返回 (task_id, reused)。
+
+    与 ``/novels/fanqie/download`` 走同一条流水线（``fanqie://<book_id>`` 前缀 →
+    ``execute_fanqie_task``）。统一下载入口判定出「番茄小说」后调用这里，
+    保证两条入口产生的任务形态完全一致（进度页据此显示小说封面与小说书架入口）。
+    """
+    from mangadock.services.fanqie import fanqie_task_url
+    from mangadock.services.novels import get_novel_by_fanqie_id
+
+    with app.app_context():
+        task_url = fanqie_task_url(book_id)
+        active_task = DownloadTask.query.filter(
+            DownloadTask.url == task_url,
+            DownloadTask.status.in_(('pending', 'running')),
+        ).order_by(DownloadTask.created_at.asc()).first()
+        if active_task:
+            return active_task.id, True
+
+        existing_novel = get_novel_by_fanqie_id(book_id)
+        task_id = create_task(
+            task_url,
+            0,
+            is_update=bool(existing_novel),
+            comic_name=(existing_novel['title'] if existing_novel else title),
+        )
+        update_task(task_id, log="番茄小说任务已加入后台队列")
+        return task_id, False
+
+
 def claim_next_pending_task():
     with app.app_context():
         while True:
@@ -172,6 +202,27 @@ def recover_background_queue_state():
             item.status = 'pending'
 
         db.session.commit()
+
+
+def requeue_orphan_running_tasks(reason='检测到任务 worker 退出，任务已重新加入队列'):
+    """把所有 status='running' 的任务退回 'pending'，返回退回条数。
+
+    只有在「一个任务 worker 都不在」时才该调用：此时不可能存在合法的在跑任务，
+    残留的 running 一定是 worker 中途消失（崩溃 / SystemExit / 被信号杀掉）留下的
+    孤儿 —— 否则它们会永远占着「运行中」，既不会推进也不会被重新领取。
+
+    与 recover_background_queue_state() 的区别：后者是服务重启时由命令 worker 调用，
+    会把 command / update_check 一并复位；这里只动下载任务，供主进程的守护线程用。
+    """
+    with app.app_context():
+        orphans = DownloadTask.query.filter_by(status='running').all()
+        for task in orphans:
+            task.status = 'pending'
+            task.end_time = None
+            task.log = (task.log or '') + reason + '\n'
+        if orphans:
+            db.session.commit()
+        return len(orphans)
 
 
 def run_scheduled_update_checks_if_needed():
