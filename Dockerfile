@@ -1,3 +1,4 @@
+# Build the complete MangaDock application from the repository root.
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -15,21 +16,23 @@ RUN apt-get update \
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Runtime content is mounted by docker-compose and is excluded by .dockerignore.
 COPY app.py config.py comic.json /app/
 COPY mangadock /app/mangadock
 COPY templates /app/templates
 COPY static /app/static
+# tools/ = 封面超分 worker + 打包的 ONNX 模型（tools/models/）。
+# 有 onnxruntime（requirements.txt 已含）就能在容器内 CPU 超分；
+# 模型缺失/包缺失时自动降级 Pillow，不会影响启动。
+COPY tools /app/tools
 
 RUN mkdir -p /app/comic /app/小说 /app/static/cover /app/instance \
-    && find /app -type d -name '__pycache__' -prune -exec rm -rf {} + \
-    && find /app -type f -name '._*' -delete
+    && test -f /app/comic.json || printf '{}\n' > /app/comic.json
 
-ENV PYTHONPATH=/app \
-    FLASK_APP=app.py \
-    PYTHONUNBUFFERED=1 \
-    TZ=Asia/Shanghai \
-    MANGADOCK_BIND=0.0.0.0:5001
+ENV PYTHONPATH=/app
+ENV FLASK_APP=app.py
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
+ENV TZ=Asia/Shanghai
 
 EXPOSE 5001
 

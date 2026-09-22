@@ -72,6 +72,9 @@
         <label class="md-novel-select-item" data-search="{{ (comic.comic_name ~ ' ' ~ comic.group)|lower }}">
             <input type="checkbox" name="comic_names" value="{{ comic.comic_name }}" onchange="syncComicSelection()">
             <span class="md-novel-select-card">
+                {% if is_adult_comic(comic) %}
+                <span class="md-badge-adult" title="18+ 源漫画">18+</span>
+                {% endif %}
                 <img src="{{ cover_image_url(comic.comic_name) }}" alt="" loading="lazy" decoding="async" data-fallback="{{ asset_url('cover/cover.png') }}">
                 <span class="md-novel-select-copy">
                     <strong>{{ comic.comic_name }}</strong>

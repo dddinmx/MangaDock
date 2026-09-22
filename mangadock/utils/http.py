@@ -8,6 +8,11 @@ import time
 from urllib.parse import urljoin, urlparse
 
 import requests
+import urllib3
+from urllib3.connection import HTTPConnection as _HTTPConnection
+from urllib3.connection import HTTPSConnection as _HTTPSConnection
+from urllib3.connectionpool import HTTPConnectionPool as _HTTPConnectionPool
+from urllib3.connectionpool import HTTPSConnectionPool as _HTTPSConnectionPool
 
 from mangadock.settings import (
     CONFIG,
@@ -166,6 +171,95 @@ def validate_safe_upstream_url(url):
     return url
 
 
+def _resolve_and_validate_host(host, port):
+    """在真正建连时解析并校验目标 IP（DNS 重绑定防护）。返回可用安全 IP，否则抛错。
+
+    2026-09-22 code review P2：validate_safe_upstream_url 在请求入口解析并校验过 IP，
+    但随后 requests 会再次解析，二者之间存在重绑定窗口（攻击者可把域名改指向内网）。
+    这里把校验下移到每次建连（_SafeHTTPConnection._new_conn），确保连接落到的 IP
+    仍是经校验的安全地址；每个连接、每次重定向跳转、每次连接池复用都会重新校验。
+    """
+    if not host or not is_allowed_upstream_host(host):
+        raise ValueError('上游地址域名不在允许列表中')
+    try:
+        literal_ip = ipaddress.ip_address(host)
+    except ValueError:
+        literal_ip = None
+    if literal_ip:
+        if not is_public_ip_address(str(literal_ip)) and not any(
+            literal_ip in network for network in SAFE_HTTP_ALLOWED_PROXY_NETWORKS
+        ):
+            raise ValueError('不允许访问内网或保留地址')
+        return str(literal_ip)
+    # DNS 抖动退避重试（与入口校验一致）
+    for dns_attempt in range(SAFE_HTTP_DNS_RETRIES):
+        try:
+            addresses = {
+                result[4][0]
+                for result in socket.getaddrinfo(host, port or 443, type=socket.SOCK_STREAM)
+            }
+            break
+        except socket.gaierror as exc:
+            if dns_attempt >= SAFE_HTTP_DNS_RETRIES - 1:
+                raise ValueError('上游域名无法解析') from exc
+            delay = _retry_delay(SAFE_HTTP_DNS_BACKOFF_SECONDS, dns_attempt)
+            logger.warning(
+                '上游域名建连前解析失败（%s），%.1fs 后重试 %d/%d：%s',
+                exc, delay, dns_attempt + 1, SAFE_HTTP_DNS_RETRIES - 1, host
+            )
+            time.sleep(delay)
+    safe_addresses = [a for a in addresses if is_safe_resolved_upstream_address(host, a)]
+    if not safe_addresses:
+        raise ValueError('上游域名解析到不安全地址')
+    return safe_addresses[0]
+
+
+# === DNS 重绑定防护：自定义连接类，在 _new_conn 阶段固定到已校验 IP =================
+# 走代理时 urllib3 会把 self.proxy 置为代理地址、self.host 指向代理，此时对端是受信任
+# 代理本身、DNS 由代理负责解析，直接走默认逻辑（跳过本机校验），避免误伤本机代理。
+class _SafeHTTPConnection(_HTTPConnection):
+    def _new_conn(self):
+        if getattr(self, 'proxy', None):
+            return super()._new_conn()
+        validated_ip = _resolve_and_validate_host(self.host, self.port)
+        return socket.create_connection(
+            (validated_ip, self.port),
+            self.timeout,
+            source_address=self.source_address,
+            socket_options=self.socket_options,
+        )
+
+
+class _SafeHTTPSConnection(_SafeHTTPConnection, _HTTPSConnection):
+    # TLS 包装沿用 _HTTPSConnection.connect，仍按原始 self.host 做 SNI 与证书校验，
+    # 仅把底层 socket 连到已校验 IP，证书主体不被改动。
+    pass
+
+
+class _SafeHTTPConnectionPool(_HTTPConnectionPool):
+    ConnectionCls = _SafeHTTPConnection
+
+
+class _SafeHTTPSConnectionPool(_SafeHTTPConnectionPool, _HTTPSConnectionPool):
+    ConnectionCls = _SafeHTTPSConnection
+
+
+class _SafePoolManager(urllib3.PoolManager):
+    def connection_from_host(self, host, port, scheme, pool_kwargs=None):
+        pool = super().connection_from_host(host, port, scheme, pool_kwargs=pool_kwargs)
+        # 让该连接池用带 IP 校验的连接类（实例属性覆盖类属性，连接创建时生效）
+        pool.ConnectionCls = _SafeHTTPSConnection if (scheme or 'http') == 'https' else _SafeHTTPConnection
+        return pool
+
+
+class _SafeHTTPAdapter(requests.adapters.HTTPAdapter):
+    """出站连接统一走连接级 IP 校验，消除 DNS 重绑定窗口（见 _SafeHTTPConnection）。"""
+    def init_poolmanager(self, connections, maxsize, block, **pool_kwargs):
+        self.poolmanager = _SafePoolManager(
+            num_pools=connections, maxsize=maxsize, block=block, **pool_kwargs
+        )
+
+
 def enforce_response_size(response, max_bytes, stream=False):
     if not max_bytes:
         return
@@ -183,13 +277,21 @@ def enforce_response_size(response, max_bytes, stream=False):
 
 def safe_http_get(url, headers=None, timeout=None, stream=False, verify=True, max_bytes=MAX_HTML_RESPONSE_BYTES, session_obj=None, retries=None):
     current_url = validate_safe_upstream_url(url)
-    requester = session_obj or requests
     timeout = timeout or CONFIG['request_timeout']
     verify = should_verify_upstream_tls(verify)
     if retries is None:
         # 非流式 = 元数据/HTML/图片列表，调用方没有别的重试兜底 → 这里重试；
         # 流式 = 图片字节，调用方 download_binary_image 已重试 → 不叠加。
         retries = 1 if stream else SAFE_HTTP_NETWORK_RETRIES
+
+    # 2026-09-22 code review P2：所有出站连接经 _SafeHTTPAdapter，在真正建连时
+    # 重新解析并校验目标 IP，消除 validate 与 connect 之间的 DNS 重绑定窗口；
+    # 走代理时由连接类跳过校验（信任代理）。不改动任何调用方。
+    requester = session_obj
+    if requester is None or not isinstance(requester, requests.Session):
+        requester = requests.Session()
+    requester.mount('http://', _SafeHTTPAdapter())
+    requester.mount('https://', _SafeHTTPAdapter())
 
     for _ in range(SAFE_HTTP_MAX_REDIRECTS):
         response = _send_get_with_retries(

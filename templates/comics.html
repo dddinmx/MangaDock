@@ -139,6 +139,9 @@
                             {% if unread_count > 0 %}
                             <span class="md-cover-unread" title="剩余未读 {{ unread_count }} 章" aria-label="剩余未读 {{ unread_count }} 章">{{ unread_count }}</span>
                             {% endif %}
+                            {% if is_adult_comic(task) %}
+                            <span class="md-badge-adult" title="18+ 源漫画">18+</span>
+                            {% endif %}
                             <img src="{{ cover_image_url(task.comic_name) }}"
                                  alt="{{ task.comic_name }}封面"
                                  loading="lazy"

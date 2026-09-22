@@ -207,7 +207,7 @@ def api_comic_detail(comic_id):
 
 
 def _comic_cover_response(comic_id):
-    """封面图片的公共实现，被下面几种路径形态共用。
+    """封面图片的公共实现，被下面两种路径形态共用。
 
     只返回两样东西：**真封面本身**，或 404（尚未落盘）。永远不回落占位图。
     """
@@ -249,18 +249,21 @@ def _comic_cover_response(comic_id):
     return api_error('COVER_NOT_READY', '封面尚未生成', 404)
 
 
-# 三条封面路径形态并存，实现共用 `_comic_cover_response`：
-#   /api/comics/<id>/cover               无扩展名、无查询串（`url_for` 下发的规范形态）
-#   /api/comics/<id>/cover.jpg           历史别名，老客户端可能存过
-#   /api/comics/<id>/cover/<mtime>.jpg   历史版本化形态，保留做兼容
+# 三条路径形态并存（2026-09-22 定稿）：
+#   /api/comics/<id>/cover                ← **当前唯一下发给客户端的形态**：无扩展名、无查询串
+#   /api/comics/<id>/cover.jpg            历史别名（老客户端可能存过）
+#   /api/comics/<id>/cover/<mtime>.jpg    2026-09-22 曾下发过一段时间，保留做兼容
 #
-# 注意两点：
-#   ① `cover.jpg` 必须挂在**独立函数**上。若与 `/cover` 共用同一个 view 函数，
-#      `url_for()` 会取最后注册的规则，下发的地址就会带上 `.jpg`（实测踩过）。
-#   ② 发给 API 客户端的封面地址由 `auth.serialize_api_comic_summary()` 决定，
-#      目前是**静态路径** `/static/cover/<漫画名>.jpg`（与 Web 端同一路径）。
-#      这三个 `/api` 形态保留是为了兼容缓存过旧地址的客户端，同时给
-#      `COVER_NOT_READY` 的 404 语义提供落点。
+# ⚠️ 教训：**不要再往这个封面 URL 上加任何版本号**（查询串或路径段都不行），
+# 也别给它加 `.jpg` 扩展名 —— 下发的形态必须是最朴素的裸路径。
+# 当天用分钟级访问日志对比过三种形态：裸形态与 `?v=` 形态下 App 一次拉完 66~70 本
+# 并正常显示；换成 `/cover/<mtime>.jpg` 后，38~40 本被反复重拉（每本 2~6 次）却
+# 全部显示兜底图。服务端三种形态返回的字节完全相同（真 JPEG、全 200），所以问题
+# 就在 URL 形态本身。破缓存交给「缺图返回 404」即可：客户端不会把 404 写进图片
+# 缓存，下次展示自然重试。
+#
+# 注意：`cover.jpg` 必须挂到**独立函数**上。若与 `/cover` 共用同一个 view 函数，
+# `url_for()` 会取最后注册的规则，下发的地址就会带上 `.jpg`（实测踩过）。
 @app.route('/api/comics/<comic_id>/cover')
 @api_login_required
 def api_comic_cover(comic_id):

@@ -7,6 +7,7 @@ from mangadock.core import app
 from mangadock.extensions import db
 from mangadock.models import ReadingProgress, ReadingSessionState, ReadingTime
 from mangadock.settings import china_tz
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert  # 并发 upsert 用
 
 MAX_PROGRESS_KEY_LENGTH = 255
 MAX_READING_REPORT_SECONDS = 8 * 60 * 60
@@ -157,14 +158,41 @@ def record_reading_time(comic_name, duration_seconds, user_id, session_key=None)
             ).first()
 
             if not session_state:
-                session_state = ReadingSessionState(
+                # code review P1：并发两请求同读 None 再各 insert 会撞 UNIQUE 约束
+                # (user_id, comic_name, session_key)，原 flush() 触发 IntegrityError 被
+                # 外层 except 吞成 400，进度静默丢失。改用 upsert（INSERT … ON CONFLICT
+                # DO NOTHING）保证该行存在，再由下方统一 re-query 取回状态；do_nothing 会
+                # 保留并发方已写入的 baseline，不会互相覆盖丢进度。delta 计算依赖读回的值，
+                # 故此处只用 do_nothing 建行、不在此更新业务字段。
+                now = datetime.now(china_tz)
+                insert_stmt = sqlite_insert(ReadingSessionState).values(
                     user_id=user_id,
                     comic_name=comic_name,
                     session_key=session_key,
-                    last_reported_seconds=0
+                    last_reported_seconds=0,
+                    created_at=now,
+                    updated_at=now,
+                ).on_conflict_do_nothing(
+                    index_elements=['user_id', 'comic_name', 'session_key']
                 )
-                db.session.add(session_state)
+                db.session.execute(insert_stmt)
                 db.session.flush()
+
+                session_state = ReadingSessionState.query.filter_by(
+                    user_id=user_id,
+                    comic_name=comic_name,
+                    session_key=session_key
+                ).first()
+                if not session_state:
+                    # 极端兜底（如并发删除该行）：显式 ORM 插入一次
+                    session_state = ReadingSessionState(
+                        user_id=user_id,
+                        comic_name=comic_name,
+                        session_key=session_key,
+                        last_reported_seconds=0
+                    )
+                    db.session.add(session_state)
+                    db.session.flush()
 
             delta_seconds = normalized_seconds - max(session_state.last_reported_seconds or 0, 0)
             if delta_seconds <= 0:

@@ -94,7 +94,8 @@
         const chapterItems = document.querySelectorAll('.chapter-item');
 
         chapterItems.forEach(item => {
-            const chapterTitle = item.querySelector('.chapter-title').textContent.toLowerCase();
+            const titleEl = item.querySelector('.chapter-title');
+            const chapterTitle = (titleEl ? titleEl.textContent : '').toLowerCase();
             if (chapterTitle.includes(searchTerm)) {
                 item.style.display = 'flex';
             } else {
@@ -193,7 +194,7 @@
     {# 氛围底图（方案 C） #}
     <div class="md-detail-hero-media" aria-hidden="true">
         <img
-            src="{{ cover_image_url(task.comic_name) }}"
+            src="{{ cover_hero_image_url(task.comic_name) }}"
             alt=""
             data-fallback="{{ asset_url('cover/cover.png') }}"
         >
@@ -201,7 +202,7 @@
     <div class="md-detail-hero-shade"></div>
 
     <div class="md-detail-topbar">
-        <a href="{{ library_return_url }}" class="md-detail-icon-btn action-press" data-app-loader="true" aria-label="返回书架">
+        <a href="{{ library_return_url|default('') }}" class="md-detail-icon-btn action-press" data-app-loader="true" aria-label="返回首页">
             <i class="fa fa-arrow-left"></i>
         </a>
         {% if can_manage_library %}
@@ -231,10 +232,10 @@
                     <input type="hidden" name="comic_name" value="{{ task.comic_name }}">
                     <input type="hidden" name="task_id" value="{{ task.comic_name }}">
                     <input type="hidden" name="return_to" value="detail">
-                    <input type="hidden" name="action" value="{{ 'show' if is_current_comic_directly_hidden else 'hide' }}">
+                    <input type="hidden" name="action" value="{{ 'show' if is_current_comic_directly_hidden|default(false) else 'hide' }}">
                     <button type="submit" class="md-detail-menu-item action-press">
-                        <i class="fa {{ 'fa-eye' if is_current_comic_directly_hidden else 'fa-eye-slash' }}"></i>
-                        <span>{{ '取消隐藏此漫画' if is_current_comic_directly_hidden else '隐藏此漫画' }}</span>
+                        <i class="fa {{ 'fa-eye' if is_current_comic_directly_hidden|default(false) else 'fa-eye-slash' }}"></i>
+                        <span>{{ '取消隐藏此漫画' if is_current_comic_directly_hidden|default(false) else '隐藏此漫画' }}</span>
                     </button>
                 </form>
             </div>
@@ -257,8 +258,11 @@
 
         <header class="md-detail-head">
             <div class="md-detail-cover">
+                {% if is_adult_comic(task) %}
+                <span class="md-badge-adult" title="18+ 源漫画">18+</span>
+                {% endif %}
                 <img
-                    src="{{ cover_image_url(task.comic_name) }}"
+                    src="{{ cover_hero_image_url(task.comic_name) }}"
                     alt="{{ task.comic_name }}封面"
                     data-fallback="{{ asset_url('cover/cover.png') }}"
                 >
@@ -277,7 +281,7 @@
                             <i class="fa fa-folder-open"></i>
                             <select name="group_name" aria-label="选择分组">
                                 {% for group_name in groups %}
-                                <option value="{{ group_name }}"{% if group_name == current_group %} selected{% endif %}>{{ group_name }}</option>
+                                <option value="{{ group_name }}"{% if group_name == current_group|default('') %} selected{% endif %}>{{ group_name }}</option>
                                 {% endfor %}
                             </select>
                         </label>
@@ -287,17 +291,17 @@
                     </form>
                     <form method="post" action="{{ url_for('toggle_admin_hidden_group') }}" class="md-detail-group-form" data-api-v1="hidden-group">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="group_name" value="{{ current_group }}">
+                        <input type="hidden" name="group_name" value="{{ current_group|default('') }}">
                         <input type="hidden" name="task_id" value="{{ task.comic_name }}">
                         <input type="hidden" name="return_to" value="detail">
-                        <input type="hidden" name="action" value="{{ 'show' if is_current_group_hidden else 'hide' }}">
+                        <input type="hidden" name="action" value="{{ 'show' if is_current_group_hidden|default(false) else 'hide' }}">
                         <button type="submit" class="md-chip action-press" style="cursor:pointer;border:0;">
-                            <i class="fa {{ 'fa-eye' if is_current_group_hidden else 'fa-eye-slash' }}"></i>
-                            <span style="margin-left:0.35rem">{{ '取消隐藏本组' if is_current_group_hidden else '隐藏本组' }}</span>
+                            <i class="fa {{ 'fa-eye' if is_current_group_hidden|default(false) else 'fa-eye-slash' }}"></i>
+                            <span style="margin-left:0.35rem">{{ '取消隐藏本组' if is_current_group_hidden|default(false) else '隐藏本组' }}</span>
                         </button>
                     </form>
                     {% else %}
-                    <span class="md-chip"><i class="fa fa-folder-open" style="margin-right:0.35rem"></i>{{ current_group }}</span>
+                    <span class="md-chip"><i class="fa fa-folder-open" style="margin-right:0.35rem"></i>{{ current_group|default('') }}</span>
                     {% endif %}
                 </div>
 
@@ -321,10 +325,10 @@
                 </div>
                 {% endif %}
 
-                {% if can_manage_library and is_current_comic_hidden %}
+                {% if can_manage_library and is_current_comic_hidden|default(false) %}
                 <p class="md-detail-warn">
                     <i class="fa fa-eye-slash"></i>
-                    {% if is_current_group_hidden %}该漫画因分组「{{ current_group }}」被隐藏{% else %}该漫画已隐藏{% endif %}
+                    {% if is_current_group_hidden|default(false) %}该漫画因分组「{{ current_group|default('') }}」被隐藏{% else %}该漫画已隐藏{% endif %}
                 </p>
                 {% endif %}
 
@@ -345,21 +349,21 @@
                 {# 桌面端主按钮（移动端用吸底） #}
                 <div class="md-detail-desktop-cta">
                     {% if progress %}
-                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url) }}"
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
                        class="md-btn-primary reader-entry-btn action-press"
                        data-reader-entry="true">
                         <span class="btn-label">继续阅读 第 {{ progress.last_chapter + 1 }} 章</span>
                         <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
                     </a>
                     {% else %}
-                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url) }}"
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
                        class="md-btn-primary reader-entry-btn action-press"
                        data-reader-entry="true">
                         <span class="btn-label">开始阅读</span>
                         <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
                     </a>
                     {% endif %}
-                    <a href="{{ library_return_url }}" class="md-btn-ghost action-press" data-app-loader="true">返回书架</a>
+                    <a href="{{ library_return_url|default('') }}" class="md-btn-ghost action-press" data-app-loader="true">返回首页</a>
                 </div>
             </div>
         </header>
@@ -373,9 +377,10 @@
                         <input type="text"
                                id="chapter-search"
                                placeholder="搜索章节..."
+                               aria-label="搜索章节"
                                oninput="searchChapters()">
                     </div>
-                    <select id="chapter-sort" class="md-detail-sort" onchange="sortChapters()">
+                    <select id="chapter-sort" class="md-detail-sort" aria-label="章节排序" onchange="sortChapters()">
                         <option value="asc" selected>正序</option>
                         <option value="desc">倒序</option>
                     </select>
@@ -384,7 +389,7 @@
 
             <div id="chapter-list" class="md-chapter-list">
                 {% for chapter in chapters %}
-                <a href="{{ url_for('comic_reader', task_id=task.comic_name, start_chapter=loop.index0, return_to=library_return_url) }}"
+                <a href="{{ url_for('comic_reader', task_id=task.comic_name, start_chapter=loop.index0, return_to=library_return_url|default('')) }}"
                    class="chapter-item md-chapter-item"
                    data-chapter="{{ chapter.number }}">
                     <div class="min-w-0 flex-1">
@@ -404,14 +409,14 @@
     {# 吸底主 CTA（详情页内，非全局 Dock） #}
     <div class="md-detail-sticky-cta">
         {% if progress %}
-        <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url) }}"
+        <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
            class="md-btn-primary reader-entry-btn action-press md-detail-sticky-btn"
            data-reader-entry="true">
             <span class="btn-label">继续阅读 第 {{ progress.last_chapter + 1 }} 章</span>
             <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
         </a>
         {% else %}
-        <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url) }}"
+        <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
            class="md-btn-primary reader-entry-btn action-press md-detail-sticky-btn"
            data-reader-entry="true">
             <span class="btn-label">开始阅读</span>

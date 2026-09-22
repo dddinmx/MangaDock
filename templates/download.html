@@ -11,9 +11,17 @@
     /* 提示条与页头的间距 */
     #download-error { margin-bottom: 1.4rem; }
 
-    /* 快捷站点胶囊：用 --src-color 保留各站点的识别色 */
+    /* 快捷站点胶囊：图标用各站点的真实 favicon（见 static/source-icons/），
+       --src-color 保留为站点识别色，用作悬停描边 */
     .source-pill-link { text-decoration: none !important; }
-    .source-pill-link i { font-size: 0.8rem; color: var(--src-color, var(--md-muted)); }
+    .source-pill-link .source-pill__icon {
+        flex: 0 0 auto;
+        width: 1rem;
+        height: 1rem;
+        display: block;
+        border-radius: 4px;
+    }
+    .source-pill-link:hover { border-color: var(--src-color, var(--md-brand)); }
 
     /* 注意事项 */
     .md-ios-bullets { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.6rem; }
@@ -70,7 +78,14 @@
                                 aria-label="打开包子漫画"
                                 title="打开包子漫画"
                             >
-                                <i class="fa fa-book"></i><span>包子漫画 org</span>
+                                <img
+                                    class="source-pill__icon"
+                                    src="{{ asset_url('source-icons/baozimh_org.png') }}"
+                                    alt=""
+                                    width="16"
+                                    height="16"
+                                    onerror="this.remove()"
+                                ><span>包子漫画 org</span>
                             </a>
                             <a
                                 href="https://cn.baozimhcn.com/"
@@ -81,7 +96,14 @@
                                 aria-label="打开包子漫画 CN"
                                 title="打开包子漫画 CN"
                             >
-                                <i class="fa fa-clone"></i><span>包子漫画 CN</span>
+                                <img
+                                    class="source-pill__icon"
+                                    src="{{ asset_url('source-icons/baozimhcn.png') }}"
+                                    alt=""
+                                    width="16"
+                                    height="16"
+                                    onerror="this.remove()"
+                                ><span>包子漫画 CN</span>
                             </a>
                             {% if adult_content_enabled %}
                             <a
@@ -93,7 +115,14 @@
                                 aria-label="打开漫小肆韩漫"
                                 title="打开漫小肆韩漫"
                             >
-                                <i class="fa fa-globe"></i><span>漫小肆韩漫</span>
+                                <img
+                                    class="source-pill__icon"
+                                    src="{{ asset_url('source-icons/mxs.png') }}"
+                                    alt=""
+                                    width="16"
+                                    height="16"
+                                    onerror="this.remove()"
+                                ><span>漫小肆韩漫</span>
                             </a>
                             {% endif %}
                             <a
@@ -105,7 +134,14 @@
                                 aria-label="打开番茄小说"
                                 title="打开番茄小说"
                             >
-                                <i class="fa fa-leaf"></i><span>番茄漫画</span>
+                                <img
+                                    class="source-pill__icon"
+                                    src="{{ asset_url('source-icons/fanqie.png') }}"
+                                    alt=""
+                                    width="16"
+                                    height="16"
+                                    onerror="this.remove()"
+                                ><span>番茄漫画</span>
                             </a>
                             <a
                                 href="https://www.manhuagui.com/"
@@ -116,7 +152,14 @@
                                 aria-label="打开漫画柜"
                                 title="打开漫画柜"
                             >
-                                <i class="fa fa-columns"></i><span>漫画柜</span>
+                                <img
+                                    class="source-pill__icon"
+                                    src="{{ asset_url('source-icons/manhuagui.png') }}"
+                                    alt=""
+                                    width="16"
+                                    height="16"
+                                    onerror="this.remove()"
+                                ><span>漫画柜</span>
                             </a>
                             <a
                                 href="https://m.hipmh.com/"
@@ -127,7 +170,32 @@
                                 aria-label="打开嬉皮漫畫"
                                 title="打开嬉皮漫畫"
                             >
-                                <i class="fa fa-paint-brush"></i><span>嬉皮漫畫</span>
+                                <img
+                                    class="source-pill__icon"
+                                    src="{{ asset_url('source-icons/hipmh.png') }}"
+                                    alt=""
+                                    width="16"
+                                    height="16"
+                                    onerror="this.remove()"
+                                ><span>嬉皮漫畫</span>
+                            </a>
+                            <a
+                                href="https://www.guazimanhua.com/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="md-ios-pill source-pill-link action-press"
+                                style="--src-color:#eab308"
+                                aria-label="打开瓜子漫画"
+                                title="打开瓜子漫画"
+                            >
+                                <img
+                                    class="source-pill__icon"
+                                    src="{{ asset_url('source-icons/guazimanhua.png') }}"
+                                    alt=""
+                                    width="16"
+                                    height="16"
+                                    onerror="this.remove()"
+                                ><span>瓜子漫画</span>
                             </a>
                         </div>
                     </div>

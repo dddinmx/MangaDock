@@ -2684,14 +2684,16 @@ html:not(.theme-dark) .md-chapter-item {
   box-shadow: 0 5px 14px rgba(15, 23, 42, 0.035);
 }
 
-/* Keep the secondary home action distinct without changing other ghost buttons. */
-html:not(.theme-dark) .md-hero-actions .md-btn-ghost {
+/* Keep the secondary home action distinct without changing other ghost buttons.
+   :where() 把 .md-hero-actions 的特异度降到 0，确保 figma 版
+   (html:not(.theme-dark) .md-hero--figma .md-btn-ghost) 始终胜出。 */
+html:not(.theme-dark) :where(.md-hero-actions) .md-btn-ghost {
   border-color: #15171c;
   background: #15171c;
   color: #fff !important;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
 }
-html:not(.theme-dark) .md-hero-actions .md-btn-ghost:hover { background: #30343b; }
+html:not(.theme-dark) :where(.md-hero-actions) .md-btn-ghost:hover { background: #30343b; }
 
 /* Detail-page chapter markup uses md-chapter-* (not md-detail-chapter-*). */
 html:not(.theme-dark) .md-detail .md-section-title,
@@ -3044,4 +3046,758 @@ html.theme-dark .md-input {
 html.theme-dark .md-detail-search input {
   background: rgba(11, 11, 15, 0.8) !important;
   color: #fff !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   主页 hero · Figma 版式
+   参考：https://www.figma.com/community/file/1338926652672180913
+         （New Movie - Header Website, by Truong Huy）
+
+   参考稿是 1920×1080 的画布，下面所有比例都是从截图里逐像素量出来的：
+     左内边距      51 / 612  = 8.33% 页宽
+     书轨卡片宽    57 / 510  = 11.18% 内容宽
+     书轨卡间距    10.5 / 510 = 2.06%（= 卡宽的 18.4%）
+     卡片 w:h      57 : 74   = 0.770（≈3:4，不是 2:3）
+     卡片位置      顶 70.8% / 底 92.4% hero 高
+     箭头位置      62.9% hero 高，13×14 近正方形
+     按钮          46×16（宽:高 2.875）· 圆角 ~5px · 左幽灵描边 / 右金色实底
+     金色          #F3C31B（实测中位色 243,195,27）
+
+   落地时的唯一换算：参考稿的「页宽 8.33%」换成了站点自己的 --md-max 容器
+   宽度（= 顶栏 .md-topnav-inner 的宽度），这样 hero 文案、书轨、顶栏 logo
+   三条左边缘严格对齐。其余比例原样保留。
+
+   作用域：只加在 .md-hero--figma 上（漫画主页）；小说主页 templates/novel_index.html
+   沿用旧 hero 版式，不受影响。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* hero 的操作色不再单独用金色（参考稿的 #F3C31B 已弃用，2026-09-22）：
+     统一跟随系统主题色。--md-gold 只是「hero 强调色」的历史名，现在整组
+     指向品牌色变量，下面的引用点一行都不用改。用户在设置里换主题色
+     （红 / 粉 / 蓝绿 / 灰 …）时，hero 主按钮、格式徽标、进度高亮、
+     顶栏下划线会一起跟着变。
+       --md-gold       主按钮底色 / 徽标底色 / 焦点环 —— 饱和品牌色
+       --md-gold-hover 主按钮 hover —— 亮版品牌色
+       --md-gold-text  深色 hero 遮罩上的文字 —— 亮版（纯品牌色在灰 / 深红
+                       主题下压在暗底上对比度不足）
+       --md-gold-ink   品牌色底上的文字 —— 与全局 .md-btn-primary 一致用白 */
+  --md-gold: var(--md-brand);
+  --md-gold-hover: var(--md-brand-soft);
+  --md-gold-text: var(--md-brand-soft);
+  --md-gold-ink: #fff;
+}
+
+/* 主页：hero 顶到屏幕最上沿，固定顶栏直接压在 hero 上（参考稿就是导航 over hero） */
+body.md-home-page .md-main--flush {
+  padding-top: 0;
+}
+
+/* 首页就一屏：桌面不允许纵向拖动（.md-hero--figma 已是 100dvh，这里再兜一层，
+   顺带干掉滚动条带来的宽度跳动）。窄屏是「图带 + 文案 + 书轨」的纵向堆叠，
+   必须可滚，所以这条只在 >=1025px 生效。 */
+@media (min-width: 1025px) and (hover: hover) and (pointer: fine) {
+  body.md-home-page {
+    height: 100dvh;
+    overflow: hidden;
+  }
+}
+
+.md-hero--figma {
+  /* 左基准线：直接用参考稿实测的 8.33% 页宽（1920 → 160，1440 → 120）。
+     早期版本用站点自己的 --md-max 容器换算，在 1920 下退化成 408px，
+     左侧空一大片、和书轨也对不上，已废弃。 */
+  --fig-gut: max(1.25rem, 8.33vw);
+  --fig-rail-pad: var(--fig-gut);
+  /* 书轨卡片宽按「页宽」取参考稿实测的 9.31vw（= 1920 下 179、1440 下 134），
+     间距 = 卡宽 18.4%。min(..., 18vh) 给矮窗口兜底，免得固定一屏时书轨挤掉文案。 */
+  --fig-card-w: min(9.31vw, 18vh);
+  --fig-card-gap: calc(var(--fig-card-w) * 0.1843);
+  /* 遮罩：左侧压暗给文案让位，右侧留亮，底部收到纯背景色。
+     做成变量，是因为浅色主题里既有的 `html:not(.theme-dark) .md-hero-shade`
+     特异度 (0,2,1) 高过本段的基础规则 (0,2,0)，会把 hero 刷成白底；
+     浅色那段同样引用本变量即可，两主题共用一套渐变。 */
+  /* 横向渐变：0→32% 那段要足够暗（文案区），但 34% 之后必须快速掉下来，
+     否则封面就算铺到中线也会被压成一片黑，观感上仍是「中间留白」。
+     2026-09-22 把衰减点前移：32% 0.62 / 48% 0.26 / 66% 0.06。 */
+  --fig-shade:
+    linear-gradient(90deg,
+      rgba(7, 7, 10, 0.96) 0%,
+      rgba(7, 7, 10, 0.92) 18%,
+      rgba(7, 7, 10, 0.62) 32%,
+      rgba(7, 7, 10, 0.26) 48%,
+      rgba(7, 7, 10, 0.06) 66%,
+      rgba(7, 7, 10, 0.38) 100%),
+    linear-gradient(180deg,
+      rgba(7, 7, 10, 0.72) 0%,
+      rgba(7, 7, 10, 0.18) 22%,
+      rgba(7, 7, 10, 0.18) 54%,
+      rgba(7, 7, 10, 0.46) 72%,
+      rgba(7, 7, 10, 0.93) 90%,
+      #07070a 100%);
+  /* 参考稿就是满屏 hero（342/612 = 55.9% 页宽 ≈ 1080/1920） */
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+
+/* 顶栏（功能栏）刻意与其余页面完全一致：仍是 .md-topnav-inner 的
+   --md-max(72rem) 居中容器，主页不再做任何宽度 / 内边距 / 搜索框位置的改写。
+   2026-09-22 修正：之前为了对齐 hero 左基准把顶栏拉成满宽 + 8.33vw 内边距，
+   视觉上被「扯开」（搜索框漂到中间、用户菜单贴到最右），与书架页/历史页
+   判若两套。现在主页顶部导航 = 其它页面的导航，一字不改。 */
+
+/* 内容层改成整块定位画布，子元素按百分比落位 */
+.md-hero--figma .md-hero-inner {
+  position: absolute;
+  inset: 0;
+  display: block;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── 文案块：顶 19.6% · 左内边距 · 宽 41% ── */
+.md-hero--figma .md-hero-copy {
+  position: absolute;
+  left: var(--fig-gut);
+  top: 22.4%;   /* 把文案块放到「顶栏下方」与「书轨上方」两段留白的中间，不再全堆在上半部 */
+  width: 42%;
+  max-width: 36rem;
+  /* 极端矮窗时文案区内部细滚动，好过顶出屏幕把书轨（z-index:20 固定底）压住 */
+  max-height: calc(100dvh - 260px);
+  overflow: auto;
+}
+
+.md-hero--figma .md-hero-title {
+  /* 参考稿标题约 82px（1920 基准）；vw 与 vh 同时约束，矮窗口跟高度缩 */
+  font-size: clamp(2rem, min(4.28vw, 7.6vh), 5.1rem);
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  max-width: 9em;            /* CJK 一个汉字 ≈ 1em，即最多 9 字一行 */
+}
+
+/* meta 行：[格式] 分组 | 话数 | 进度（对应参考稿的 [HD] ★4.9 · 年份 | 话数 | 16+） */
+.md-hero--figma .md-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.05rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #d6d6e2;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+
+.md-hero--figma .md-hero-meta__badge {
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  background: var(--md-gold);
+  color: var(--md-gold-ink);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-shadow: none;
+}
+
+.md-hero--figma .md-hero-meta__group {
+  color: #fff;
+  font-weight: 600;
+}
+
+.md-hero--figma .md-hero-meta__sep {
+  color: #6a6a7c;
+}
+
+.md-hero--figma .md-hero-meta__progress {
+  color: var(--md-gold-text);
+  font-weight: 600;
+}
+
+.md-hero--figma .md-hero-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  margin-top: 1.05rem;
+  /* 参考稿正文宽约 38.7% 页宽（1920 → ~740），别锁死在 30rem 窄栏 */
+  max-width: 38vw;
+  font-size: clamp(0.9rem, min(1vw, 1.7vh), 1rem);
+  line-height: 1.78;
+  color: #c2c2d2;
+}
+
+/* ── 按钮：左幽灵描边 · 右金色实底 + ▶ 三角（46×16 → 2.875:1） ── */
+.md-hero--figma .md-hero-actions {
+  margin-top: 1.85rem;
+  gap: 0.875rem;
+}
+
+.md-hero--figma .md-btn-ghost,
+.md-hero--figma .md-btn-primary {
+  /* 参考稿按钮 144×50（1920 基准，实测 46×16 设计单位）→ 按视口等比：
+     1920 下 144×50，1440 下 108×38。宽:高 ≈ 2.9:1。 */
+  height: clamp(38px, 2.6vw, 50px);
+  min-width: clamp(6.75rem, 7.5vw, 9rem);
+  padding: 0 clamp(1rem, 1.4vw, 1.7rem);
+  border-radius: 8px;          /* 参考稿是小圆角，不是胶囊 */
+  font-size: clamp(0.8125rem, 0.73vw, 0.95rem);
+  box-shadow: none;
+}
+
+.md-hero--figma .md-btn-ghost {
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: transparent;
+  color: #fff !important;
+}
+
+.md-hero--figma .md-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.md-hero--figma .md-btn-primary {
+  background: var(--md-gold);
+  color: var(--md-gold-ink) !important;
+  font-weight: 700;
+}
+
+.md-hero--figma .md-btn-primary:hover {
+  background: var(--md-gold-hover);
+}
+
+.md-play {
+  width: 0;
+  height: 0;
+  margin-right: 0.5rem;
+  border-style: solid;
+  border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent var(--md-gold-ink);
+}
+
+/* ── 主视觉：竖版封面出血到右边缘，左侧渐变融进背景 ──
+   几何全部按「视口百分比」给，不用任何 px 上限：
+   2026-09-22 修正——之前写的是 width: min(58vw, 940px)。在 2560 这类宽屏上
+   min() 吃到 940px 这个硬上限，封面只剩右边 37% 有图，中间空掉一大条，
+   而且左边封面「一直贴着最右侧」不动，越高分辨率越明显。
+   现在改成 left:34% / right:0（永远占 66% 视口宽），任何分辨率下封面都在
+   同一个相对位置出现。 */
+.md-hero--figma .md-hero-art {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 34%;
+  width: auto;
+  margin: 0;
+  z-index: 2;
+  /* 只淡出左边缘，让封面从页面中线附近就开始出现，用同一条「软边」把文案和封面隔开。
+     带宽必须夹一个像素上限：纯百分比的话 2560 下衰减带会胀到 372px、3440 下接近 500px，
+     文案和封面之间又会重新空出一条。clamp 后 1440/1920 与原来一致（209/279），
+     ≥2560 固定在 300px。 */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 clamp(210px, 22%, 300px));
+          mask-image: linear-gradient(90deg, transparent 0, #000 clamp(210px, 22%, 300px));
+  pointer-events: none;
+}
+
+.md-hero--figma .md-hero-art img {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  object-fit: cover;
+  object-position: 54% 14%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  /* 第二层遮罩：底边淡出，免得封面自带的烫金书名在书轨下方露出来 */
+  -webkit-mask-image: linear-gradient(180deg, #000 52%, transparent 94%);
+          mask-image: linear-gradient(180deg, #000 52%, transparent 94%);
+}
+
+/* ── 遮罩：见 --fig-shade（深浅两主题共用） ── */
+.md-hero--figma .md-hero-shade {
+  background: var(--fig-shade);
+}
+
+/* ══════════ 底部横滑书轨 ══════════
+   顶 70.8% / 底 92.4%（这里改用「距 hero 底 7.6%」定位，换高度不会漂）
+   卡片宽 = 内容宽 11.176%，间距 = 卡宽 18.4%；用百分比 margin 而非 gap，
+   保证 % 相对的是滚动容器的可见内容宽（= 站点容器宽），跨浏览器一致。 */
+.md-home-rail {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  bottom: 0;      /* 贴着 hero 下沿：下面只留 track 的 padding-bottom */
+}
+
+.md-home-rail__head {
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+  padding: 0 var(--fig-rail-pad) 1rem;
+}
+
+.md-home-rail__nav {
+  display: flex;
+  gap: 1.15rem;
+}
+
+.md-home-rail__nav button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(12, 12, 16, 0.5);
+  color: #fff;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background 0.16s ease, opacity 0.16s ease;
+}
+
+.md-home-rail__nav button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.md-home-rail__nav button:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.md-home-rail__nav button:disabled:hover {
+  background: rgba(12, 12, 16, 0.5);
+}
+
+.md-home-rail__label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #a8a8ba;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.75);
+}
+
+.md-home-rail__more {
+  margin-left: auto;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #d6d6e2 !important;
+  text-decoration: none !important;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.75);
+}
+
+.md-home-rail__more:hover {
+  color: var(--md-gold-text) !important;
+}
+
+.md-home-rail__track {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  /* 左右各留一条安全边（与文案同一左基准），不是真顶到屏幕边 */
+  padding: 0 var(--fig-rail-pad) 2rem;
+  /* 不留 scroll-padding 时浏览器初始吸附会把第一张卡的 start 边贴到
+     scrollport 起点，等于把左侧安全边吃掉（实测 load 后 scrollLeft≠0） */
+  scroll-padding-inline: var(--fig-rail-pad);
+  /* 右侧安全边：横向滚动容器天然会在屏幕右边硬切一张卡，给它一道淡出，
+     看起来才像「留了边」而不是顶满 */
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 72px), transparent 100%);
+          mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 72px), transparent 100%);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  outline: none;
+}
+
+.md-home-rail__track::-webkit-scrollbar {
+  display: none;
+}
+
+.md-home-rail__track:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(var(--md-brand-rgb), 0.6);
+}
+
+.md-home-rail__card {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--fig-card-w);
+  margin-right: var(--fig-card-gap);
+  aspect-ratio: 57 / 74;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #14141c;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.5);
+  scroll-snap-align: start;
+  text-decoration: none !important;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease;
+}
+
+.md-home-rail__card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 24px 44px rgba(0, 0, 0, 0.62);
+}
+
+.md-home-rail__card:focus-visible {
+  box-shadow: 0 0 0 2px var(--md-gold), 0 16px 34px rgba(0, 0, 0, 0.5);
+}
+
+.md-home-rail__card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.md-home-rail__cap {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 1.6rem 0.55rem 0.55rem;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.9));
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 漫画名常显（2026-09-22 用户要求，原先只在 hover 时浮现） */
+  opacity: 1;
+}
+
+/* 浅色主题：hero 跟随整体浅色（2026-09-22 用户要求「白色主题下首页完全适配」，
+   不再保留深色电影感；深色主题不受影响——本块全部带 html:not(.theme-dark) 前缀）。
+   注意 .md-hero-shade 必须在这里重写：2584 行的通用浅色规则压不住本段的基础规则。 */
+html:not(.theme-dark) .md-hero--figma {
+  background: linear-gradient(135deg, #f7f9ff 0%, #ffffff 56%, rgba(var(--md-brand-rgb), 0.10) 100%);
+  color: var(--md-text);
+}
+
+html:not(.theme-dark) .md-hero--figma .md-hero-shade {
+  background:
+    linear-gradient(90deg,
+      rgba(255, 255, 255, 0.97) 0%,
+      rgba(255, 255, 255, 0.9) 30%,
+      rgba(255, 255, 255, 0.45) 55%,
+      rgba(255, 255, 255, 0.1) 70%,
+      rgba(255, 255, 255, 0.4) 100%),
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0.08) 30%,
+      rgba(255, 255, 255, 0.12) 62%,
+      rgba(247, 249, 255, 0.85) 88%,
+      #f7f9ff 100%);
+}
+
+html:not(.theme-dark) .md-hero--figma .md-hero-media {
+  background: #eef3fb;
+}
+
+html:not(.theme-dark) .md-hero--figma .md-hero-media-img {
+  filter: blur(42px) saturate(1.08) brightness(1.1);
+  opacity: 0.4;
+}
+
+html:not(.theme-dark) .md-hero--figma .md-hero-title {
+  color: #12161f;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+html:not(.theme-dark) .md-hero--figma .md-hero-meta {
+  color: #3f4756;
+  text-shadow: none;
+}
+
+html:not(.theme-dark) .md-hero--figma .md-hero-meta__group {
+  color: #12161f;
+}
+
+html:not(.theme-dark) .md-hero--figma .md-hero-meta__sep {
+  color: #98a1b0;
+}
+
+/* 浅底上进度/分组用饱和品牌色（brand-soft 太浅会看不清） */
+html:not(.theme-dark) .md-hero--figma .md-hero-meta__progress {
+  color: var(--md-brand);
+}
+
+html:not(.theme-dark) .md-hero--figma .md-hero-desc {
+  color: #4a5464;
+  text-shadow: none;
+}
+
+html:not(.theme-dark) .md-hero--figma .md-btn-ghost {
+  border-color: rgba(18, 22, 31, 0.32);
+  background: transparent;
+  color: #12161f !important;
+  box-shadow: none;
+}
+
+html:not(.theme-dark) .md-hero--figma .md-btn-ghost:hover {
+  background: rgba(18, 22, 31, 0.07);
+}
+
+/* 主按钮保持品牌色实底 + 白字（--md-gold 组已指向品牌色），浅色底无需变体 */
+
+html:not(.theme-dark) .md-hero--figma .md-hero-art img {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 书轨：浅色底上的导航按钮 / 标签 / 更多链接 / 卡片 */
+html:not(.theme-dark) .md-home-rail__nav button {
+  border-color: rgba(18, 22, 31, 0.14);
+  background: rgba(255, 255, 255, 0.75);
+  color: #12161f;
+}
+
+html:not(.theme-dark) .md-home-rail__nav button:hover {
+  background: #ffffff;
+}
+
+html:not(.theme-dark) .md-home-rail__nav button:disabled:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+html:not(.theme-dark) .md-home-rail__label {
+  color: #6a7484;
+  text-shadow: none;
+}
+
+html:not(.theme-dark) .md-home-rail__more {
+  color: #4a5464 !important;
+  text-shadow: none;
+}
+
+html:not(.theme-dark) .md-home-rail__more:hover {
+  color: var(--md-brand) !important;
+}
+
+html:not(.theme-dark) .md-home-rail__card {
+  background: #e8edf4;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+}
+
+html:not(.theme-dark) .md-home-rail__card:hover {
+  box-shadow: 0 22px 40px rgba(15, 23, 42, 0.2);
+}
+
+/* 卡片上的漫画名渐变压在封面图上、自成一体，白字保留不动 */
+
+/* ── 窄屏：参考稿是 1920 桌面稿，窄屏必须重排 ──
+   主视觉收成顶部 360px 图带（底边淡出），文案下移，书轨横滑收尾 */
+/* 窄屏 + 触摸宽屏（iPad 横屏等无 hover / coarse pointer）都走这套可滚动堆叠布局，
+   不再被桌面一屏锁死（.md-hero--figma 已是 100dvh 且 overflow:hidden）。 */
+@media (max-width: 1024px), (hover: none), (pointer: coarse) {
+  /* 窄屏首页：hero 不能再顶到页面最上沿。
+     桌面之所以 flush（padding-top:0），是因为桌面 hero 是 100dvh、封面整幅出血，
+     顶栏压在图上就是参考稿的样子；但窄屏 hero 高度 auto、主视觉收成固定 360px 的
+     顶部图带，顶栏一压就把图带顶端切掉一截 —— iOS PWA 下顶栏 = 安全区(≈59) +
+     上下内边距(24) + 内容(≈41) ≈ 124px，360px 的图带只剩 2/3，封面连同标题字
+     一起被拦腰截断（2026-09-22 修）。
+     这里恢复与其它 .md-main--flush 页面（漫画详情 / 小说主页）一致的顶栏留白。 */
+  body.md-home-page .md-main--flush {
+    padding-top: calc(3.75rem + env(safe-area-inset-top, 0px));
+  }
+
+  .md-hero--figma {
+    --fig-rail-pad: 1.25rem;
+    /* 窄屏改成纵向渐变：图带在上、文案在下 */
+    --fig-shade: linear-gradient(180deg,
+      rgba(7, 7, 10, 0.5) 0%,
+      rgba(7, 7, 10, 0.4) 18%,
+      rgba(7, 7, 10, 0.72) 42%,
+      #07070a 60%,
+      #07070a 100%);
+    height: auto;
+    min-height: 0;
+  }
+
+  .md-hero--figma .md-hero-inner {
+    position: relative;
+    inset: auto;
+  }
+
+  .md-hero--figma .md-hero-media-img {
+    object-position: 62% 12%;
+  }
+
+  .md-hero--figma .md-hero-art {
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    width: 100%;
+    height: 360px;
+    -webkit-mask-image: none;
+            mask-image: none;
+  }
+
+  .md-hero--figma .md-hero-art img {
+    object-position: 58% 16%;
+    -webkit-mask-image: linear-gradient(180deg, #000 38%, transparent 99%);
+            mask-image: linear-gradient(180deg, #000 38%, transparent 99%);
+  }
+
+  .md-hero--figma .md-hero-copy {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: 100%;
+    max-width: none;
+    /* 图带高 360px，首行要完全落到图带下方（360 + 安全余量）才不被压住 */
+    padding: 372px 1.25rem 1.5rem;
+  }
+
+  .md-hero--figma .md-hero-title {
+    font-size: 1.7rem;
+    max-width: none;
+  }
+
+  .md-hero--figma .md-hero-meta {
+    margin-top: 0.85rem;
+    gap: 0.55rem;
+    font-size: 0.8125rem;
+  }
+
+  .md-hero--figma .md-hero-desc {
+    margin-top: 0.8rem;
+    max-width: 100%;
+    font-size: 0.875rem;
+  }
+
+  .md-hero--figma .md-hero-actions {
+    margin-top: 1.35rem;
+    gap: 0.75rem;
+  }
+
+  .md-hero--figma .md-btn-ghost,
+  .md-hero--figma .md-btn-primary {
+    height: 44px;
+    min-width: 0;
+    padding: 0 1.35rem;
+  }
+
+  .md-home-rail {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    padding-bottom: 1.75rem;
+  }
+
+  .md-home-rail__head {
+    gap: 0.85rem;
+    padding: 0.35rem 1.25rem 0.7rem;
+  }
+
+  .md-home-rail__nav {
+    gap: 0.75rem;
+  }
+
+  .md-home-rail__nav button {
+    width: 36px;
+    height: 36px;
+    border-radius: 7px;
+    font-size: 0.85rem;
+  }
+
+  .md-home-rail__track {
+    padding: 0 1.25rem 0.75rem;
+  }
+
+  .md-home-rail__card {
+    width: 104px;
+    margin-right: 12px;
+    border-radius: 10px;
+  }
+}
+
+/* ── 顶栏「当前项」：参考稿是白字 + 金色下划线（替掉原来的白底胶囊） ── */
+.md-nav-link {
+  position: relative;
+}
+
+.md-nav-link.is-active {
+  background: transparent;
+  color: #fff;
+}
+
+.md-nav-link.is-active::after {
+  content: "";
+  position: absolute;
+  left: 0.55rem;
+  right: 0.55rem;
+  bottom: 0.02rem;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--md-gold);
+}
+
+html:not(.theme-dark) .md-nav-link.is-active {
+  background: transparent;
+  color: var(--md-text);
+}
+
+/* 下划线跟随主题色；品牌色本身足够饱和，浅色主题下不必再换深一档的色 */
+html:not(.theme-dark) .md-nav-link.is-active::after {
+  background: var(--md-gold);
+}
+
+/* ===== 18+ 源封面徽章（2026-09-22）==============================
+   来源判定在服务端（providers.is_adult_url，目前仅 mxs 注册 is_adult），
+   模板经 is_adult_comic() 渲染。固定红色（警示语义），不跟主题色。
+   角标形态：封面右上角；--inline 形态：hero 元信息行内胶囊。 */
+.md-badge-adult {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.08rem 0.3rem;
+  border-radius: 0.32rem;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+/* 行内形态（hero 元信息行）：不做角标，尺寸与 PDF/CBZ 徽标一致 */
+.md-badge-adult--inline {
+  position: static;
+  padding: 0.16rem 0.5rem;
+  font-size: 0.7rem;
+}
+
+/* 承载角标的容器需要定位上下文（其余容器本身已 relative/absolute） */
+.md-detail-cover,
+.md-history-cover,
+.md-novel-select-card {
+  position: relative;
+}
+
+@media (max-width: 640px) {
+  .md-badge-adult {
+    top: 0.3rem;
+    right: 0.3rem;
+    padding: 0.06rem 0.26rem;
+    font-size: 0.56rem;
+  }
 }

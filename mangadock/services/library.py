@@ -236,6 +236,20 @@ def ensure_comic_identity(comic_name):
     return identity_map.get(normalized_name)
 
 
+def get_comic_identity(comic_name):
+    """只读查询漫画身份（不写库）。列表/详情等读路径用这条，避免读请求触发 DB 写。
+
+    2026-09-22 code review P2：原 ensure_comic_identity 在缺失时会补写身份记录，
+    导致 GET /api/comics 每条目都走一次「查+写」库。这里只读，身份缺失返回 None，
+    由调用方决定兜底（如用 comic_name 当 id，不阻断列表返回）。
+    """
+    normalized_name = (comic_name or '').strip()
+    if not is_safe_comic_name(normalized_name):
+        return None
+    with app.app_context():
+        return ComicIdentity.query.filter_by(comic_name=normalized_name).first()
+
+
 def normalize_comic_description(text, max_length=2000):
     """清理站点简介文本：折叠空白、去掉常见噪声前缀。"""
     if not text:
@@ -943,11 +957,13 @@ def save_cover_image(comic_name, cover_url, referer=None, verify=True):
         if not normalize_cover_bytes(response.content, cover_path):
             safe_print(f"封面格式无法转码，已跳过保存: {cover_url}")
             return
+        # 超分缓存交给后台线程：AI 引擎单张 7~11s，扫盘/批量入库时同步跑会把
+        # worker 卡住十几分钟。首页渲染时若缓存还没好，会先用原图顶上。
         try:
-            from mangadock.utils.cover_enhance import refresh_hero_cover
-            refresh_hero_cover(comic_name)
+            from mangadock.utils.cover_enhance import request_hero_cover
+            request_hero_cover(comic_name)
         except Exception as enhance_exc:
-            safe_print(f"封面超分缓存失败: {enhance_exc}")
+            safe_print(f"封面超分排队失败: {enhance_exc}")
     except Exception as exc:
         safe_print(f"下载封面失败: {exc}")
 

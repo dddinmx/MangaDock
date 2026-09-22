@@ -179,6 +179,15 @@ def refresh_comic_description(comic_name, source_url=None):
         return ''
 
 
+def _final_output_base(folder, chapter, comic_format):
+    """finalize 产物（cbz/pdf）的最终路径：与临时图片目录 save_dir 同级。
+
+    供 P1 原子落地兜底清理复用——失败时按此路径删除 .part 与同名旧残留。
+    """
+    ext = 'pdf' if comic_format == 1 else 'cbz'
+    return os.path.join(COMIC_ROOT, folder, f"{chapter:02d}.{ext}")
+
+
 def images_to_cbz(folder_path):
     """将图片转换为CBZ格式"""
     try:
@@ -198,13 +207,22 @@ def images_to_cbz(folder_path):
             return False, f"文件夹 {folder_path} 中没有图片"
 
         cbz_name = os.path.join(os.path.dirname(folder_path), f"{os.path.basename(folder_path)}.cbz")
-        with zipfile.ZipFile(cbz_name, 'w') as cbz_file:
-            for image_path in images:
-                cbz_file.write(
-                    image_path,
-                    arcname=os.path.basename(image_path),
-                    compress_type=zipfile.ZIP_STORED
-                )
+        # 2026-09-20 code review P1：先写 .part 临时文件，打包成功后再 os.replace 到最终名，
+        # 保证 finalize 是原子的——中途失败只残留 .part，更新检测按文件名判存在不会误判为已下载。
+        cbz_part = cbz_name + '.part'
+        try:
+            with zipfile.ZipFile(cbz_part, 'w') as cbz_file:
+                for image_path in images:
+                    cbz_file.write(
+                        image_path,
+                        arcname=os.path.basename(image_path),
+                        compress_type=zipfile.ZIP_STORED
+                    )
+            os.replace(cbz_part, cbz_name)
+        except Exception:
+            if os.path.exists(cbz_part):
+                os.remove(cbz_part)
+            raise
         return True, f"成功生成CBZ：{cbz_name}"
     except Exception as e:
         return False, f"CBZ生成失败：{str(e)}"
@@ -242,7 +260,19 @@ def images_to_pdf(folder_path):
 
         pdf_name = os.path.join(os.path.dirname(folder_path), f"{os.path.basename(folder_path)}.pdf")
 
-        return build_pdf_from_image_list(images, pdf_name)
+        # 2026-09-20 code review P1：先写 .part 临时文件，成功后再 os.replace 到最终名，
+        # 保证 finalize 原子落地（build_pdf_from_image_list 直接写盘，这里传 .part 名）。
+        pdf_part = pdf_name + '.part'
+        try:
+            result = build_pdf_from_image_list(images, pdf_part)
+            if not result[0]:
+                return result
+            os.replace(pdf_part, pdf_name)
+        except Exception as exc:
+            if os.path.exists(pdf_part):
+                os.remove(pdf_part)
+            return False, f"PDF生成失败：{str(exc)}"
+        return True, f"成功生成PDF：{pdf_name}"
     except Exception as e:
         return False, f"PDF生成失败：{str(e)}"
 
@@ -296,24 +326,27 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
 
     try:
         with requests.Session() as session:
+            response_text = None
             for attempt in range(3):
                 if is_task_cancel_requested(task_id):
                     shutil.rmtree(save_dir, ignore_errors=True)
                     return False, "任务已取消"
                 try:
-                    response = safe_http_get(chapter_url, headers=headers, timeout=10, session_obj=session)
-                    # 如果成功获取200响应，直接返回成功
-                    if response.status_code == 200:
-                        break
-                    # 非200状态码，记录并继续重试
-                    safe_print(f"章节页访问失败，状态码: {response.status_code}，第{attempt+1}次尝试")
+                    # 2026-09-20 code review P2：用 with 关闭响应，避免连接泄漏（连接池耗尽阻塞）。
+                    with safe_http_get(chapter_url, headers=headers, timeout=10, session_obj=session) as response:
+                        # 如果成功获取200响应，直接返回成功
+                        if response.status_code == 200:
+                            response_text = response.text
+                            break
+                        # 非200状态码，记录并继续重试
+                        safe_print(f"章节页访问失败，状态码: {response.status_code}，第{attempt+1}次尝试")
                 except Exception as e:
                     safe_print(f"章节页访问异常: {str(e)}，第{attempt+1}次尝试")
             else:
                 # 当循环完成且未通过break退出时，说明3次尝试都失败
                 return False, f"章节页经过3次尝试后仍访问失败"
 
-            match = re.search(r'(https?://[^/]+/scomic/[^/]+/\d+/[^/]+/1\.jpg)', response.text)
+            match = re.search(r'(https?://[^/]+/scomic/[^/]+/\d+/[^/]+/1\.jpg)', response_text)
             if not match:
                 return False, "未找到图片地址"
 
@@ -372,6 +405,10 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
                 executor.shutdown(wait=False)
                 return False, "任务已取消"
 
+            # 2026-09-20 code review P1：finalize 产物（.cbz/.pdf 与同章 .part）落在
+            # save_dir 同级目录；失败时兜底删除残留，避免更新检测按文件名误判为「已下载」，
+            # 导致缺页章节永久跳过重下（旧版 finalize 非原子，半截文件残留即中招）。
+            final_path = _final_output_base(folder, chapter, comic_format)
             if comic_format == 1:
                 update_task(task_id, log=f"章节 {chapter} 下载完成，开始生成PDF...")
                 success, msg = images_to_pdf(save_dir)
@@ -389,18 +426,32 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
 
             if success:
                 return True, f"章节 {chapter} 处理完成"
-            else:
-                return False, f"章节 {chapter} 处理失败: {msg}"
+            # finalize 失败：原子落地保证本次不会留下半截最终文件，这里只兜底清理 .part。
+            # 注意不能删 final_path 本身——重试已下载章节时它可能是上一版的好文件，
+            # 误删会让该章被当成"未下载"反而永久跳过。
+            leftover = final_path + '.part'
+            try:
+                if os.path.exists(leftover):
+                    os.remove(leftover)
+            except Exception:
+                pass
+            return False, f"章节 {chapter} 处理失败: {msg}"
 
     except Exception as e:
         error_msg = f"章节处理异常：{str(e)}"
         update_task(task_id, log=error_msg)
         return False, error_msg
     finally:
-        # 2026-09-20 code review P2：失败 / 取消 / 异常路径此前都不清 save_dir，
-        # 已下载的部分章节图会永久残留在 NAS 上。统一在 finally 收口，
-        # （成功路径原本就会删，这里重复删也无害）。
+        # 2026-09-20 code review P2/P1：失败 / 取消 / 异常路径统一收口。
+        # 删 save_dir（成功路径已删，重复无害）；并兜底清理 finalize 的 .part 残留
+        # （成功路径不存在 .part，无害）。
         shutil.rmtree(save_dir, ignore_errors=True)
+        part_path = _final_output_base(folder, chapter, comic_format) + '.part'
+        try:
+            if os.path.exists(part_path):
+                os.remove(part_path)
+        except Exception:
+            pass
 
 
 def extract_image_extension(image_url, default_ext=".jpg"):
@@ -562,7 +613,8 @@ def download_complete_book(url, comic_format, task_id):
             raise ValueError("未获取到任何章节")
 
         ensure_directory(os.path.join(COMIC_ROOT, folder))
-        save_comic_mapping(folder, url)
+        if not save_comic_mapping(folder, url):
+            safe_print(f"警告：章节映射写入失败（comic_name={folder}），更新检测可能遗漏新章节")
         save_cover_image(
             folder,
             source.get('cover_url'),
@@ -575,6 +627,7 @@ def download_complete_book(url, comic_format, task_id):
             update_task(task_id, log="作品简介保存失败，可稍后在详情页重试补全")
 
         failed_chapters = []  # 2026-09-20 P2：单章失败不再放大为整任务失败
+        completed = 0  # 2026-09-20 code review P2：只统计真正下载成功的章节，避免进度虚高
         for index, chapter in enumerate(chapters, start=1):
             task = get_task(task_id)
             if task and task.status == 'cancelled':
@@ -589,8 +642,9 @@ def download_complete_book(url, comic_format, task_id):
                 failed_chapters.append(chapter['title'])
                 continue
 
-            progress = int((index / len(chapters)) * 100)
-            update_task(task_id, completed_chapters=index, progress_percent=progress)
+            completed += 1
+            progress = int((completed / len(chapters)) * 100)
+            update_task(task_id, completed_chapters=completed, progress_percent=progress)
 
             if source['provider'] == 'baozimhcn':
                 time.sleep(2)
@@ -662,6 +716,7 @@ def update_comic(comic_name, comic_format, task_id):
         update_task(task_id, log=f"找到 {len(chapters_to_download)} 个新章节，开始下载")
 
         failed_chapters = []  # 与整本下载一致：单章失败记下继续（2026-09-20 P2）
+        completed = 0  # 2026-09-20 code review P2：只统计真正下载成功的章节，避免进度虚高
         for index, chapter in enumerate(chapters_to_download, start=1):
             task = get_task(task_id)
             if task and task.status == 'cancelled':
@@ -676,8 +731,9 @@ def update_comic(comic_name, comic_format, task_id):
                 failed_chapters.append(chapter['title'])
                 continue
 
-            progress = int((index / len(chapters_to_download)) * 100)
-            update_task(task_id, completed_chapters=index, progress_percent=progress)
+            completed += 1
+            progress = int((completed / len(chapters_to_download)) * 100)
+            update_task(task_id, completed_chapters=completed, progress_percent=progress)
 
             if source['provider'] == 'baozimhcn':
                 time.sleep(2)

@@ -109,13 +109,36 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'download_tasks.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-# 2026-09-20 code review P2：数据库文件在 SMB 网络盘上，写者包括 4 个 gunicorn
-# 进程 + 2 个 task worker + 1 个 command worker，DB 默认 5 秒忙等很容易撞上
-# "database is locked"。提到 30 秒让写锁竞争变成等待而非直接报错。
-# 刻意不启用 WAL：WAL 依赖共享内存 + 文件锁语义，在网络文件系统上不可靠。
+# 2026-09-22 code review P1/P2：DB 在 SMB 网络盘（/Volumes/NAS/...）上。
+# SQLite 单写者 + 网络文件系统：WAL 在 SMB 上共享内存/文件锁语义不可靠 ——
+# 实测 PRAGMA journal_mode=WAL 虽返回 'wal'，但未生成 -wal/-shm 文件（见修复说明），
+# 存在损坏风险，故刻意不启用 WAL（DB 在 SMB 上，WAL 不可用）。
+# 改用 busy_timeout=10000ms（二轮复审自 3000 上调：11 个写者共享单库，3s 偏紧）
+# + synchronous=NORMAL：写冲突快速失败/重试，而不是像原 connect_args timeout=30
+# 那样把请求线程挂住 30 秒。
+# tasks.py 的频繁 commit 不在本次允许修改的文件内，靠此处 busy_timeout 缓解写竞争。
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'connect_args': {'timeout': 30},
+    # 仅作兜底：连接级忙等上限（秒）。真正的忙等待由下方 busy_timeout PRAGMA(10000ms) 控制。
+    'connect_args': {'timeout': 15},
 }
+
+
+# 每次新建底层 SQLite 连接时执行：busy_timeout=10000 让写冲突快速重试/失败而不长时间
+# 阻塞请求线程；synchronous=NORMAL 在掉电安全与写入性能间取平衡（配合网络盘更稳妥）。
+# 注：WAL 已在上方说明因 SMB 不可用而刻意不开。
+def _configure_sqlite_connection(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA busy_timeout=10000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cursor.close()
+
+
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+
+event.listen(Engine, 'connect', _configure_sqlite_connection)
 app.session_interface = MangaDockSessionInterface()
 
 if not os.path.exists(app.instance_path):

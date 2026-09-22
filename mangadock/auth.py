@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Authentication, session helpers, and API serializers."""
 import base64
+import hashlib
 import os
+import threading
 import time
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -133,6 +135,19 @@ def asset_url(filename):
     return url_for('static', filename=filename, v=version) if version else url_for('static', filename=filename)
 
 
+def _static_cover_url(filename):
+    """拼封面静态地址。filename 须为『已 URL 编码』的相对路径，直接拼 static 前缀，
+    避免再经 url_for 对 % 二次编码；文件存在时附带 mtime 版本号以便浏览器破缓存。"""
+    static_path = os.path.join(app.static_folder, filename)
+    version = None
+    try:
+        version = int(os.path.getmtime(static_path))
+    except OSError:
+        version = None
+    url = f'{app.static_url_path}/{filename}'
+    return f'{url}?v={version}' if version else url
+
+
 def cover_image_url(comic_name, variant='default'):
     """
     variant:
@@ -142,20 +157,29 @@ def cover_image_url(comic_name, variant='default'):
     if not comic_name:
         return asset_url('cover/cover.png')
 
+    # 2026-09-22 code review P1：漫画名含空格/#/&/% 时直接拼进 URL 会让 src 截断 404。
+    # 文件名部分统一用 quote 编码；注意只编码一次（下方直接拼前缀，不走 url_for，
+    # 否则 % 会被二次编码）。与 API 侧 serialize_api_comic_summary 的 cover_url 保持一致。
+    encoded_name = quote(comic_name, safe='')
+
     if variant == 'hero':
-        from mangadock.utils.cover_enhance import ensure_hero_cover, hero_cover_path
-        hero_path = ensure_hero_cover(comic_name)
-        cached = hero_cover_path(comic_name)
-        if hero_path and cached and os.path.isfile(cached):
-            return asset_url(f'cover/hero/{comic_name}.jpg')
+        # 只认「已经生成好」的缓存：命中就直接发超分图，没命中就丢给后台线程补，
+        # 本次仍返回原图。绝不在请求线程里跑超分——Lanczos 要几百毫秒，接了
+        # AI 引擎更是几秒起，会把首页首字节拖垮。
+        from mangadock.utils.cover_enhance import hero_cover_ready, request_hero_cover
+        if hero_cover_ready(comic_name):
+            return _static_cover_url(f'cover/hero/{encoded_name}.jpg')
+        try:
+            request_hero_cover(comic_name)
+        except Exception:
+            pass
         # fall through to source cover
 
-    cover_filename = f'cover/{comic_name}.jpg'
     # 2026-09-20 二次修复：不再在服务端回落占位图。SMB stat 瞬时失败曾让这里对
     # 确实存在的封面渲染 cover.png（绿猫直接进 HTML，刷新才恢复）。现在恒发真实
     # 地址：瞬时抖动由 core.py 的 /static/cover/ 重试路由兜底，文件真缺失由前端
     # 全局 onerror 重试后再回落占位图——最终表现不变，但不再误判。
-    return asset_url(cover_filename)
+    return _static_cover_url(f'cover/{encoded_name}.jpg')
 
 
 def cover_hero_image_url(comic_name):
@@ -195,12 +219,97 @@ def save_uploaded_cover_image(comic_name, file_storage):
     cover_path = os.path.join(COVER_ROOT, f'{comic_name}.jpg')
     image.save(cover_path, 'JPEG', quality=92, optimize=True)
 
+    # 超分缓存后台补：AI 引擎要 7~11s，放在 POST 请求里会把上传响应卡死
     try:
-        from mangadock.utils.cover_enhance import refresh_hero_cover
-        refresh_hero_cover(comic_name)
+        from mangadock.utils.cover_enhance import request_hero_cover
+        request_hero_cover(comic_name)
     except Exception:
         pass
     return cover_path
+
+
+# comic_name -> bool：18+ 源判定按名字缓存（源 URL 不随会话变化）
+_ADULT_COMIC_CACHE = {}
+
+
+# 2026-09-22 code review P2：Basic Auth 每请求重算 pbkdf2 代价高。进程内缓存
+# 「用户名+密码」的 SHA256 -> (校验成功的 User, 时间戳)，TTL 300s，最多 256 条
+# （超出清最旧），线程安全；只缓存校验成功的结果，不改对外行为。
+_BASIC_AUTH_CACHE = {}
+_BASIC_AUTH_CACHE_LOCK = threading.Lock()
+_BASIC_AUTH_CACHE_TTL_SECONDS = 300
+_BASIC_AUTH_CACHE_MAX_ENTRIES = 256
+
+
+def _basic_auth_cache_key(username, password):
+    return hashlib.sha256(f'{username}:{password}'.encode('utf-8')).hexdigest()
+
+
+def _basic_auth_cache_get(username, password):
+    """命中且未过期返回缓存的 User，否则返回 None。"""
+    key = _basic_auth_cache_key(username, password)
+    with _BASIC_AUTH_CACHE_LOCK:
+        entry = _BASIC_AUTH_CACHE.get(key)
+        if entry is None:
+            return None
+        user, ts = entry
+        if time.time() - ts > _BASIC_AUTH_CACHE_TTL_SECONDS:
+            _BASIC_AUTH_CACHE.pop(key, None)
+            return None
+        return user
+
+
+def _basic_auth_cache_put(username, password, user):
+    """写入一条成功校验结果；超出上限清最旧一条。"""
+    key = _basic_auth_cache_key(username, password)
+    with _BASIC_AUTH_CACHE_LOCK:
+        _BASIC_AUTH_CACHE[key] = (user, time.time())
+        if len(_BASIC_AUTH_CACHE) > _BASIC_AUTH_CACHE_MAX_ENTRIES:
+            oldest_key = min(_BASIC_AUTH_CACHE, key=lambda k: _BASIC_AUTH_CACHE[k][1])
+            _BASIC_AUTH_CACHE.pop(oldest_key, None)
+
+
+def is_adult_comic(target):
+    """
+    模板用：该漫画是否来自 18+ 源（封面渲染红色 18+ 徽章）。
+
+    target 可为：
+    - DownloadTask 对象：直接看 task.url（最快路径）；
+    - dict（get_available_comics 快照 / history items）：无 url 字段，回查任务表；
+    - comic_name 字符串：回查任务表。
+    任何异常一律 False，绝不影响页面渲染。
+    """
+    from mangadock.models import DownloadTask
+    from mangadock.services.providers import is_adult_url
+
+    try:
+        if target is None:
+            return False
+        if not isinstance(target, str):
+            url = getattr(target, 'url', None)
+            if not url and isinstance(target, dict):
+                url = target.get('url')
+            name = getattr(target, 'comic_name', None)
+            if not name and isinstance(target, dict):
+                name = target.get('comic_name')
+            if url:
+                return is_adult_url(url)
+        else:
+            name = target
+        if not name:
+            return False
+        cached = _ADULT_COMIC_CACHE.get(name)
+        if cached is not None:
+            return cached
+        row = (DownloadTask.query
+               .filter(DownloadTask.comic_name == name, DownloadTask.url.isnot(None))
+               .order_by(DownloadTask.created_at.desc())
+               .first())
+        result = is_adult_url(row.url) if row else False
+        _ADULT_COMIC_CACHE[name] = result
+        return result
+    except Exception:
+        return False
 
 
 def inject_user_context():
@@ -219,6 +328,7 @@ def inject_user_context():
         'asset_url': asset_url,
         'cover_image_url': cover_image_url,
         'cover_hero_image_url': cover_hero_image_url,
+        'is_adult_comic': is_adult_comic,
         'display_reading_minutes': api_display_reading_minutes,
     }
 
@@ -404,10 +514,18 @@ def authenticate_api_credentials(username, password, ip_address, user_agent):
         )
         return None, api_error('ACCOUNT_LOCKED', f'登录失败次数过多，请在 {remaining_minutes} 分钟后重试', 423)
 
+    # 2026-09-22 code review P2：成功校验结果命中缓存则跳过 pbkdf2 重算。
+    # 命中路径不记登录日志、不清失败计数——每次 API 请求都走这里，
+    # 写库会造成日志膨胀；失败计数由真实校验成功时清理即可。
+    cached_user = _basic_auth_cache_get(normalized_username, raw_password)
+    if cached_user is not None:
+        return cached_user, None
+
     user = validate_user_credentials(normalized_username, raw_password)
     login_success = user is not None
 
     if login_success and user:
+        _basic_auth_cache_put(normalized_username, raw_password, user)
         login_clear_failures(failure_keys)
         record_login_log(normalized_username, ip_address, user_agent, True, '登录成功')
         return user, None
@@ -588,10 +706,15 @@ def build_local_comic_entry(comic_name):
 def cover_version_token(comic_name):
     """封面文件的版本号（mtime 秒）。
 
-    **目前没有任何调用方**（保留备用，例如将来给 Web 端做资源破缓存）。
-    不要把它拼进 API 下发的 `cover_url`：2026-09-22 实测「路径段带版本号」的
-    封面 URL（`/cover/<mtime>.jpg`）会让 Tachimanga 整架显示不出封面，
-    而缺图返回 404 已足够破缓存（客户端不会把 404 写进图片缓存）。
+    ⚠️ 2026-09-22 起**不再用于 `cover_url`**：当天实测 Tachimanga 无法显示
+    「路径段带版本号」的封面 URL（`/cover/<mtime>.jpg`），改成裸形态
+    `/api/comics/<id>/cover` 才恢复。函数保留备用（例如将来给 Web 端做破缓存），
+    但**不要**再把它的值拼进 API 下发的 `cover_url`。
+
+    历史背景：封面在下载流程里后落盘，而端点缺图时会回落 140x140 的占位图 PNG，
+    API 客户端会把占位图当有效图片缓存住 —— 实测 Tachimanga 对同一个无参数 URL
+    请求 33 次拿到占位图后就不再请求。现在该端点缺图返回 404，客户端不会缓存，
+    所以已经不需要靠 URL 变化来破缓存。Web 端另有 ``cover-retry.js`` 靠 404 重试。
     """
     try:
         return int(os.path.getmtime(os.path.join(COVER_ROOT, f'{comic_name}.jpg')))
@@ -601,26 +724,59 @@ def cover_version_token(comic_name):
 
 def serialize_api_comic_summary(comic, progress=None, source_mapping=None):
     from mangadock.services.groups import normalize_group_name
-    from mangadock.services.library import ensure_comic_identity
-    identity = ensure_comic_identity(comic.get('comic_name'))
-    if not identity:
-        return None
-
+    from mangadock.services.library import get_comic_identity
+    # 2026-09-22 code review P2：列表/详情等读路径走只读查询，缺失身份不再写库。
+    # 身份缺失极罕见（快照阶段已批量预建），此时用 comic_name 兜底 id，不阻断返回。
     comic_name = comic.get('comic_name')
+    if not comic_name:
+        return None
+    identity = get_comic_identity(comic_name)
+    comic_id = identity.comic_id if identity else comic_name
     return {
-        'id': identity.comic_id,
+        'id': comic_id,
         'title': comic_name,
-        # 封面地址下发 **Web 端一直在用的静态路径**（与 /static/cover/<漫画名>.jpg 同一份文件）：
-        #   ① 绕开需要认证的 /api 端点 ⇒ 响应不带 `Vary: Cookie` / `Set-Cookie`，
-        #      客户端图片缓存才能正常命中，不会每次刷新都重下；
-        #   ② Web 端本来就走这个路径，API 改用它**不新增任何暴露面**；
-        #   ③ 2026-09-22 实测该形态在 Tachimanga(iOS) 下显示正常。
-        # 缺图时静态路径直接 404，不回落占位图，客户端不会把 404 写进图片缓存。
+        # 2026-09-22 回滚（第三次修复作废）：封面地址回到**裸形态**
+        # `/api/comics/<id>/cover`，不再带任何版本号。
         #
-        # ⚠️ 不要再给这个地址加版本号（查询串或路径段都不行）—— 当天实测
-        # `/api/comics/<id>/cover/<mtime>.jpg` 会让 Tachimanga 整架显示不出封面。
-        # 顺带记一笔：当天封面不显示的真根因在**扩展侧 OkHttpClient 的派生方式**
-        # （v1.6.5 改回 `network.cloudflareClient` 才恢复），与 URL 形态无关。
+        # 证据（同日 App 侧访问日志，按分钟切开对比）：
+        #   08:43–08:44 裸 `/cover`      70 请求 / 70 本          → 68/70 正常显示
+        #   08:47–08:48 `/cover?v=`      82 请求 / 66 本          → 正常显示
+        #   09:15 起    `/cover/<mtime>.jpg`  38~40 本被反复重拉（每本 2~6 次）→ 整架全空
+        # 三种形态服务端返回的都是同一张真 JPEG（md5 与磁盘原图一致、全 200），
+        # 所以差别只在 URL 形态本身：Tachimanga 拿得到图却用不上「路径段带版本号」的
+        # 封面 URL。结论——不要在这个 URL 上做任何花样。
+        #
+        # 破缓存这件事交给服务端更干净：封面未落盘时返回 404（见
+        # api_routes._comic_cover_response），客户端不会把 404 写进图片缓存，
+        # 下次展示自然重试。这正是本次问题的真解，版本号是多余且有害的。
+        # 2026-09-22 10:1x 判别实验（第五次，也是最有判别力的一次）：
+        # 把 API 下发的封面地址换成 **Web 端一直在用的静态路径**
+        # `/static/cover/<URL 编码的漫画名>.jpg`，即**整个绕开 `/api` 端点**。
+        #
+        # 为什么现在做这件事（新增的决定性事实）：
+        #   ① 用户实测「**自定义封面能显示，所有在线封面都不行**」——这证明
+        #      App 的封面渲染 + 写入链路是好的，病在「网络封面的下载/落盘」这一层。
+        #   ② 同一台 iPhone 用 Safari / PWA 打开 Web 端（正是这个静态路径）
+        #      **封面完全正常**。也就是同一个域名、同一个端口、同一个反代之下：
+        #      静态路径能显示、`/api` 路径不能。
+        #   ③ 服务端已彻底证死无罪：近 12 小时封面请求 1006 次全部 200，
+        #      字节 md5 与磁盘原图一致，`sips`（iOS 同源解码器）全量扫描 0 失败。
+        #   ④ 刚测出的**响应头实质差异**（这条是本次改动的直接依据）：
+        #        /api/comics/<id>/cover → 需要认证 → Flask 读 session
+        #                                 ⇒ 带 `Vary: Cookie` + `Set-Cookie`
+        #        /static/cover/<名>.jpg → 不碰 session
+        #                                 ⇒ **既无 `Vary: Cookie` 也无 `Set-Cookie`**
+        #      对带磁盘缓存的 iOS 图片加载器来说，`Vary: Cookie`（且每次请求
+        #      Cookie 都会因 `Set-Cookie` 而变化）会让响应**几乎永远无法命中缓存**，
+        #      表现就是「每本书每次刷新都被重下 8~9 次、界面始终是占位图」——
+        #      与实测的请求形态完全吻合。
+        #
+        # 判读方式（用户下拉刷新一次书架即可）：
+        #   换完**能**显示 → 病根就在 `/api` 端点的这些响应特征上，本改动即修复。
+        #   换完**仍**不显示 → 与 URL、端点、响应头全都无关，100% 在 App 的
+        #                      封面下载/落盘，直接按官方处置走「移除→重新添加 / 重装」。
+        # 顺带收益：静态路径无需任何认证（已实测无凭据直接 200），
+        # 可一并消掉日志里那条会返回 401 的支路。
         'cover_url': f'/static/cover/{quote(comic_name, safe="")}.jpg',
         'group_name': normalize_group_name(comic.get('group')) or '默认分组',
         'format': api_comic_format(comic.get('comic_format')),
@@ -669,8 +825,16 @@ def sort_comics_for_api(comics, progress_lookup):
 
 
 def get_api_comic_entry(comic_id):
-    from mangadock.services.library import get_available_comics, get_comic_identity_by_id
+    from mangadock.services.library import (
+        get_available_comics, get_comic_identity, get_comic_identity_by_id,
+    )
     identity = get_comic_identity_by_id(comic_id)
+    if not identity:
+        # 2026-09-22 code review 复审补充：列表接口在身份缺失时会用 comic_name
+        # 兜底当 id，这里必须同样能按名字解析回来，否则该漫画详情/封面 404。
+        from mangadock.services.library import is_safe_comic_name
+        if is_safe_comic_name(comic_id or ''):
+            identity = get_comic_identity(comic_id)
     if not identity:
         return None, None
 

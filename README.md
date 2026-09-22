@@ -25,6 +25,13 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 >
 > 部分图床在中国大陆无法直连（漫画柜的 `*.hamreus.com`、嬉皮漫畫的 `*.s3imgs.top` 等），需要通过容器出网代理访问，见 [网络与代理](#网络与代理)。
 
+## v2.10.0
+
+- **内置 AI 封面超分**：镜像自带 RealESRGAN（anime 6B）ONNX 模型 + onnxruntime，无需 GPU。入库漫画的封面先以源图显示，后台自动完成 4x 超分（CPU 约 5~30 秒/张）后无感替换为清晰版；产物持久化在封面卷里，升级镜像不重算。不想要 AI 超分的加环境变量 `MANGADOCK_COVER_SR=off`（回落 Pillow 增强，仍优于浏览器插值）。
+- **首页全新版式**：桌面端改为一屏主视觉（大图 + 简介 + 继续阅读）+ 底部「最近入库」书轨，可左右翻页；移动端与窄屏自动回退堆叠布局。
+- **新增瓜子漫画来源**（`guazimanhua.com`），「整本下载」页各源站显示真实站点图标。
+- **稳定性修复**：多端同时阅读不再丢失阅读进度；下载中断产生的半截章节文件不再阻塞重新下载（缺页章节可自动重下）；特殊字符标题的封面地址正确编码；SSRF 防护加固；SQLite 写冲突等待时间下调，页面卡顿更少。
+
 ## v2.9.0
 
 - **统一下载入口自动识别番茄小说**：「整本下载」页与 `/api/v1/downloads` 粘贴番茄链接时会先判定作品类型 —— 小说自动分流到 EPUB 小说流水线并入小说书架，漫画仍走原有图片漫画管线，两个入口产出的任务形态完全一致。
@@ -32,7 +39,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:v2.9.0`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.9.0` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:v2.10.0`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.10.0` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 

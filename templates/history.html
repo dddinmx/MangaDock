@@ -18,6 +18,9 @@
     <a href="{{ url_for('comic_reader', task_id=comic.comic_name) }}"
        class="md-history-card flex gap-4 rounded-2xl border border-white/10 bg-ink-800/50 p-3 no-underline transition hover:border-white/20 hover:bg-ink-800">
         <div class="md-history-cover h-24 w-16 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-ink-700">
+            {% if is_adult_comic(comic) %}
+            <span class="md-badge-adult" title="18+ 源漫画">18+</span>
+            {% endif %}
             <img src="{{ cover_image_url(comic.comic_name) }}" alt=""
                  class="h-full w-full object-cover"
                  data-fallback="{{ asset_url('cover/cover.png') }}">

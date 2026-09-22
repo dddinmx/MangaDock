@@ -81,6 +81,15 @@ register(
     load_source='load_hipmh_source',
     download_chapter='download_hipmh_chapter',
 )
+register(
+    'guazimanhua',
+    hosts=('guazimanhua.com',),
+    # 入口形态固定为 comic.php?id=<数字>；chapter.php 不作为入口（章节由作品页推导）。
+    pattern=r'^https?://(?:www\.)?guazimanhua\.com/comic\.php\?(?:[^#\s]*&)?id=\d+(?:&[^#\s]*)?$',
+    module='mangadock.services.providers.guazimanhua',
+    load_source='load_guazimanhua_source',
+    download_chapter='download_guazimanhua_chapter',
+)
 
 
 def _resolve(ref):
@@ -122,6 +131,16 @@ def detect_provider_name(url):
 
 def is_adult_provider(name):
     return bool(_entry(name)['is_adult'])
+
+
+def is_adult_url(url):
+    """URL 是否属于 18+ 源（如 mxs）。未注册/空 URL 一律 False，不抛异常。"""
+    if not url:
+        return False
+    try:
+        return is_adult_provider(detect_provider_name(url))
+    except (ValueError, Exception):
+        return False
 
 
 def is_supported_url(url):

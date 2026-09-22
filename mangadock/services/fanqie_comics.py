@@ -121,9 +121,10 @@ def _save_cover(comic_name: str, book_id: str, content: bytes | None = None) -> 
     # 这里交给公共转换链处理（Pillow → 可选插件 → sips/ImageMagick/ffmpeg）。
     if not normalize_cover_bytes(content, str(cover_path)):
         raise ValueError("番茄漫画封面格式无法转码")
+    # 超分缓存走后台线程（AI 引擎单张 7~11s），不阻塞入库/下载 worker
     try:
-        from mangadock.utils.cover_enhance import refresh_hero_cover
-        refresh_hero_cover(comic_name)
+        from mangadock.utils.cover_enhance import request_hero_cover
+        request_hero_cover(comic_name)
     except Exception:
         pass
 

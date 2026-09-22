@@ -64,10 +64,17 @@ def load_mxs_source(url):
             'chapter_url': urljoin(url, href)
         })
 
+    # 2026-09-20 code review P2：解析到 0 章属异常（源站结构变化/风控页），
+    # 静默返回空会令整本下载「成功完成 0 章」且更新检测误判为最新，故显式报错。
+    if not chapters:
+        safe_print("警告：解析到 0 个章节，疑似源站结构变化（选择器 ul#detail-list-select 未命中）")
+        raise ValueError("解析到 0 个章节，疑似源站结构变化，已中止整本下载")
+
     return {
         'provider': 'mxs',
         'title': title,
-        'cover_url': f"https://www.wzd1.cc/static/upload/book/{cover_id}/cover.jpg",
+        # 2026-09-20 code review P2：封面域名不再硬编码 wzd1.cc，改从源 URL 的 host 推导，同源拼接。
+        'cover_url': f"https://{urlparse(url).netloc}/static/upload/book/{cover_id}/cover.jpg",
         'cover_verify': True,
         'description': extract_description_from_html(response.text, soup=soup),
         'chapters': chapters
@@ -114,7 +121,8 @@ def title_mxs(url):
                 cid = path_parts[-1]
         else:
             cid = path_parts[-1]
-        cover_url = f"https://www.wzd1.cc/static/upload/book/{cid}/cover.jpg"
+        # 2026-09-20 code review P2：封面域名从源 URL 的 host 推导，同源拼接（不再硬编码 wzd1.cc）。
+        cover_url = f"https://{urlparse(url).netloc}/static/upload/book/{cid}/cover.jpg"
         try:
             response = safe_http_get(cover_url, timeout=10, max_bytes=MAX_IMAGE_RESPONSE_BYTES)
             if response.status_code == 200:
@@ -123,10 +131,10 @@ def title_mxs(url):
                 if normalize_cover_bytes(response.content, cover_path):
                     print(f"封面已保存到: {cover_path}")
                     try:
-                        from mangadock.utils.cover_enhance import refresh_hero_cover
-                        refresh_hero_cover(title)
+                        from mangadock.utils.cover_enhance import request_hero_cover
+                        request_hero_cover(title)
                     except Exception as enhance_exc:
-                        print(f"封面超分缓存失败: {enhance_exc}")
+                        print(f"封面超分排队失败: {enhance_exc}")
                 else:
                     print(f"封面格式无法转码，已跳过保存: {cover_url}")
         except Exception as e:
@@ -183,10 +191,10 @@ def title(url):
                 if normalize_cover_bytes(response.content, cover_path):
                     print(f"图片已保存到: {cover_path}")
                     try:
-                        from mangadock.utils.cover_enhance import refresh_hero_cover
-                        refresh_hero_cover(title)
+                        from mangadock.utils.cover_enhance import request_hero_cover
+                        request_hero_cover(title)
                     except Exception as enhance_exc:
-                        print(f"封面超分缓存失败: {enhance_exc}")
+                        print(f"封面超分排队失败: {enhance_exc}")
                 else:
                     print(f"封面格式无法转码，已跳过保存: {image_url}")
             except Exception as e:
@@ -346,6 +354,10 @@ def crawl_chapter_mxs(chapter_url, folder, chapter, comic_format, task_id):
                     img_urls = [img['data-original'] for img in img_tags if img.has_attr('data-original')]
 
                     safe_print(f"章节 {chapter} 找到 {len(img_urls)} 张图片")
+                    # 2026-09-20 code review P2：解析到 0 图属异常（源结构变化/被拦截），
+                    # 显式告警便于排查，而非静默走完 3 次重试后整章失败却无成因。
+                    if not img_urls:
+                        safe_print(f"警告：章节 {chapter} 解析到 0 张图片，疑似源结构变化（选择器 img.lazy 未命中）")
 
                     if img_urls:
                         success_count, cancelled = download_images_concurrently_mxs(
@@ -373,7 +385,21 @@ def crawl_chapter_mxs(chapter_url, folder, chapter, comic_format, task_id):
                             if success:
                                 safe_print(f"已压缩为: {os.path.basename(cbz_path)}")
                             else:
+                                # finalize 已原子化，失败不会留半截 .cbz，这里只兜底清理 .part；
+                                # 不能删 cbz_path 本身——它可能是上一版的好文件，误删会让
+                                # 该章被当成"未下载"反而永久跳过。
                                 safe_print(f"压缩失败: {msg}")
+                                leftover = cbz_path + '.part'
+                                try:
+                                    if os.path.exists(leftover):
+                                        os.remove(leftover)
+                                except Exception:
+                                    pass
+                                # 2026-09-22 二轮复审 P1：压缩失败即本章没有最终产物，
+                                # 必须按失败返回（此前穿透到 return True 会被更新检测
+                                # 按文件名判"已存在"而永久跳过重下）。与 download.py 口径一致。
+                                shutil.rmtree(save_dir, ignore_errors=True)
+                                return False, f"章节 {chapter} 压缩失败: {msg}"
 
                             # 删除原文件夹
                             shutil.rmtree(save_dir)
@@ -400,6 +426,15 @@ def crawl_chapter_mxs(chapter_url, folder, chapter, comic_format, task_id):
     except Exception as e:
         safe_print(f"章节 {chapter} 下载异常: {str(e)}")
         return False, f"章节 {chapter} 下载失败: {str(e)}"
+    finally:
+        # 2026-09-20 code review P1：finalize 已改为先写 .part 再 os.replace 原子落地，
+        # 这里兜底清理异常路径可能残留的 .part（成功路径不存在 .part，无害）。
+        cbz_part = os.path.join(COMIC_ROOT, folder, f"{chapter:02d}.cbz.part")
+        try:
+            if os.path.exists(cbz_part):
+                os.remove(cbz_part)
+        except Exception:
+            pass
 
 
 def download_mxs_chapter(chapter, folder, comic_format, task_id):
@@ -428,6 +463,8 @@ def download_mxs_chapter(chapter, folder, comic_format, task_id):
             if img.has_attr('data-original')
         ]
         if not image_urls:
+            # 2026-09-20 code review P2：解析到 0 图属异常，显式告警便于排查源结构变化。
+            safe_print(f"警告：章节 {chapter['title']} 解析到 0 张图片，疑似源结构变化（选择器 img.lazy 未命中）")
             shutil.rmtree(save_dir, ignore_errors=True)
             return False, f"章节 {chapter['title']} 未找到图片"
 

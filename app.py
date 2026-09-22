@@ -210,6 +210,10 @@ def main():
         # overrides this with MANGADOCK_BIND=0.0.0.0:5001 so port mapping works.
         'bind': os.environ.get('MANGADOCK_BIND', '127.0.0.1:5001'),
         'workers': worker_count,
+        # SQLite 单写者 + DB 在 SMB 上（WAL 不可用，见 mangadock/core.py）。
+        # 限制每 worker 的线程数，给并发写（请求线程写任务状态 / task worker 写进度）
+        # 设一个上限，避免大量线程同时抢同一把写锁把请求线程挂住。
+        # 这里保持 4（已 ≤ 8 推荐上限）；不要为“降低竞争”再上调，也不要减少 worker 进程数。
         'threads': 4,
         'worker_class': 'gthread',
         'timeout': 120,

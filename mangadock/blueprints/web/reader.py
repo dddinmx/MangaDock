@@ -22,7 +22,7 @@ from mangadock.auth import (
     save_uploaded_cover_image,
 )
 from mangadock.core import app
-from mangadock.extensions import csrf
+from mangadock.extensions import csrf, db
 from mangadock.services.download import refresh_comic_description
 from mangadock.services.groups import (
     can_user_access_group,
@@ -133,9 +133,10 @@ def comic_detail(task_id):
         # 旧书库补全：有源站映射时按需抓取一次简介
         comic_description = refresh_comic_description(task.comic_name) or ''
 
-    library_return_url = request.args.get('return_to')
-    if not is_safe_next_target(library_return_url) or not library_return_url.startswith('/comics'):
-        library_return_url = url_for('comics_list', group=current_group)
+    # 2026-09-22 用户要求：详情页返回固定回「漫画首页」，不再回书架（对齐小说详情回小说首页的语义）。
+    # 不再读 return_to：书架/搜索/首页等入口带来的 return_to 一律忽略；阅读链路不受影响
+    # （阅读器的返回仍是详情页，详情页的返回才是首页）。
+    library_return_url = url_for('index')
 
     return render_template(
         'comic_detail.html',
@@ -323,6 +324,9 @@ def save_progress():
 
         return jsonify({'status': 'success'})
     except Exception as e:
+        # code review P2：异常时回滚可能挂起的会话写操作，避免死事务占用连接导致后续
+        # 请求全部 500；也确保并发重试失败时不会留下半提交状态。
+        db.session.rollback()
         import traceback
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': '保存阅读进度失败'}), 400

@@ -10,3 +10,5 @@ flask-sqlalchemy==2.5.1
 sqlalchemy==1.4.54
 Flask-WTF==1.2.2
 EbookLib==0.19
+# 封面 AI 超分（RealESRGAN anime_6B ONNX，纯 CPU 推理；无此包自动降级 Pillow）
+onnxruntime==1.30.0

@@ -128,6 +128,9 @@ SAFE_HTTP_ALLOWED_HOST_SUFFIXES = (
     'manhuagui.com',
     'mhgui.com',
     'hamreus.com',
+    # 瓜子漫画：主站 guazimanhua.com、图床 img.guazicdn.com（无防盗链）
+    'guazimanhua.com',
+    'guazicdn.com',
 )
 SAFE_HTTP_ALLOWED_PROXY_NETWORKS = (
     ipaddress.ip_network('198.18.0.0/15'),
