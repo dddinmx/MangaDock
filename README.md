@@ -126,10 +126,11 @@ Docker 容器内监听 `0.0.0.0:5001`，Compose 默认只将它绑定到宿主�
 
 ## 界面与客户端
 
-### Web PWA
+### Web  
+<img width="3828" height="1962" alt="fd98db46654bde21296a6f815e5865c8" src="https://github.com/user-attachments/assets/95a90a97-fa14-41c3-8fa1-be1bfeeabe11" />  
 
-<img width="2910" height="1961" alt="MangaDock Web PWA" src="https://github.com/user-attachments/assets/2e247713-311a-4832-80b0-ae8b9691696b" />
-
+### PWA  
+<img width="345" height="720" alt="19400078c7223005a3d4bce1d17816ba" src="https://github.com/user-attachments/assets/2e3623de-55f5-49ef-87b0-545846a8bca1" />  
 
 ### Tachimanga / Aidoku
 
