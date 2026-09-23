@@ -133,6 +133,7 @@ Docker 容器内监听 `0.0.0.0:5001`，Compose 默认只将它绑定到宿主�
 ## 界面与客户端
 
 ### Web  
+<img width="3828" height="1962" alt="image" src="https://github.com/user-attachments/assets/31b8a061-e270-4453-8ae1-aab0f6d3e1e4" />  
 <img width="3828" height="1962" alt="fd98db46654bde21296a6f815e5865c8" src="https://github.com/user-attachments/assets/95a90a97-fa14-41c3-8fa1-be1bfeeabe11" />  
 
 ### PWA  
