@@ -1,6 +1,8 @@
 # 📚 棧 · MangaDock
 
-![Head diagram](https://github.com/user-attachments/assets/701fe952-a866-4e4a-8ded-10a5ade1b9fd)
+<p align="center">
+  <img src="docs/banner.svg" alt="MangaDock banner" width="100%">
+</p>
 
 <p align="center">
   <a href="https://hub.docker.com/r/dddinmx/mangadock"><img alt="Docker Hub" src="https://img.shields.io/docker/v/dddinmx/mangadock?label=Docker%20Hub"></a>
