@@ -25,7 +25,7 @@
 <g transform="translate(128 458)" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" font-size="15" font-weight="700" letter-spacing="1.8">
   <rect width="164" height="42" rx="21" fill="#20212A" stroke="#3F202A"/><text x="82" y="27" text-anchor="middle" fill="#F8FAFC">SELF-HOSTED</text>
   <rect x="178" width="122" height="42" rx="21" fill="#20212A" stroke="#3F202A"/><text x="239" y="27" text-anchor="middle" fill="#F8FAFC">DOCKER</text>
-  <rect x="314" width="268" height="42" rx="21" fill="#20212A" stroke="#3F202A"/><text x="448" y="27" text-anchor="middle" fill="#F8FAFC">WEB · PWA · READING SYNC</text>
+  <rect x="314" width="340" height="42" rx="21" fill="#20212A" stroke="#3F202A"/><text x="484" y="27" text-anchor="middle" fill="#F8FAFC">WEB · PWA · READING SYNC</text>
 </g>
 <g filter="url(#shadow)">
   <g transform="translate(1004 172) rotate(-11 107 165)" clip-path="url(#clip1)"><rect width="214" height="330" fill="url(#cover2)"/><path d="M-30 260 260 30M-18 308 279 78" stroke="#40465A" stroke-width="34" opacity=".6"/><circle cx="102" cy="124" r="58" fill="#E11D48" opacity=".85"/><path d="M40 255c32-79 85-107 153-85v160H40v-75Z" fill="#11131A"/><text x="22" y="304" fill="#F8FAFC" font-family="system-ui,sans-serif" font-size="16" font-weight="700" letter-spacing="3">VOLUME 01</text></g>

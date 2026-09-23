@@ -1,7 +1,7 @@
 # 📚 棧 · MangaDock
 
 <p align="center">
-  <img src="docs/banner.svg?v=4e3eddf" alt="MangaDock banner" width="100%">
+  <img src="docs/banner.svg?v=44c2d88614" alt="MangaDock banner" width="100%">
 </p>
 
 <p align="center">
