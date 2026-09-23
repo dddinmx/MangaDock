@@ -49,6 +49,10 @@
                     document.documentElement.dataset.shelfColumns = savedShelfColumns;
                 }
 
+                // 移动版底部 Dock 栏开关（「我的 → 外观」）：默认关闭（隐藏 dock）。
+                document.documentElement.dataset.mobileDock =
+                    localStorage.getItem('mangadock-mobile-dock') === 'on' ? 'on' : 'off';
+
                 // 默认深色（贴参考图）；仅当用户明确选 light 时用浅色
                 if (savedTheme === 'light') {
                     document.documentElement.classList.remove('theme-dark');
@@ -612,6 +616,14 @@
             }
             html body.has-mobile-tabbar .app-main-content {
                 padding-bottom: 6.75rem !important;
+            }
+            /* 2026-09-23 底部 dock 显隐由「设置 → 外观 → 底部 Dock 栏」控制：
+               <html data-mobile-dock="off|on">，默认 off（隐藏）。JS/HTML 全保留，仅视觉切换。 */
+            html[data-mobile-dock="off"] .md-mobile-tabbar {
+                display: none !important;
+            }
+            html[data-mobile-dock="off"] body.has-mobile-tabbar .app-main-content {
+                padding-bottom: 1.5rem !important;
             }
             .md-mobile-tabbar {
                 position: fixed;
@@ -1191,6 +1203,32 @@
             syncShelfColumns();
             shelfColumnButtons.forEach((button) => {
                 button.addEventListener('click', () => setShelfColumns(button.dataset.shelfColumns));
+            });
+
+            // 移动版底部 Dock 栏开关（「我的 → 外观」）：写在 <html data-mobile-dock>，默认 off
+            const syncDockOption = () => {
+                const current = document.documentElement.dataset.mobileDock || 'off';
+                document.querySelectorAll('[data-dock-option]').forEach((button) => {
+                    const isActive = button.dataset.dockOption === current;
+                    button.classList.toggle('is-active', isActive);
+                    button.setAttribute('aria-checked', isActive ? 'true' : 'false');
+                });
+            };
+
+            const setMobileDock = (value) => {
+                const normalized = value === 'on' ? 'on' : 'off';
+                document.documentElement.dataset.mobileDock = normalized;
+                try {
+                    localStorage.setItem('mangadock-mobile-dock', normalized);
+                } catch (error) {
+                    console.warn('Failed to persist mobile dock preference', error);
+                }
+                syncDockOption();
+            };
+
+            syncDockOption();
+            document.querySelectorAll('[data-dock-option]').forEach((button) => {
+                button.addEventListener('click', () => setMobileDock(button.dataset.dockOption));
             });
 
             if (groupMenuBtn && groupMenuDropdown) {

@@ -101,7 +101,7 @@ def _build_home_spotlight(user_id):
         spotlight['description'] = description
 
     recent = []
-    for progress in progresses[:12]:
+    for progress in progresses[:18]:
         comic = comic_lookup.get(progress.comic_name)
         if comic:
             recent.append({
