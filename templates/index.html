@@ -81,7 +81,7 @@
                     <button type="button" aria-label="向后翻一屏" data-rail-dir="1">&rsaquo;</button>
                 </div>
                 <span class="md-home-rail__label">最近观看</span>
-                <a href="{{ url_for('history_page') }}" class="md-home-rail__more" data-app-loader="true">查看全部 &rsaquo;</a>
+                <a href="{{ url_for('comics_list', group='全部') }}" class="md-home-rail__more" data-app-loader="true">查看全部 &rsaquo;</a>
             </div>
             <div class="md-home-rail__track" tabindex="0" role="region" aria-label="最近观看的漫画">
                 {% for comic in recent_comics[:18] %}
