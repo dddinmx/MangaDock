@@ -380,9 +380,11 @@ def crawl_chapter_mxs(chapter_url, folder, chapter, comic_format, task_id):
                                 return False, "任务已取消"
                             # 章节下载完成后压缩成 CBZ
                             cbz_path = os.path.join(COMIC_ROOT, folder, f"{chapter:02d}.cbz")
-                            from mangadock.services.download import images_to_cbz
+                            from mangadock.services.download import images_to_cbz, note_chapter_finalize
                             success, msg = images_to_cbz(save_dir)
                             if success:
+                                # 2026-09-24 P1：容忍缺页落盘的章节写 .incomplete 标记，更新时补回
+                                note_chapter_finalize(folder, f"{chapter:02d}", len(img_urls) - success_count)
                                 safe_print(f"已压缩为: {os.path.basename(cbz_path)}")
                             else:
                                 # finalize 已原子化，失败不会留半截 .cbz，这里只兜底清理 .part；
@@ -445,6 +447,7 @@ def download_mxs_chapter(chapter, folder, comic_format, task_id):
         extract_image_extension,
         finalize_downloaded_chapter,
         incomplete_chapter_reason,
+        note_chapter_finalize,
     )
 
     ensure_directory(save_dir)

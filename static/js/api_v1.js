@@ -285,6 +285,7 @@
                         group_names: checkedValues(form, 'group_names'),
                     },
                     csrfToken: csrfToken,
+                    useDataNext: true,
                 };
             case 'user-delete':
                 return {

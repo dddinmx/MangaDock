@@ -105,6 +105,11 @@ MANHUAGUI_IMAGE_HOSTS = ('us.hamreus.com', 'us2.hamreus.com', 'us3.hamreus.com')
 MANHUAGUI_IMAGE_REFERER_FALLBACK = 'https://www.manhuagui.com/'
 
 SAFE_HTTP_ALLOWED_HOST_SUFFIXES = (
+    # Horizontal artwork metadata/image endpoints used by homepage banner lookup.
+    'anilist.co',
+    'kitsu.io',
+    'webtoons.com',
+    'webtoon-phinf.pstatic.net',
     '6wm.top',
     'baozimh.com',
     'baozimhcn.com',

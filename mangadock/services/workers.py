@@ -10,7 +10,7 @@ from mangadock.extensions import db
 from mangadock.models import BackgroundCommand, ComicUpdateCheck, DownloadTask
 from mangadock.services.download import download_complete_book, update_comic
 from mangadock.services.library import load_comic_mapping
-from mangadock.services.tasks import create_task, get_task, update_task
+from mangadock.services.tasks import create_task, get_task, is_task_cancel_requested, update_task
 from mangadock.services.updates import (
     claim_next_background_command,
     execute_background_command,
@@ -19,15 +19,33 @@ from mangadock.services.updates import (
 )
 from mangadock.settings import WORKER_POLL_INTERVAL_SECONDS, WORKER_SCHEDULE_HEARTBEAT_SECONDS, china_tz
 
-def start_download_task(url, comic_format, allow_adult=False):
+def start_download_task(url, comic_format, allow_adult=False, created_by_user_id=None):
     """创建下载任务并加入后台队列（allow_adult=创建者的 18+ 覆盖授权快照）"""
-    task_id = create_task(url, comic_format, allow_adult=bool(allow_adult))
+    task_id = create_task(url, comic_format, allow_adult=bool(allow_adult),
+                          created_by_user_id=created_by_user_id)
+    task = get_task(task_id)
+    if task and task.comic_name and task.comic_name != '未知漫画':
+        try:
+            from mangadock.services.home_banner import schedule_home_banner_search
+            schedule_home_banner_search(task_id, task.comic_name)
+        except Exception as exc:
+            print(f"首页横幅搜索未能启动：{exc}")
     update_task(task_id, log="任务已加入后台队列，等待 worker 处理")
     return task_id
 
-def start_update_task(comic_name, comic_format, url):
+def start_update_task(comic_name, comic_format, url, created_by_user_id=None):
     """创建更新任务并加入后台队列"""
-    task_id = create_task(url, comic_format, is_update=True, comic_name=comic_name)
+    from mangadock.services.groups import get_comic_group_map
+
+    group_name = get_comic_group_map().get(comic_name) or '默认分组'
+    task_id = create_task(
+        url,
+        comic_format,
+        is_update=True,
+        comic_name=comic_name,
+        group=group_name,
+        created_by_user_id=created_by_user_id,
+    )
     update_task(task_id, comic_name=comic_name, log="任务已加入后台队列，等待 worker 处理")
     return task_id
 
@@ -83,16 +101,70 @@ def claim_next_pending_task():
                 # 1) 更新任务：同漫画已有活动任务（下载/更新）→ 取消更新
                 #    （完整下载会重新抓取全部章节，更新内容被覆盖）
                 # 2) 下载任务：同漫画已有相同 URL 的活动任务 → 取消（重复提交）
-                # 3) 下载任务：同漫画有不同 URL 的活动任务 → 暂缓，保持 pending 等待
-                conflict = DownloadTask.query.filter(
-                    DownloadTask.id != task.id,
-                    DownloadTask.comic_name == task.comic_name,
-                    DownloadTask.comic_name != '未知漫画',
-                    DownloadTask.status.in_(('pending', 'running')),
-                ).order_by(
-                    DownloadTask.created_at.asc(),
-                    DownloadTask.id.asc()
-                ).first()
+                # 3) 下载任务：同漫画有不同 URL 的运行任务 → 暂缓；pending 下载按队列顺序领取
+                conflict_statuses = ('pending', 'running') if task.is_update else ('running',)
+                conflict = None
+                deferred_by_update = False
+                if task.is_update:
+                    conflict = DownloadTask.query.filter(
+                        DownloadTask.id != task.id,
+                        DownloadTask.comic_name == task.comic_name,
+                        DownloadTask.status.in_(conflict_statuses),
+                    ).order_by(
+                        DownloadTask.created_at.asc(),
+                        DownloadTask.id.asc()
+                    ).first()
+                    if conflict is None and task.url:
+                        deferred_by_update = DownloadTask.query.filter(
+                            DownloadTask.id != task.id,
+                            DownloadTask.comic_name == '未知漫画',
+                            DownloadTask.url == task.url,
+                            DownloadTask.is_update.is_(False),
+                            DownloadTask.status == 'running',
+                        ).first() is not None
+                elif task.comic_name == '未知漫画':
+                    # 标题解析失败时用 URL 去重；若同 URL 更新正在排队/运行，则等待更新结束。
+                    if task.url:
+                        conflict = DownloadTask.query.filter(
+                            DownloadTask.id != task.id,
+                            DownloadTask.url == task.url,
+                            DownloadTask.is_update.is_(False),
+                            DownloadTask.status == 'running',
+                        ).order_by(
+                            DownloadTask.created_at.asc(),
+                            DownloadTask.id.asc()
+                        ).first()
+                        deferred_by_update = DownloadTask.query.filter(
+                            DownloadTask.id != task.id,
+                            DownloadTask.url == task.url,
+                            DownloadTask.is_update.is_(True),
+                            DownloadTask.status.in_(('pending', 'running')),
+                        ).first() is not None
+                else:
+                    conflict = DownloadTask.query.filter(
+                        DownloadTask.id != task.id,
+                        DownloadTask.comic_name == task.comic_name,
+                        DownloadTask.status == 'running',
+                    ).order_by(
+                        DownloadTask.created_at.asc(),
+                        DownloadTask.id.asc()
+                    ).first()
+                    if conflict is not None and conflict.is_update:
+                        deferred_by_update = True
+                        conflict = None
+                    if conflict is None and task.url:
+                        conflict = DownloadTask.query.filter(
+                            DownloadTask.id != task.id,
+                            DownloadTask.url == task.url,
+                            DownloadTask.is_update.is_(False),
+                            DownloadTask.status == 'running',
+                        ).order_by(
+                            DownloadTask.created_at.asc(),
+                            DownloadTask.id.asc()
+                        ).first()
+
+                if deferred_by_update and conflict is None:
+                    continue
 
                 if conflict is not None:
                     conflict_desc = f'（{conflict.id[:8]}…）'
@@ -114,7 +186,7 @@ def claim_next_pending_task():
                         )
                         db.session.commit()
                         continue
-                    # 不同链接的同漫画任务 → 暂缓，继续看队列里其他漫画的任务
+                    # 不同链接的同漫画运行任务 → 暂缓；待处理下载按队列顺序领取，避免互相等待。
                     continue
 
                 chosen = task
@@ -128,6 +200,7 @@ def claim_next_pending_task():
                     'status': 'running',
                     'start_time': chosen.start_time or now,
                     'end_time': None,
+                    'worker_pid': os.getpid(),
                     'log': (chosen.log or '') + '后台 worker 已开始处理任务\n',
                 },
                 synchronize_session=False
@@ -204,20 +277,21 @@ def recover_background_queue_state():
         db.session.commit()
 
 
-def requeue_orphan_running_tasks(reason='检测到任务 worker 退出，任务已重新加入队列'):
-    """把所有 status='running' 的任务退回 'pending'，返回退回条数。
-
-    只有在「一个任务 worker 都不在」时才该调用：此时不可能存在合法的在跑任务，
-    残留的 running 一定是 worker 中途消失（崩溃 / SystemExit / 被信号杀掉）留下的
-    孤儿 —— 否则它们会永远占着「运行中」，既不会推进也不会被重新领取。
+def requeue_orphan_running_tasks(reason='检测到任务 worker 退出，任务已重新加入队列',
+                                 worker_pids=None):
+    """退回已退出 worker 的任务；全部离线时也处理旧版未记录 PID 的任务。
 
     与 recover_background_queue_state() 的区别：后者是服务重启时由命令 worker 调用，
     会把 command / update_check 一并复位；这里只动下载任务，供主进程的守护线程用。
     """
     with app.app_context():
-        orphans = DownloadTask.query.filter_by(status='running').all()
+        query = DownloadTask.query.filter_by(status='running')
+        if worker_pids is not None:
+            query = query.filter(DownloadTask.worker_pid.in_(worker_pids))
+        orphans = query.all()
         for task in orphans:
             task.status = 'pending'
+            task.worker_pid = None
             task.end_time = None
             task.log = (task.log or '') + reason + '\n'
         if orphans:
@@ -264,7 +338,9 @@ def run_task_worker(worker_index):
                     # 后续任务永久卡 pending（仅重启可恢复）。兜底：任务置 error 后继续。
                     print(f"❌ 任务 {task_id} 执行异常：{e}")
                     try:
-                        update_task(task_id, status='error', log=f"执行异常：{e}")
+                        # 2026-09-24 P1：已取消的任务不被异常兜底覆盖成 error
+                        if not is_task_cancel_requested(task_id):
+                            update_task(task_id, status='error', log=f"执行异常：{e}")
                     except Exception:
                         pass
                 continue

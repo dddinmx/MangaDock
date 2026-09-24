@@ -38,6 +38,7 @@ from mangadock.services.groups import (
 )
 from mangadock.services.library import (
     build_api_page_list,
+    api_page_source_version,
     get_available_comics,
     get_chapter_file_path,
     get_comic_directory,
@@ -390,6 +391,14 @@ def api_comic_chapter_page_image(comic_id, chapter_id, page_index):
     if not file_path:
         return api_error('CHAPTER_NOT_FOUND', '章节文件不存在', 404)
 
+    requested_version = request.args.get('v')
+    if requested_version is not None and requested_version != api_page_source_version(file_path):
+        response, status = api_error(
+            'STALE_PAGE_IMAGE', '章节内容已更新，请重新获取页面列表', 409
+        )
+        response.headers['Cache-Control'] = 'no-store'
+        return response, status
+
     try:
         image_path = resolve_chapter_page_image(file_path, identity.comic_id, chapter_id, page_index)
     except RuntimeError as exc:
@@ -401,6 +410,13 @@ def api_comic_chapter_page_image(comic_id, chapter_id, page_index):
     except Exception as exc:
         safe_print(f"页面渲染失败: {exc}")
         return api_error('PAGE_RENDER_FAILED', '页面渲染失败', 500)
+
+    if requested_version is not None and requested_version != api_page_source_version(file_path):
+        response, status = api_error(
+            'STALE_PAGE_IMAGE', '章节内容已更新，请重新获取页面列表', 409
+        )
+        response.headers['Cache-Control'] = 'no-store'
+        return response, status
 
     if not image_path or not os.path.exists(image_path):
         return api_error('PAGE_NOT_FOUND', '页面不存在', 404)
@@ -494,4 +510,3 @@ def api_statistics():
     current_user = get_api_request_user()
     payload = build_api_statistics_payload(requested_year, current_user.id)
     return jsonify(payload)
-

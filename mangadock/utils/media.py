@@ -28,7 +28,7 @@ def default_headers(referer=None):
 
 def sanitize_filename(name):
     safe_name = re.sub(r'[\\/:*?"<>|]', '', (name or '').strip())
-    return safe_name or "untitled"
+    return "untitled" if safe_name in {'', '.', '..'} else safe_name
 
 
 def ensure_directory(path):
@@ -140,4 +140,3 @@ def repair_pdf_for_reading(pdf_path):
         safe_print(f"修复PDF失败: {exc}")
 
     return pdf_path
-

@@ -194,6 +194,7 @@ def download_baozimh_org_chapter(source, chapter, folder, comic_format, task_id)
         extract_image_extension,
         finalize_downloaded_chapter,
         incomplete_chapter_reason,
+        note_chapter_finalize,
     )
 
     ensure_directory(save_dir)
@@ -247,6 +248,8 @@ def download_baozimh_org_chapter(source, chapter, folder, comic_format, task_id)
         if not success:
             return False, message
 
+        # 2026-09-24 P1：容忍缺页落盘的章节写 .incomplete 标记，更新时补回
+        note_chapter_finalize(folder, chapter['filename_base'], len(failed_items))
         if failed_items:
             update_task(task_id, log=f"章节 {chapter['title']} 有 {len(failed_items)} 张图片下载失败")
         return True, f"章节 {chapter['title']} 处理完成"

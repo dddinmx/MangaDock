@@ -10,17 +10,30 @@
     {% if spotlight and spotlight.comic_name %}
     {# hero 版式照 Figma「New Movie - Header Website」：满屏出血主视觉 + 底部横滑书轨。
        样式全部挂在 .md-hero--figma 上（见 md-theme.css 末尾），小说主页不受影响。 #}
-    <section class="md-hero md-hero--figma">
+    <section class="md-hero md-hero--figma{% if spotlight.banner_url %} md-hero--has-banner{% endif %}">
         {# 底图强模糊只做氛围；清晰主封面单独一层，出血到右边缘 #}
         <div class="md-hero-media" aria-hidden="true">
-            <img
-                class="md-hero-media-img is-soft"
-                src="{{ cover_image_url(spotlight.comic_name) }}"
-                alt=""
-                data-fallback="{{ asset_url('cover/cover.png') }}"
-            >
+            <picture>
+                {% if spotlight.banner_url %}
+                <source media="(max-width: 1024px), (hover: none), (pointer: coarse)"
+                        srcset="{{ cover_image_url(spotlight.comic_name) }}">
+                {% endif %}
+                <img
+                    class="md-hero-media-img{% if not spotlight.banner_url %} is-soft{% endif %}"
+                    src="{{ spotlight.banner_url or cover_image_url(spotlight.comic_name) }}"
+                    alt=""
+                    data-cover-src="{{ cover_image_url(spotlight.comic_name) }}"
+                    data-banner-src="{{ spotlight.banner_url or '' }}"
+                    data-fallback="{{ asset_url('cover/cover.png') }}"
+                >
+            </picture>
         </div>
         <div class="md-hero-shade"></div>
+        {% if spotlight.banner_url %}
+        <div class="md-hero-banner-art" aria-hidden="true">
+            <img src="{{ spotlight.banner_url }}" alt="" loading="eager" decoding="async">
+        </div>
+        {% endif %}
         <div class="md-hero-inner">
             <div class="md-hero-copy">
                 <h1 class="md-hero-title">{{ spotlight.comic_name }}</h1>
@@ -129,6 +142,33 @@
 
 {% block extra_scripts %}
 <script>
+// 横幅无法自然铺满主视觉时，桌面自动使用原来的超分封面布局。
+(function () {
+    var hero = document.querySelector('.md-hero--has-banner');
+    var banner = hero && hero.querySelector('.md-hero-banner-art img');
+    var background = hero && hero.querySelector('.md-hero-media-img');
+    if (!banner) return;
+
+    var syncBannerFit = function () {
+        if (!hero.clientHeight) return;
+        var imageRatio = banner.naturalWidth / banner.naturalHeight;
+        var frameRatio = hero.clientWidth / hero.clientHeight;
+        var visiblePart = Math.min(imageRatio / frameRatio, frameRatio / imageRatio);
+        var useBanner = banner.naturalWidth > 0 && visiblePart >= 0.72;
+        hero.classList.toggle('md-hero--banner-cover', useBanner);
+        hero.classList.toggle('md-hero--banner-fallback', !useBanner);
+        if (background && background.dataset.bannerSrc) {
+            var nextSource = useBanner ? background.dataset.bannerSrc : background.dataset.coverSrc;
+            if (background.getAttribute('src') !== nextSource) background.setAttribute('src', nextSource);
+        }
+    };
+
+    banner.addEventListener('load', syncBannerFit);
+    banner.addEventListener('error', syncBannerFit);
+    window.addEventListener('resize', syncBannerFit);
+    syncBannerFit();
+})();
+
 // 底部书轨翻页：按可见宽度滚一屏，并在两端把箭头置灰
 (function () {
     var track = document.querySelector('.md-home-rail__track');

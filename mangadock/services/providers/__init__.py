@@ -61,7 +61,7 @@ register(
 register(
     'manhuagui',
     hosts=('manhuagui.com',),
-    pattern=r'^https?://(?:www\.)?manhuagui\.com/comic/\d+(?:/\d+\.html)?/?$',
+    pattern=r'^https?://(?:m\.|www\.)?manhuagui\.com/comic/\d+(?:/\d+\.html)?/?$',
     module='mangadock.services.manhuagui',
     load_source='load_manhuagui_source',
     download_chapter='download_manhuagui_chapter',

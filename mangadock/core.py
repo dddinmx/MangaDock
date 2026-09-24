@@ -228,6 +228,32 @@ _COVER_RETRY_DELAYS = (0.0, 0.4, 1.0, 2.5)  # 总重试窗口约 4 秒
 
 @app.route('/static/cover/<path:filename>')
 def resilient_cover_file(filename):
+    if filename != 'cover.png':
+        from mangadock.auth import get_current_user
+        from mangadock.services.groups import can_user_access_group, get_comic_group_map
+
+        user = get_current_user()
+        if not user:
+            abort(403)
+        if not user.is_admin and not filename.startswith('novels/'):
+            if filename.startswith('home-banner/'):
+                import hashlib
+                from mangadock.services.library import get_available_comics
+
+                banner_key = os.path.basename(filename).split('-', 1)[0].split('.', 1)[0]
+                comic_name = next((
+                    comic['comic_name'] for comic in get_available_comics()
+                    if hashlib.sha256(comic['comic_name'].strip().encode('utf-8')).hexdigest()
+                    == banner_key
+                ), None)
+                if not comic_name:
+                    abort(403)
+            else:
+                comic_name = os.path.splitext(os.path.basename(filename))[0]
+            group = get_comic_group_map().get(comic_name) or '默认分组'
+            if not can_user_access_group(group, user):
+                abort(403)
+
     target = safe_join(app.static_folder, 'cover', filename)
     if target is None:
         abort(404)
@@ -236,7 +262,10 @@ def resilient_cover_file(filename):
             time.sleep(delay)
         try:
             os.stat(target)
-            return send_file(target, conditional=True)
+            response = send_file(target, conditional=True)
+            if filename != 'cover.png':
+                response.headers['Cache-Control'] = 'private, no-store'
+            return response
         except FileNotFoundError:
             # 文件确实不存在：仍走完短重试，规避 SMB 目录负缓存滞后
             continue

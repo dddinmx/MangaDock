@@ -281,6 +281,30 @@ def enforce_response_size(response, max_bytes, stream=False):
         raise ValueError('上游响应超过大小限制')
 
 
+def _read_bounded_content(response, max_bytes):
+    """有界读取响应体：超过 max_bytes 立即抛错并关闭连接。
+
+    2026-09-24 code review P2：requests 非流式请求在 get() 返回前就把整个
+    响应体读进内存，事后再查 len(content) 挡不住读取阶段的内存占用。
+    这里在 iter_content 流上逐块计数，超限即中止，超限部分不会进入内存。
+    """
+    chunks = []
+    read_bytes = 0
+    try:
+        for chunk in response.iter_content(65536):
+            if not chunk:
+                continue
+            read_bytes += len(chunk)
+            if max_bytes and read_bytes > max_bytes:
+                raise ValueError('上游响应超过大小限制')
+            chunks.append(chunk)
+    except Exception:
+        response.close()
+        raise
+    response._content = b''.join(chunks)
+    response._content_consumed = True
+
+
 def safe_http_get(url, headers=None, timeout=None, stream=False, verify=True, max_bytes=MAX_HTML_RESPONSE_BYTES, session_obj=None, retries=None):
     current_url = validate_safe_upstream_url(url)
     timeout = timeout or CONFIG['request_timeout']
@@ -300,8 +324,10 @@ def safe_http_get(url, headers=None, timeout=None, stream=False, verify=True, ma
     requester.mount('https://', _SafeHTTPAdapter())
 
     for _ in range(SAFE_HTTP_MAX_REDIRECTS):
+        # 传输层始终流式发送：非流式调用随后由 _read_bounded_content 在读取
+        # 阶段强制执行大小上限，异常大的响应不会先整体进入内存。
         response = _send_get_with_retries(
-            requester, current_url, headers, timeout, stream, verify, retries
+            requester, current_url, headers, timeout, True, verify, retries
         )
         if response.is_redirect or response.is_permanent_redirect:
             location = response.headers.get('Location')
@@ -310,10 +336,41 @@ def safe_http_get(url, headers=None, timeout=None, stream=False, verify=True, ma
                 raise ValueError('上游重定向缺少 Location')
             current_url = validate_safe_upstream_url(urljoin(current_url, location))
             continue
-        enforce_response_size(response, max_bytes, stream=stream)
+        # 先做 Content-Length 快速失败（流式语义：只查响应头，不触发读取）
+        enforce_response_size(response, max_bytes, stream=True)
+        if not stream:
+            _read_bounded_content(response, max_bytes)
         return response
 
     raise ValueError('上游重定向次数过多')
+
+
+def safe_http_post(url, json_body=None, headers=None, timeout=None, verify=True,
+                   max_bytes=MAX_HTML_RESPONSE_BYTES, session_obj=None):
+    """向固定的、经过校验的 HTTPS 上游发送 POST 请求。"""
+    current_url = validate_safe_upstream_url(url)
+    requester = session_obj
+    if requester is None or not isinstance(requester, requests.Session):
+        requester = requests.Session()
+    requester.mount('http://', _SafeHTTPAdapter())
+    requester.mount('https://', _SafeHTTPAdapter())
+
+    response = requester.post(
+        current_url,
+        json=json_body,
+        headers=headers,
+        timeout=timeout or CONFIG['request_timeout'],
+        verify=should_verify_upstream_tls(verify),
+        allow_redirects=False,
+        # 与 safe_http_get 一致：传输层流式 + 有界读取，大小限制在读取阶段生效
+        stream=True,
+    )
+    if response.is_redirect or response.is_permanent_redirect:
+        response.close()
+        raise ValueError('上游 POST 不允许重定向')
+    enforce_response_size(response, max_bytes, stream=True)
+    _read_bounded_content(response, max_bytes)
+    return response
 
 
 def write_limited_response_to_file(response, output_path, max_bytes):

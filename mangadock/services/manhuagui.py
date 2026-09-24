@@ -35,9 +35,9 @@ from mangadock.settings import (
 from mangadock.utils.http import safe_http_get
 from mangadock.utils.media import default_headers, ensure_directory, sanitize_filename
 
-MANHUAGUI_BOOK_URL_PATTERN = re.compile(r'^https?://(?:www\.)?manhuagui\.com/comic/(\d+)/?')
+MANHUAGUI_BOOK_URL_PATTERN = re.compile(r'^https?://(?:m\.|www\.)?manhuagui\.com/comic/(\d+)/?')
 MANHUAGUI_CHAPTER_URL_PATTERN = re.compile(
-    r'^https?://(?:www\.)?manhuagui\.com/comic/(\d+)/(\d+)\.html'
+    r'^https?://(?:m\.|www\.)?manhuagui\.com/comic/(\d+)/(\d+)\.html'
 )
 
 # ------------------------------------------------------------------ LZString
@@ -463,6 +463,7 @@ def download_manhuagui_chapter(source, chapter, folder, comic_format, task_id):
         finalize_downloaded_chapter,
         incomplete_chapter_reason,
         is_task_cancel_requested,
+        note_chapter_finalize,
         update_task,
     )
 
@@ -520,6 +521,8 @@ def download_manhuagui_chapter(source, chapter, folder, comic_format, task_id):
         if not success:
             return False, message
 
+        # 2026-09-24 P1：容忍缺页落盘的章节写 .incomplete 标记，更新时补回
+        note_chapter_finalize(folder, chapter['filename_base'], len(failed_items))
         if failed_items:
             update_task(task_id, log=f"章节 {chapter['title']} 有 {len(failed_items)} 张图片下载失败")
         return True, f"章节 {chapter['title']} 处理完成"

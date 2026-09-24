@@ -119,10 +119,8 @@ def main():
 
         这里做两件事：
           ① 发现子进程退出、且已过冷却期，就原地重启它（冷却避免崩溃循环里反复重启）；
-          ② 若一个任务 worker 都不在，把残留的 running 任务退回 pending ——
-             否则它们会永远占着「运行中」。
-        已知局限：只剩部分任务 worker 死亡时无法判定某个 running 任务归属谁，
-        此时只告警不退回（真正的修法是给任务加 worker 归属字段）。
+        ② 将已退出任务 worker 领取的 running 任务退回 pending；若全部离线，
+           还会处理旧版未记录 worker PID 的任务。
         """
         while True:
             time.sleep(SUPERVISE_INTERVAL_SECONDS)
@@ -147,6 +145,23 @@ def main():
                         and slot['process'] is not None
                         and slot['process'].poll() is None
                     ]
+                    dead_task_pids = [
+                        slot['process'].pid for slot in dead_slots
+                        if slot['name'].startswith('mangadock-task-worker')
+                    ]
+
+                    # Requeue before spawning replacements; a new worker must not
+                    # claim a task while the supervisor is resetting running rows.
+                    if dead_task_pids:
+                        try:
+                            if alive_task_workers:
+                                requeued = requeue_orphan_running_tasks(worker_pids=dead_task_pids)
+                            else:
+                                requeued = requeue_orphan_running_tasks()
+                            if requeued:
+                                print(f"♻️  下载 worker 退出，{requeued} 个任务已退回队列")
+                        except Exception as exc:
+                            print(f"⚠️  退回孤儿任务失败：{exc}")
 
                     for slot in dead_slots:
                         name = slot['name']
@@ -165,15 +180,6 @@ def main():
                             f"（原 PID {previous.pid} 已退出，新 PID {slot['process'].pid}）"
                         )
 
-                    if not alive_task_workers:
-                        try:
-                            requeued = requeue_orphan_running_tasks()
-                            if requeued:
-                                print(f"♻️  任务 worker 全部离线，{requeued} 个孤儿任务已退回队列")
-                        except Exception as exc:
-                            print(f"⚠️  退回孤儿任务失败：{exc}")
-                    elif any(slot['name'].startswith('mangadock-task-worker') for slot in dead_slots):
-                        print("⚠️  有下载 worker 退出（其余仍在运行），若有任务卡在「运行中」需人工确认")
             except Exception as exc:
                 # 守护线程自己绝不能死，否则又回到「队列饿死」的老路
                 print(f"⚠️  后台 worker 守护异常：{exc}")
@@ -240,6 +246,15 @@ def main():
     ).start()
 
     preload_app()
+    try:
+        from mangadock.services.home_banner import queue_initial_home_banner_backfill
+
+        command = queue_initial_home_banner_backfill()
+        if command:
+            print(f'✅ 已排队首页横幅补扫命令 #{command.id}')
+    except Exception as exc:
+        print(f'⚠️  首页横幅补扫未能排队：{exc}')
+
     try:
         StandaloneGunicornApplication(app, gunicorn_options).run()
     finally:

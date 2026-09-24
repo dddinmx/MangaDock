@@ -14,7 +14,9 @@ from urllib.parse import urlparse
 
 from mangadock.services.fanqie_api import FanqieApiError, get_client
 from mangadock.services.library import (
+    get_comic_directory,
     get_local_chapter_match_bases,
+    is_safe_comic_name,
     is_existing_local_chapter,
     save_comic_description,
     save_comic_mapping,
@@ -254,7 +256,18 @@ def execute_fanqie_comic_task(task_id: str) -> bool:
         source = load_fanqie_comic_source(task.url, client=client)
         folder = task.comic_name if task.is_update and task.comic_name else source["title"]
         folder = sanitize_filename(folder or source["book_id"])
-        comic_dir = Path(COMIC_ROOT) / folder
+        if not is_safe_comic_name(folder):
+            raise ValueError("漫画名称无效")
+        from mangadock.services.groups import can_creator_download_comic
+        if not can_creator_download_comic(folder, getattr(task, 'created_by_user_id', None)):
+            raise ValueError("当前账号无权下载该漫画")
+        if task.is_update:
+            existing_comic_dir = get_comic_directory(folder)
+            if not existing_comic_dir:
+                raise ValueError(f"漫画目录不存在: {folder}")
+            comic_dir = Path(existing_comic_dir)
+        else:
+            comic_dir = Path(COMIC_ROOT) / folder
 
         update_task(task_id, comic_name=folder, url=source["source_url"], log=f"准备下载：《{source['title']}》")
         existing_match_bases = get_local_chapter_match_bases(folder)

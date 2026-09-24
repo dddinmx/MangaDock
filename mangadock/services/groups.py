@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 from flask import session
+from sqlalchemy import or_
 
 from mangadock.core import app
 from mangadock.extensions import db
@@ -12,6 +13,7 @@ from mangadock.models import (
     ComicGroup,
     ComicGroupMembership,
     DownloadTask,
+    User,
     UserGroupPermission,
 )
 from mangadock.settings import china_tz
@@ -71,6 +73,7 @@ def get_accessible_group_names(user=None):
         normalize_group_name(group_name)
         for group_name in get_user_group_permissions(target_user.id if target_user else None)
     }
+    allowed_groups.intersection_update(all_groups)
     return [group_name for group_name in all_groups if group_name in allowed_groups]
 
 
@@ -83,6 +86,35 @@ def can_user_access_group(group_name, user=None):
         return True
 
     return normalized_group in set(get_accessible_group_names(target_user))
+
+
+def can_user_access_task(task, user, group_map=None, allowed_groups=None):
+    if not user:
+        return False
+    if user.is_admin:
+        return True
+    if task.created_by_user_id is not None and task.created_by_user_id != user.id:
+        return False
+    if str(task.url or '').startswith('fanqie://'):
+        return True
+    group = (group_map if group_map is not None else get_comic_group_map()).get(
+        task.comic_name
+    ) or task.group or '默认分组'
+    if allowed_groups is not None:
+        return group in allowed_groups
+    return can_user_access_group(group, user)
+
+
+def can_creator_download_comic(comic_name, creator_user_id):
+    """Recheck permissions after the provider resolves the real title."""
+    if creator_user_id is None:  # Legacy and scheduled tasks have no creator.
+        return True
+    with app.app_context():
+        user = db.session.get(User, creator_user_id)
+        if not user or not (user.is_admin or user.can_download):
+            return False
+        group = get_comic_group_map().get(comic_name) or '默认分组'
+        return can_user_access_group(group, user)
 
 
 def set_user_group_permissions(user_id, group_names):
@@ -124,12 +156,31 @@ def ensure_comic_group(group_name):
 
 
 def get_comic_group_map():
+    """Resolve explicit memberships and legacy task-group fallbacks consistently."""
     with app.app_context():
         memberships = ComicGroupMembership.query.all()
-        return {
-            membership.comic_name: membership.group_name or '默认分组'
+        group_map = {
+            membership.comic_name: normalize_group_name(membership.group_name) or '默认分组'
             for membership in memberships
         }
+        legacy_groups = (
+            db.session.query(DownloadTask.comic_name, DownloadTask.group)
+            .filter(
+                DownloadTask.comic_name.isnot(None),
+                DownloadTask.comic_name != '未知漫画',
+                DownloadTask.group.isnot(None),
+                DownloadTask.status.in_(('completed', 'running', 'error', 'cancelled')),
+                or_(
+                    DownloadTask.url.is_(None),
+                    ~DownloadTask.url.startswith('fanqie://'),
+                ),
+            )
+            .order_by(DownloadTask.created_at.asc(), DownloadTask.id.asc())
+            .all()
+        )
+        for comic_name, group_name in legacy_groups:
+            group_map.setdefault(comic_name, normalize_group_name(group_name) or '默认分组')
+        return group_map
 
 
 def normalize_hidden_target(target_type, target_value):
@@ -305,4 +356,3 @@ def filter_grouped_comics_for_user(comics, user=None):
     }
 
     return filtered_comics, filtered_group_names, filtered_counts, filtered_lookup
-

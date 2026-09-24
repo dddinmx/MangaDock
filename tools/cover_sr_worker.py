@@ -237,10 +237,10 @@ def main():
         source_size = image.size
         width, height = source_size
 
-        # OOM 防护：输出缓冲按 h*4 × w*4 全量分配，超大图会直接爆内存。
-        # 最长边 > 1600px 时源图已经很大、超分收益也低，直接返回原图不放大
-        # （1600 × 4 = 6400 上限可控），由主进程按 Pillow 链路兜底。
-        if max(width, height) > 1600:
+        # OOM 防护：输出缓冲按 h*4 × w*4 全量分配。横幅通常不到 1.5 MP，
+        # 即使长边略超 1600，4×结果仍可控；保留横幅的 AI 超分，其它大图跳过。
+        is_small_landscape = width >= height and width * height <= 1_500_000
+        if max(width, height) > 1600 and not is_small_landscape:
             log(f'源图过大（{width}x{height}，最长边 > 1600），跳过超分直接返回原图',
                 args.quiet)
             os.makedirs(os.path.dirname(os.path.abspath(args.output)) or '.', exist_ok=True)

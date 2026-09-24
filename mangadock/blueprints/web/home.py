@@ -14,6 +14,7 @@ from mangadock.services.groups import (
     get_admin_hidden_targets,
     is_comic_hidden_for_admin,
 )
+from mangadock.services.home_banner import get_home_banner_url
 from mangadock.services.library import (
     get_available_comics,
     get_comic_descriptions,
@@ -93,6 +94,7 @@ def _build_home_spotlight(user_id):
 
     if spotlight:
         name = spotlight.get('comic_name')
+        spotlight['banner_url'] = get_home_banner_url(name)
         description = descriptions.get(name) or ''
         if not description and name:
             description = refresh_comic_description(name) or ''

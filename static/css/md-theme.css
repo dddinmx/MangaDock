@@ -3108,7 +3108,14 @@ body.md-home-page .md-main--flush {
      早期版本用站点自己的 --md-max 容器换算，在 1920 下退化成 408px，
      左侧空一大片、和书轨也对不上，已废弃。 */
   --fig-gut: max(1.25rem, 8.33vw);
-  --fig-rail-pad: var(--fig-gut);
+  /* 书轨左右留白（2026-09-24 用户要求「底部铺满」）：
+     早期沿用 --fig-gut（= 8.33vw，1920 下 160px），左侧会空出一条明显空白带，
+     底部显得没铺满。现在只留一丢丢过渡留白，不贴边：
+       1920 → 28px · 1440 → 21.6px · 窄屏兜底 16px · 宽屏封顶 28px
+     注意：head 行 / track 内边距 / scroll-padding-inline 三处都引用本变量，改一处即可；
+     代价是书轨左边缘不再与 hero 文案左基准（--fig-gut）对齐，这是刻意取舍。
+     窄屏（<=1024 / 触摸）在下方媒体查询里另有 1.25rem 覆盖，不受本行影响。 */
+  --fig-rail-pad: clamp(1rem, 1.5vw, 1.75rem);
   /* 书轨卡片宽按「页宽」取参考稿实测的 9.31vw（= 1920 下 179、1440 下 134），
      间距 = 卡宽 18.4%。min(..., 18vh) 给矮窗口兜底，免得固定一屏时书轨挤掉文案。 */
   --fig-card-w: min(9.31vw, 18vh);
@@ -3800,4 +3807,62 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
     padding: 0.06rem 0.26rem;
     font-size: 0.56rem;
   }
+}
+
+.md-hero--figma .md-hero-banner-art {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.md-hero--figma .md-hero-banner-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.md-hero--figma.md-hero--banner-cover .md-hero-banner-art {
+  display: flex;
+}
+
+.md-hero--figma.md-hero--banner-cover .md-hero-media-img {
+  filter: blur(28px) saturate(1.15) brightness(0.9);
+  opacity: 1;
+}
+
+.md-hero--figma.md-hero--banner-cover .md-hero-art {
+  display: none;
+}
+
+@media (max-width: 1024px), (hover: none), (pointer: coarse) {
+  .md-hero--figma .md-hero-banner-art {
+    display: none;
+  }
+
+  /* 还原改版前的窄屏封面策略：模糊封面铺底，清晰竖封面按比例置中。 */
+  .md-hero--figma.md-hero--banner-cover .md-hero-media {
+    inset: 0;
+  }
+
+  .md-hero--figma.md-hero--banner-cover .md-hero-media-img {
+    inset: -8%;
+    width: 116%;
+    height: 116%;
+    object-position: center 25%;
+    transform: scale(1.08);
+    filter: blur(42px) saturate(1.15) brightness(0.55);
+    opacity: 0.9;
+  }
+
+  .md-hero--figma.md-hero--banner-cover .md-hero-art {
+    display: block;
+  }
+
 }

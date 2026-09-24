@@ -30,6 +30,8 @@ class DownloadTask(db.Model):
     group = db.Column(db.String(255), default='默认分组')  # 分组字段
     # 任务创建者的 18+ 覆盖授权快照（can_view_adult 用户在全局关闭时仍可下 mxs 源）
     allow_adult = db.Column(db.Boolean, nullable=False, default=False)
+    created_by_user_id = db.Column(db.Integer)
+    worker_pid = db.Column(db.Integer)
 
 class ReadingProgress(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -273,6 +275,8 @@ def initialize_database():
         ensure_sqlite_column(User.__table__.name, 'can_download', 'BOOLEAN DEFAULT 0')
         ensure_sqlite_column(User.__table__.name, 'can_view_adult', 'BOOLEAN DEFAULT 0')
         ensure_sqlite_column(DownloadTask.__table__.name, 'allow_adult', 'BOOLEAN DEFAULT 0')
+        ensure_sqlite_column(DownloadTask.__table__.name, 'created_by_user_id', 'INTEGER')
+        ensure_sqlite_column(DownloadTask.__table__.name, 'worker_pid', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'user_id', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'anchor_paragraph', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'anchor_offset', 'INTEGER')

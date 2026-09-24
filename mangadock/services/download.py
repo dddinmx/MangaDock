@@ -9,11 +9,14 @@
 - 站点专属函数名在此 re-export，保持既有导入路径兼容。
 """
 import concurrent.futures
+import fcntl
+import hashlib
 import json
 import os
 import random
 import re
 import shutil
+import threading
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -36,10 +39,15 @@ from mangadock.settings import (
     china_tz,
 )
 from mangadock.services.library import (
+    INCOMPLETE_CHAPTER_SUFFIX,
+    chapter_match_keys,
     chapter_output_exists,
     is_valid_local_chapter_file,
+    get_incomplete_chapter_bases,
     get_local_chapter_bases,
     get_local_chapter_match_bases,
+    get_comic_directory,
+    is_safe_comic_name,
     is_existing_local_chapter,
     load_comic_mapping,
     normalize_comic_description,
@@ -69,7 +77,13 @@ from mangadock.services.providers.mxs import (
     title,
     title_mxs,
 )
-from mangadock.services.tasks import get_task, is_task_cancel_requested, update_task
+from mangadock.services.tasks import (
+    finalize_task_status,
+    get_task,
+    is_task_cancel_requested,
+    normalize_task_url,
+    update_task,
+)
 from mangadock.utils.cover_image import normalize_cover_bytes
 from mangadock.utils.http import (
     safe_http_get,
@@ -163,6 +177,14 @@ def persist_source_description(comic_name, source):
     return save_comic_description(comic_name, description)
 
 
+# 2026-09-24 code review P2：首页/详情页缺简介时会同步抓源站，源站变慢/挂掉
+# 会拖住页面请求，且失败后无冷却、每次打开都重试。这里记录每本漫画的上次
+# 尝试时间：冷却期内直接放弃（成功的已落库不会再走到这里，冷却主要兜失败）。
+_DESCRIPTION_REFRESH_COOLDOWN_SECONDS = 6 * 3600
+_description_refresh_attempts = {}
+_description_refresh_lock = threading.Lock()
+
+
 def refresh_comic_description(comic_name, source_url=None):
     """按 comic.json 源站 URL 重新抓取简介（用于旧书补全）。"""
     normalized_name = (comic_name or '').strip()
@@ -171,6 +193,13 @@ def refresh_comic_description(comic_name, source_url=None):
     url = (source_url or '').strip() or load_comic_mapping().get(normalized_name)
     if not url:
         return ''
+    now = time.time()
+    with _description_refresh_lock:
+        last_attempt = _description_refresh_attempts.get(normalized_name, 0)
+        if now - last_attempt < _DESCRIPTION_REFRESH_COOLDOWN_SECONDS:
+            return ''
+        # 先记录尝试时间再抓取：多线程并发请求同一页面时不会重复打源站
+        _description_refresh_attempts[normalized_name] = now
     try:
         source = load_comic_source(url)
         persist_source_description(normalized_name, source)
@@ -355,6 +384,7 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
 
             max_workers = CONFIG['max_workers']
             success_count = 0
+            failed_image_count = 0  # 重试耗尽仍失败的图片数（非 404 收尾、非取消）
             n = 1
             stop_flag = False
 
@@ -388,6 +418,8 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
                                 stop_flag = True
                                 executor.shutdown(wait=False)
                                 break
+                            # 重试耗尽的失败（404 收尾走 stop_download，不计入）
+                            failed_image_count += 1
 
                     if not stop_flag:
                         if batch_success == 0:
@@ -425,6 +457,8 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
                     update_task(task_id, log=f"删除临时目录时发生错误: {e}")
 
             if success:
+                # 2026-09-24 P1：有缺页也落盘的章节写 .incomplete 标记，更新时补回
+                note_chapter_finalize(folder, f"{chapter:02d}", failed_image_count)
                 return True, f"章节 {chapter} 处理完成"
             # finalize 失败：原子落地保证本次不会留下半截最终文件，这里只兜底清理 .part。
             # 注意不能删 final_path 本身——重试已下载章节时它可能是上一版的好文件，
@@ -557,6 +591,82 @@ def download_chapter_images(image_jobs, save_dir, referer=None, verify=True, max
 CHAPTER_MISSING_IMAGE_TOLERANCE = 1
 
 
+# 2026-09-24 code review P1：容忍缺页（≤ tolerance 张）的章节过去落盘后即被
+# 更新检测按「文件已存在」永久跳过，缺页永远补不回来。现在 finalize 成功后
+# 由 note_chapter_finalize 按缺页数写/清「<章节base>.incomplete」标记文件，
+# 更新任务（update_comic）把带标记的章节一并列入补下。
+def _incomplete_marker_path(folder, filename_base):
+    # folder 可能是绝对路径（更新任务传 comic_path），os.path.join 语义与
+    # 各 provider 组 save_dir 的方式一致：绝对路径会忽略 COMIC_ROOT。
+    return os.path.join(COMIC_ROOT, folder, f"{filename_base}{INCOMPLETE_CHAPTER_SUFFIX}")
+
+
+def mark_chapter_incomplete(folder, filename_base, missing_count):
+    try:
+        marker_path = _incomplete_marker_path(folder, filename_base)
+        ensure_directory(os.path.dirname(marker_path))
+        temp_path = marker_path + '.tmp'
+        with open(temp_path, 'w', encoding='utf-8') as marker_file:
+            json.dump(
+                {
+                    'missing': int(missing_count),
+                    'marked_at': datetime.now(china_tz).isoformat(),
+                },
+                marker_file,
+                ensure_ascii=False,
+            )
+        os.replace(temp_path, marker_path)
+    except Exception as exc:
+        safe_print(f"缺页标记写入失败（{filename_base}）：{exc}")
+
+
+def clear_chapter_incomplete(folder, filename_base):
+    try:
+        os.remove(_incomplete_marker_path(folder, filename_base))
+    except OSError:
+        pass
+
+
+def note_chapter_finalize(folder, filename_base, missing_count):
+    """章节 finalize 成功后记录缺页状态：有缺页写标记，完整则清除旧标记。"""
+    if missing_count and missing_count > 0:
+        mark_chapter_incomplete(folder, filename_base, missing_count)
+    else:
+        clear_chapter_incomplete(folder, filename_base)
+
+
+# 2026-09-24 code review P2：标题预取失败的任务在领取阶段只能用 URL 去重，
+# 两个不同链接运行期解析成同一漫画名时会同时写同一目录。这里在解析出
+# 漫画名后按名字 flock 二次互斥；进程崩溃句柄关闭锁即自动释放。
+_COMIC_WRITE_LOCK_DIR = os.path.join(app.instance_path, 'comic_write_locks')
+
+
+def acquire_comic_write_lock(comic_name):
+    """按漫画名抢写锁（非阻塞）；被占用返回 None，文件系统异常则抛出。"""
+    os.makedirs(_COMIC_WRITE_LOCK_DIR, exist_ok=True)
+    digest = hashlib.sha1(comic_name.strip().encode('utf-8')).hexdigest()
+    handle = open(os.path.join(_COMIC_WRITE_LOCK_DIR, f"{digest}.lock"), 'a+')
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def release_comic_write_lock(lock_handle):
+    if not lock_handle:
+        return
+    try:
+        fcntl.flock(lock_handle, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
+        lock_handle.close()
+    except OSError:
+        pass
+
+
 def incomplete_chapter_reason(success_count, expected_count):
     """章节下载不完整时返回原因文本；完整则返回 None。"""
     # 2026-09-20 code review 复核补充：`success_count == 0` 必须无条件判失败。
@@ -587,10 +697,12 @@ def download_provider_chapter(source, chapter, folder, comic_format, task_id):
 
 def download_complete_book(url, comic_format, task_id):
     """下载整本漫画（统一站点任务流）"""
+    comic_lock = None
     try:
         update_task(task_id, status='running')
 
         allow_adult = False
+        task = None
         try:
             from mangadock.services.tasks import get_task
             task = get_task(task_id)
@@ -602,7 +714,24 @@ def download_complete_book(url, comic_format, task_id):
 
         source = load_comic_source(url)
         folder = source['title']
+        if not is_safe_comic_name(folder):
+            raise ValueError('漫画名称无效')
+        from mangadock.services.groups import can_creator_download_comic
+        if not can_creator_download_comic(folder, getattr(task, 'created_by_user_id', None)):
+            raise ValueError('当前账号无权下载该漫画')
         chapters = source['chapters']
+
+        # 2026-09-24 code review P2：领取阶段对「未知漫画」任务只能按 URL 去重；
+        # 这里标题已解析，按漫画名 flock 二次互斥。抢不到锁 = 另一任务（可能来自
+        # 不同链接）正在写同一目录，退回 pending 等对方完成，避免并发写同一目录。
+        comic_lock = acquire_comic_write_lock(folder)
+        if comic_lock is None:
+            update_task(
+                task_id,
+                status='pending',
+                log=f"另一任务正在处理《{folder}》，本任务已退回队列等待",
+            )
+            return
 
         update_task(task_id, comic_name=folder)
         update_task(task_id, log=f"开始下载漫画: {folder}")
@@ -651,25 +780,50 @@ def download_complete_book(url, comic_format, task_id):
 
         if failed_chapters:
             summary = ', '.join(failed_chapters[:10]) + ('…' if len(failed_chapters) > 10 else '')
-            update_task(task_id, status='error', end_time=datetime.now(china_tz))
-            update_task(task_id, log=f"任务结束：{len(chapters) - len(failed_chapters)}/{len(chapters)} 章成功，失败章节: {summary}")
+            # 2026-09-24 P1：终态原子写入，已取消的任务不被覆盖
+            if not finalize_task_status(
+                task_id, 'error',
+                f"任务结束：{len(chapters) - len(failed_chapters)}/{len(chapters)} 章成功，失败章节: {summary}"
+            ):
+                update_task(task_id, log="任务已取消，终态保持 cancelled")
         else:
-            update_task(task_id, status='completed', end_time=datetime.now(china_tz))
-            update_task(task_id, log="所有章节处理完成")
+            if not finalize_task_status(task_id, 'completed', "所有章节处理完成"):
+                update_task(task_id, log="任务已取消，终态保持 cancelled")
     except Exception as exc:
+        # 取消期间抛出的异常（如取消打断了连接）不能把任务改写成 error
+        if is_task_cancel_requested(task_id):
+            update_task(task_id, log=f"任务已取消（异常信息：{exc}）")
+            return
         error_msg = f"下载过程出错: {exc}"
-        update_task(task_id, log=error_msg)
-        update_task(task_id, status='error', end_time=datetime.now(china_tz))
+        finalize_task_status(task_id, 'error', error_msg)
+    finally:
+        release_comic_write_lock(comic_lock)
 
 def update_comic(comic_name, comic_format, task_id):
+    comic_lock = None
     try:
+        from mangadock.services.groups import can_creator_download_comic
+        task = get_task(task_id)
+        if not can_creator_download_comic(comic_name, getattr(task, 'created_by_user_id', None)):
+            raise ValueError('当前账号无权更新该漫画')
         update_task(task_id, status='running')
         update_task(task_id, comic_name=comic_name)
         update_task(task_id, log=f"开始更新漫画: {comic_name}")
 
-        comic_path = os.path.join(COMIC_ROOT, comic_name)
-        if not os.path.isdir(comic_path):
-            raise ValueError(f"漫画目录不存在: {comic_path}")
+        comic_path = get_comic_directory(comic_name)
+        if not comic_path:
+            raise ValueError(f"漫画目录不存在: {comic_name}")
+
+        # 2026-09-24 code review P2：与整本下载同一把按漫画名写锁，
+        # 防止与「运行期才解析出同名漫画」的下载任务并发写同一目录。
+        comic_lock = acquire_comic_write_lock(comic_name)
+        if comic_lock is None:
+            update_task(
+                task_id,
+                status='pending',
+                log=f"另一任务正在处理《{comic_name}》，本任务已退回队列等待",
+            )
+            return
 
         json_file_path = COMIC_MAPPING_FILE
         if not os.path.exists(json_file_path) or os.path.getsize(json_file_path) == 0:
@@ -682,7 +836,7 @@ def update_comic(comic_name, comic_format, task_id):
         if not update_url:
             raise ValueError(f"漫画 {comic_name} 的URL信息不存在于JSON文件中")
 
-        update_task(task_id, url=update_url)
+        update_task(task_id, url=normalize_task_url(update_url))
         source = load_comic_source(update_url)
         save_cover_image(
             comic_name,
@@ -699,17 +853,27 @@ def update_comic(comic_name, comic_format, task_id):
             if is_valid_local_chapter_file(filename, (f".{target_extension(comic_format)}",))
         }
         existing_match_bases = get_local_chapter_match_bases(comic_name)
-        chapters_to_download = [
-            chapter for chapter in source['chapters']
-            if not is_existing_local_chapter(chapter, existing_match_bases)
-        ]
+        # 2026-09-24 code review P1：带 .incomplete 缺页标记的章节虽然产物已存在，
+        # 仍列入本次下载以补回缺页（完整重下成功后标记会被清除）。
+        incomplete_bases = get_incomplete_chapter_bases(comic_name)
+        chapters_to_download = []
+        refetch_count = 0
+        for chapter in source['chapters']:
+            if not is_existing_local_chapter(chapter, existing_match_bases):
+                chapters_to_download.append(chapter)
+            elif incomplete_bases and chapter_match_keys(chapter) & incomplete_bases:
+                chapters_to_download.append(chapter)
+                refetch_count += 1
 
         update_task(task_id, log=f"远端章节总数: {len(source['chapters'])}")
         update_task(task_id, log=f"目标格式已存在章节数: {len(existing_outputs)}")
+        if refetch_count:
+            update_task(task_id, log=f"其中 {refetch_count} 章存在缺页标记，本次一并补下")
 
         if not chapters_to_download:
-            update_task(task_id, log="未找到更新，当前已是最新版本")
-            update_task(task_id, status='completed', end_time=datetime.now(china_tz))
+            # 2026-09-24 P1：终态原子写入，已取消的任务不被覆盖
+            if not finalize_task_status(task_id, 'completed', "未找到更新，当前已是最新版本"):
+                update_task(task_id, log="任务已取消，终态保持 cancelled")
             return
 
         update_task(task_id, total_chapters=len(chapters_to_download))
@@ -724,7 +888,8 @@ def update_comic(comic_name, comic_format, task_id):
                 return
 
             update_task(task_id, log=f"开始处理章节: {chapter['title']}")
-            success, message = download_provider_chapter(source, chapter, comic_name, comic_format, task_id)
+            # Provider paths join this value to COMIC_ROOT; an absolute path selects a configured scan root.
+            success, message = download_provider_chapter(source, chapter, comic_path, comic_format, task_id)
             update_task(task_id, log=message)
             if not success:
                 # 记失败并继续，最后汇总（2026-09-20 P2）
@@ -740,13 +905,20 @@ def update_comic(comic_name, comic_format, task_id):
 
         if failed_chapters:
             summary = ', '.join(failed_chapters[:10]) + ('…' if len(failed_chapters) > 10 else '')
-            update_task(task_id, status='error', end_time=datetime.now(china_tz))
-            update_task(task_id, log=f"更新结束：{len(chapters_to_download) - len(failed_chapters)}/{len(chapters_to_download)} 章成功，失败章节: {summary}")
+            if not finalize_task_status(
+                task_id, 'error',
+                f"更新结束：{len(chapters_to_download) - len(failed_chapters)}/{len(chapters_to_download)} 章成功，失败章节: {summary}"
+            ):
+                update_task(task_id, log="任务已取消，终态保持 cancelled")
         else:
-            update_task(task_id, status='completed', end_time=datetime.now(china_tz))
-            update_task(task_id, log="所有更新章节处理完成")
+            if not finalize_task_status(task_id, 'completed', "所有更新章节处理完成"):
+                update_task(task_id, log="任务已取消，终态保持 cancelled")
 
     except Exception as e:
+        if is_task_cancel_requested(task_id):
+            update_task(task_id, log=f"任务已取消（异常信息：{e}）")
+            return
         error_msg = f"更新过程出错: {str(e)}"
-        update_task(task_id, log=error_msg)
-        update_task(task_id, status='error', end_time=datetime.now(china_tz))
+        finalize_task_status(task_id, 'error', error_msg)
+    finally:
+        release_comic_write_lock(comic_lock)

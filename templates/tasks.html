@@ -89,7 +89,7 @@
                     </span>
                     <span class="md-ios-status {{ status_class }}">{{ status_label }}</span>
                 </a>
-                <button
+                {% if is_admin_user %}<button
                     type="button"
                     class="md-task-row__del action-press"
                     onclick="deleteTask('{{ task.id }}')"
@@ -97,11 +97,11 @@
                     title="删除任务"
                 >
                     <i class="fa fa-trash-o"></i>
-                </button>
+                </button>{% endif %}
             </div>
             {% endfor %}
 
-            <button
+            {% if is_admin_user %}<button
                 type="button"
                 class="delete-finished-tasks-button md-setting-row is-danger action-press"
                 onclick="deleteFinishedTasks()"
@@ -112,7 +112,7 @@
                 <span class="md-setting-row__value">
                     {% if deletable_task_count > 0 %}{{ deletable_task_count }} 条{% else %}无可删除{% endif %}
                 </span>
-            </button>
+            </button>{% endif %}
         </div>
         <p class="md-setting-group__note">
             只删除已结束任务记录，不删除漫画文件{% if active_task_count > 0 %}；{{ active_task_count }} 个进行中/等待中会保留{% endif %}。

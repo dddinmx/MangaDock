@@ -6,6 +6,10 @@ from flask import render_template, request, session, url_for
 
 from mangadock.auth import login_required
 from mangadock.core import app
+from mangadock.extensions import db
+from mangadock.models import User
+from mangadock.services.groups import filter_grouped_comics_for_user
+from mangadock.services.library import get_available_comics
 from mangadock.services.novels import NOVEL_PROGRESS_PREFIX, get_novels
 from mangadock.services.reading import (
     get_reading_time_by_comic,
@@ -24,6 +28,23 @@ def statistics():
     current_user_id = session.get('user_id')
     total_time = get_total_reading_time(current_user_id)
     reading_time_rank = get_reading_time_by_comic(current_user_id)
+    all_comics = get_available_comics()
+    current_user = db.session.get(User, current_user_id)
+    accessible_comics, _, _, _ = filter_grouped_comics_for_user(all_comics, current_user)
+    accessible_names = {
+        comic.get('comic_name')
+        for comic in accessible_comics
+        if comic.get('comic_name')
+    }
+    restricted_names = {
+        comic.get('comic_name')
+        for comic in all_comics
+        if comic.get('comic_name')
+    } - accessible_names
+    reading_time_rank = [
+        entry for entry in reading_time_rank
+        if entry.get('comic_name') not in restricted_names
+    ]
     reading_time_monthly = get_reading_time_monthly_for_year(stats_year, current_user_id)
     reading_time_daily = get_reading_time_daily_for_year(stats_year, current_user_id)
 

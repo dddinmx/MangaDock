@@ -53,8 +53,10 @@ from mangadock.services.fanqie import classify_fanqie_target
 from mangadock.services.fanqie_api import FanqieApiError
 from mangadock.services.groups import (
     assign_comic_group,
+    can_user_access_group,
     delete_comic_group,
     ensure_comic_group,
+    get_accessible_group_names,
     get_all_comic_groups,
     get_comic_group_map,
     get_user_group_permissions,
@@ -63,6 +65,7 @@ from mangadock.services.groups import (
     set_user_group_permissions,
 )
 from mangadock.services.library import (
+    get_available_comics,
     get_comic_directory,
     get_scan_path_entries,
     invalidate_comics_cache,
@@ -75,6 +78,7 @@ from mangadock.services.tasks import (
     delete_task,
     get_all_tasks,
     get_task,
+    normalize_comic_url_identity,
     update_task,
 )
 from mangadock.services.updates import (
@@ -356,6 +360,22 @@ def register_routes(bp):
                 + '）',
             )
 
+        normalized_url = normalize_comic_url_identity(comic_url)
+        mapped_names = [
+            comic_name
+            for comic_name, mapped_url in load_comic_mapping().items()
+            if normalize_comic_url_identity(mapped_url) == normalized_url
+        ]
+        comic_group_map = get_comic_group_map()
+        if any(
+            not can_user_access_group(
+                normalize_group_name(comic_group_map.get(comic_name)) or '默认分组',
+                requester,
+            )
+            for comic_name in mapped_names
+        ):
+            return api_fail('NOT_FOUND', '未找到该漫画', 404)
+
         if is_adult_content_blocked(comic_url, allow_adult=requester_can_adult):
             return api_fail('ADULT_CONTENT_DISABLED', ADULT_CONTENT_DISABLED_MESSAGE, 403)
 
@@ -368,6 +388,25 @@ def register_routes(bp):
             return api_fail('FANQIE_TARGET_INVALID', str(exc) or '番茄作品解析失败')
         except ValueError as exc:
             return api_fail('UNSUPPORTED_URL', str(exc))
+
+        if fanqie_target and fanqie_target['kind'] == 'comic':
+            fanqie_identity = normalize_comic_url_identity(
+                f"fanqie-comic://{fanqie_target['book_id']}"
+            )
+            fanqie_mapped_names = [
+                comic_name
+                for comic_name, mapped_url in load_comic_mapping().items()
+                if normalize_comic_url_identity(mapped_url) == fanqie_identity
+            ]
+            fanqie_group_map = get_comic_group_map()
+            if any(
+                not can_user_access_group(
+                    normalize_group_name(fanqie_group_map.get(comic_name)) or '默认分组',
+                    requester,
+                )
+                for comic_name in fanqie_mapped_names
+            ):
+                return api_fail('NOT_FOUND', '未找到该漫画', 404)
 
         if fanqie_target and fanqie_target['kind'] == 'novel':
             task_id, reused = start_novel_task(
@@ -382,10 +421,14 @@ def register_routes(bp):
                 'task': _serialize_task(task) if task else None,
             }, status=200 if reused else 201)
 
-        task_id = start_download_task(
-            comic_url, comic_format,
-            allow_adult=bool(getattr(requester, 'can_view_adult', False)),
-        )
+        try:
+            task_id = start_download_task(
+                comic_url, comic_format,
+                allow_adult=bool(getattr(requester, 'can_view_adult', False)),
+                created_by_user_id=requester.id,
+            )
+        except PermissionError:
+            return api_fail('NOT_FOUND', '未找到该漫画', 404)
         task = get_task(task_id)
         return api_ok({
             'task_id': task_id,
@@ -429,7 +472,13 @@ def register_routes(bp):
         if not comic_name or not comic_url:
             return api_fail('NOT_FOUND', '未找到该漫画的源 URL 信息', 404)
 
-        task_id = start_update_task(comic_name, comic_format, comic_url)
+        comic_group = normalize_group_name(get_comic_group_map().get(comic_name)) or '默认分组'
+        if not can_user_access_group(comic_group, requester):
+            return api_fail('NOT_FOUND', '未找到该漫画的源 URL 信息', 404)
+
+        task_id = start_update_task(
+            comic_name, comic_format, comic_url, created_by_user_id=requester.id
+        )
         task = get_task(task_id)
         return api_ok({
             'task_id': task_id,
@@ -466,13 +515,14 @@ def register_routes(bp):
     @bp.get('/groups')
     @api_login_required
     def list_groups():
-        groups = get_all_comic_groups()
+        groups = get_accessible_group_names(get_api_request_user())
         group_map = get_comic_group_map()
-        counts = {}
-        for group_name in groups:
-            counts[group_name] = 0
-        for assigned in group_map.values():
-            counts[assigned] = counts.get(assigned, 0) + 1
+        counts = {group_name: 0 for group_name in groups}
+        for comic in get_available_comics():
+            comic_name = comic.get('comic_name')
+            assigned = normalize_group_name(group_map.get(comic_name)) or '默认分组'
+            if assigned in counts:
+                counts[assigned] += 1
         return api_ok({
             'items': [
                 {'name': name, 'comic_count': counts.get(name, 0)}
@@ -766,7 +816,10 @@ def register_routes(bp):
         db.session.commit()
         if role == 'user':
             set_user_group_permissions(user.id, selected_groups)
-        return api_ok({'user': serialize_api_user(user)}, status=201)
+        return api_ok({
+            'user': serialize_api_user(user),
+            'next': url_for('user_detail', user_id=user.id),
+        }, status=201)
 
     @bp.delete('/users/<int:user_id>')
     @require_write_auth(admin=True)

@@ -365,12 +365,52 @@ SUPPORTED_PAGE_IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
 API_PAGE_CACHE_ROOT = os.path.join(app.instance_path, 'api_page_cache')
 
 
-def ensure_api_page_cache_dir(comic_id, chapter_id):
+def api_page_source_version(file_path):
+    try:
+        stat_result = os.stat(file_path)
+        signature = (
+            f'{stat_result.st_mtime_ns}:{stat_result.st_ctime_ns}:'
+            f'{stat_result.st_size}:{stat_result.st_ino}'
+        )
+    except OSError:
+        signature = 'missing'
+    return hashlib.sha1(signature.encode('utf-8')).hexdigest()[:12]
+
+
+def ensure_api_page_cache_dir(comic_id, chapter_id, file_path=None):
     safe_comic_id = re.sub(r'[^A-Za-z0-9_.-]', '_', (comic_id or '').strip()) or 'comic'
     safe_chapter_id = re.sub(r'[^A-Za-z0-9_.-]', '_', (chapter_id or '').strip()) or 'chapter'
-    cache_dir = os.path.join(API_PAGE_CACHE_ROOT, safe_comic_id, safe_chapter_id)
+    source_version = api_page_source_version(file_path) if file_path else 'current'
+    cache_dir = os.path.join(API_PAGE_CACHE_ROOT, safe_comic_id, safe_chapter_id, source_version)
     os.makedirs(cache_dir, exist_ok=True)
+    os.utime(cache_dir, None)
     return cache_dir
+
+
+def cleanup_stale_api_page_cache(comic_id, chapter_id, current_version):
+    safe_comic_id = re.sub(r'[^A-Za-z0-9_.-]', '_', (comic_id or '').strip()) or 'comic'
+    safe_chapter_id = re.sub(r'[^A-Za-z0-9_.-]', '_', (chapter_id or '').strip()) or 'chapter'
+    chapter_cache_dir = os.path.join(API_PAGE_CACHE_ROOT, safe_comic_id, safe_chapter_id)
+    if not os.path.isdir(chapter_cache_dir):
+        return
+
+    cutoff = time.time() - 600
+    try:
+        with os.scandir(chapter_cache_dir) as entries:
+            for entry in entries:
+                if (
+                    entry.name == current_version
+                    or not re.fullmatch(r'[a-f0-9]{12}', entry.name)
+                    or not entry.is_dir(follow_symlinks=False)
+                ):
+                    continue
+                try:
+                    if entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                        shutil.rmtree(entry.path, ignore_errors=True)
+                except OSError:
+                    continue
+    except OSError:
+        return
 
 
 def get_chapter_file_path(comic_name, chapter):
@@ -450,6 +490,8 @@ def build_api_page_list(comic_id, chapter_id, file_path):
     if total_pages is None:
         raise ValueError('无法读取章节页数')
 
+    source_version = api_page_source_version(file_path)
+    cleanup_stale_api_page_cache(comic_id, chapter_id, source_version)
     pages = [
         {
             'index': page_index,
@@ -457,7 +499,8 @@ def build_api_page_list(comic_id, chapter_id, file_path):
                 'api_comic_chapter_page_image',
                 comic_id=comic_id,
                 chapter_id=chapter_id,
-                page_index=page_index
+                page_index=page_index,
+                v=source_version,
             ),
         }
         for page_index in range(total_pages)
@@ -476,9 +519,21 @@ def extract_cbz_page_to_cache(file_path, page_index, cache_dir):
     if os.path.exists(cache_path):
         return cache_path
 
-    with zipfile.ZipFile(file_path) as archive:
-        with archive.open(entry_name) as source_handle, open(cache_path, 'wb') as target_handle:
-            shutil.copyfileobj(source_handle, target_handle)
+    file_descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f'.{page_index:04d}.', suffix=extension, dir=cache_dir
+    )
+    try:
+        with os.fdopen(file_descriptor, 'wb') as target_handle:
+            with zipfile.ZipFile(file_path) as archive:
+                with archive.open(entry_name) as source_handle:
+                    shutil.copyfileobj(source_handle, target_handle)
+        os.replace(temporary_path, cache_path)
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            pass
+        raise
 
     return cache_path
 
@@ -495,28 +550,35 @@ def render_pdf_page_to_cache(file_path, page_index, cache_dir):
     if page_index < 0 or page_index >= total_pages:
         return None
 
-    output_prefix = os.path.join(cache_dir, f"{page_index:04d}")
-    cache_path = f"{output_prefix}.png"
+    cache_path = os.path.join(cache_dir, f"{page_index:04d}.png")
     if os.path.exists(cache_path):
         return cache_path
 
     page_number = page_index + 1
-    command = [
-        renderer,
-        '-f', str(page_number),
-        '-l', str(page_number),
-        '-png',
-        '-singlefile',
-        readable_pdf,
-        output_prefix,
-    ]
-    subprocess.run(command, check=True, capture_output=True, text=True, timeout=PDF_TOOL_TIMEOUT_SECONDS)
+    temporary_dir = tempfile.mkdtemp(prefix=f'.{page_index:04d}.', dir=cache_dir)
+    try:
+        output_prefix = os.path.join(temporary_dir, 'page')
+        command = [
+            renderer,
+            '-f', str(page_number),
+            '-l', str(page_number),
+            '-png',
+            '-singlefile',
+            readable_pdf,
+            output_prefix,
+        ]
+        subprocess.run(command, check=True, capture_output=True, text=True, timeout=PDF_TOOL_TIMEOUT_SECONDS)
+        temporary_path = f'{output_prefix}.png'
+        if os.path.exists(temporary_path):
+            os.replace(temporary_path, cache_path)
+    finally:
+        shutil.rmtree(temporary_dir, ignore_errors=True)
 
     return cache_path if os.path.exists(cache_path) else None
 
 
 def resolve_chapter_page_image(file_path, comic_id, chapter_id, page_index):
-    cache_dir = ensure_api_page_cache_dir(comic_id, chapter_id)
+    cache_dir = ensure_api_page_cache_dir(comic_id, chapter_id, file_path)
     extension = os.path.splitext(file_path)[1].lower()
     if extension == '.cbz':
         return extract_cbz_page_to_cache(file_path, page_index, cache_dir)
@@ -708,7 +770,6 @@ def get_local_chapter_match_bases(comic_name):
         if not title:
             continue
 
-        match_bases.add(title)
         order = chapter.get('order')
         if isinstance(order, int) and order > 0:
             match_bases.add(f"{order:04d}_{title}")
@@ -716,7 +777,8 @@ def get_local_chapter_match_bases(comic_name):
     return match_bases
 
 
-def is_existing_local_chapter(chapter, local_match_bases):
+def chapter_match_keys(chapter):
+    """章节在本地库中的匹配键集合（文件名 base / 序号_标题）。"""
     title = sanitize_filename(chapter.get('title') or '')
     chapter_keys = set()
 
@@ -724,14 +786,43 @@ def is_existing_local_chapter(chapter, local_match_bases):
     if filename_base:
         chapter_keys.add(filename_base)
 
-    if title:
-        chapter_keys.add(title)
-
     order = chapter.get('order')
     if isinstance(order, int) and order > 0 and title:
         chapter_keys.add(f"{order:04d}_{title}")
 
-    return any(key in local_match_bases for key in chapter_keys)
+    return chapter_keys
+
+
+def is_existing_local_chapter(chapter, local_match_bases):
+    return bool(chapter_match_keys(chapter) & local_match_bases)
+
+
+# 2026-09-24 code review P1：容忍缺页（≤1 张）落盘的章节会在漫画目录里留下
+# 「<章节base>.incomplete」标记；更新检测据此把该章列入补下，完整重下后标记清除。
+INCOMPLETE_CHAPTER_SUFFIX = '.incomplete'
+
+
+def get_incomplete_chapter_bases(comic_name):
+    """返回库内带缺页标记的章节 base 名集合（更新任务据此补回缺页章节）。"""
+    comic_path = get_comic_directory(comic_name)
+    if not comic_path or not os.path.isdir(comic_path):
+        return set()
+
+    bases = set()
+    try:
+        with os.scandir(comic_path) as chapter_entries:
+            for entry in chapter_entries:
+                # 排除 SMB 挂载生成的 AppleDouble 元数据文件（._xxx），
+                # 否则会产出「._章节名」的假缺页 base
+                if (
+                    entry.is_file()
+                    and entry.name.endswith(INCOMPLETE_CHAPTER_SUFFIX)
+                    and not entry.name.startswith('.')
+                ):
+                    bases.add(entry.name[: -len(INCOMPLETE_CHAPTER_SUFFIX)])
+    except OSError:
+        return set()
+    return bases
 
 
 def build_available_comics_snapshot():
@@ -1035,4 +1126,3 @@ def chapter_output_exists(comic_name, filename_base, comic_format):
     return os.path.exists(
         os.path.join(COMIC_ROOT, comic_name, f"{filename_base}.{target_extension(comic_format)}")
     )
-

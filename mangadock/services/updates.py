@@ -204,6 +204,20 @@ def execute_background_command(command_id):
             finish_background_command(command_id, status='completed', message='更新检查已完成')
             return True
 
+        if command_type == 'scan_home_banners':
+            from mangadock.services.home_banner import start_home_banner_backfill
+
+            if not start_home_banner_backfill(command_id):
+                finish_background_command(
+                    command_id,
+                    status='error',
+                    message='首页横幅补扫线程已在运行',
+                )
+                return False
+            # The scan owns this command until it finishes. Returning here keeps
+            # the command worker free to process other queued work.
+            return True
+
         finish_background_command(command_id, status='error', message=f'未知后台命令: {command_type}')
         return False
     except Exception as exc:

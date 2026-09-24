@@ -33,6 +33,8 @@ class ApiRequestUser:
     id: int
     username: str
     role: str
+    can_download: bool
+    can_view_adult: bool
 
     @property
     def is_admin(self):
@@ -40,7 +42,13 @@ class ApiRequestUser:
 
 
 def make_api_request_user(user):
-    return ApiRequestUser(id=user.id, username=user.username, role=user.role)
+    return ApiRequestUser(
+        id=user.id,
+        username=user.username,
+        role=user.role,
+        can_download=bool(getattr(user, 'can_download', False)),
+        can_view_adult=bool(getattr(user, 'can_view_adult', False)),
+    )
 
 def login_required(f):
     """登录认证装饰器：验证用户是否已登录"""
@@ -233,8 +241,8 @@ _ADULT_COMIC_CACHE = {}
 
 
 # 2026-09-22 code review P2：Basic Auth 每请求重算 pbkdf2 代价高。进程内缓存
-# 「用户名+密码」的 SHA256 -> (校验成功的 User, 时间戳)，TTL 300s，最多 256 条
-# （超出清最旧），线程安全；只缓存校验成功的结果，不改对外行为。
+# 「用户名+密码」的 SHA256 -> (user_id, password_hash, 时间戳)，TTL 300s，最多 256 条
+# （超出清最旧），线程安全。命中时仍查 DB 确认账号未删除且密码未变，但跳过 PBKDF2。
 _BASIC_AUTH_CACHE = {}
 _BASIC_AUTH_CACHE_LOCK = threading.Lock()
 _BASIC_AUTH_CACHE_TTL_SECONDS = 300
@@ -246,26 +254,38 @@ def _basic_auth_cache_key(username, password):
 
 
 def _basic_auth_cache_get(username, password):
-    """命中且未过期返回缓存的 User，否则返回 None。"""
+    """命中且凭据仍有效时返回当前 User，否则返回 None。"""
     key = _basic_auth_cache_key(username, password)
     with _BASIC_AUTH_CACHE_LOCK:
         entry = _BASIC_AUTH_CACHE.get(key)
         if entry is None:
             return None
-        user, ts = entry
+        user_id, password_hash, ts = entry
         if time.time() - ts > _BASIC_AUTH_CACHE_TTL_SECONDS:
             _BASIC_AUTH_CACHE.pop(key, None)
             return None
+
+    user = db.session.get(User, user_id)
+    if (
+        user is not None
+        and user.username == username
+        and user.password_hash == password_hash
+    ):
         return user
+
+    with _BASIC_AUTH_CACHE_LOCK:
+        if _BASIC_AUTH_CACHE.get(key) == entry:
+            _BASIC_AUTH_CACHE.pop(key, None)
+    return None
 
 
 def _basic_auth_cache_put(username, password, user):
     """写入一条成功校验结果；超出上限清最旧一条。"""
     key = _basic_auth_cache_key(username, password)
     with _BASIC_AUTH_CACHE_LOCK:
-        _BASIC_AUTH_CACHE[key] = (user, time.time())
+        _BASIC_AUTH_CACHE[key] = (user.id, user.password_hash, time.time())
         if len(_BASIC_AUTH_CACHE) > _BASIC_AUTH_CACHE_MAX_ENTRIES:
-            oldest_key = min(_BASIC_AUTH_CACHE, key=lambda k: _BASIC_AUTH_CACHE[k][1])
+            oldest_key = min(_BASIC_AUTH_CACHE, key=lambda k: _BASIC_AUTH_CACHE[k][2])
             _BASIC_AUTH_CACHE.pop(oldest_key, None)
 
 
@@ -393,14 +413,16 @@ def validate_user_credentials(username, password):
 
 
 def login_failure_keys(username, ip_address=None):
-    """按「用户名 + IP」双维度生成锁定键，任一键被锁即拒绝：
-    user 键防跨 IP 撞同一账号，ip 键防单 IP 用户名喷洒；第三方无法用单一维度恶意锁死别人。"""
-    normalized_username = (username or '').strip().lower()
+    """记录用户名和来源 IP 的失败次数，并以用户名/IP 组合实施锁定。"""
+    exact_username = (username or '').strip()
+    normalized_username = exact_username.lower()
+    normalized_ip = (ip_address or '').strip() or 'unknown'
     keys = []
     if normalized_username:
         keys.append(f'user:{normalized_username}')
-    if ip_address:
-        keys.append(f'ip:{ip_address}')
+    keys.append(f'ip:{normalized_ip}')
+    lock_identity = f'{exact_username}\0{normalized_ip}'
+    keys.append(f'attempt:{hashlib.sha256(lock_identity.encode("utf-8")).hexdigest()}')
     return keys or ['unknown']
 
 
@@ -414,27 +436,25 @@ def _as_aware_china(value):
 
 
 def login_lock_state(keys):
-    """检查锁定状态，返回 (locked, remaining_minutes, hit_key)；过期的锁定记录顺手清除。
-
-    2026-09-20 code review P2：失败计数改为落库（models.LoginFailure）。
-    此前用模块级内存 dict，而 gunicorn 起 2~4 个 worker 进程，各持一份计数，
-    攻击者把尝试分散到不同进程即可让任一进程都达不到阈值 → 登录锁定被绕过。
-    现在多进程共享同一份 DB 计数，并用 SQLite 原子 UPSERT 累加。
-    """
+    """按用户名/IP 组合检查锁定状态并清理过期记录。"""
     if not keys:
         return False, 0, None
     now = datetime.now(china_tz)
+    lock_keys = [key for key in keys if key.startswith('attempt:')]
     rows = LoginFailure.query.filter(LoginFailure.failure_key.in_(list(keys))).all()
     expired_rows = []
+    locked_row = None
     for row in rows:
-        if row.fail_count < LOGIN_MAX_ATTEMPTS:
-            continue
         last_failure_at = _as_aware_china(row.last_failure_at) or now
         elapsed = now - last_failure_at
-        if elapsed < LOGIN_LOCKOUT_DURATION:
+        if elapsed >= LOGIN_LOCKOUT_DURATION:
+            expired_rows.append(row)
+        elif row.failure_key in lock_keys and row.fail_count >= LOGIN_MAX_ATTEMPTS:
             remaining_time = LOGIN_LOCKOUT_DURATION - elapsed
-            return True, max(1, remaining_time.seconds // 60), row.failure_key
-        expired_rows.append(row)
+            locked_row = (
+                row.failure_key,
+                max(1, int((remaining_time.total_seconds() + 59) // 60)),
+            )
     if expired_rows:
         for row in expired_rows:
             db.session.delete(row)
@@ -443,11 +463,13 @@ def login_lock_state(keys):
         except Exception as exc:
             db.session.rollback()
             app.logger.warning('清除过期登录锁定记录失败: %s', exc)
+    if locked_row:
+        return True, locked_row[1], locked_row[0]
     return False, 0, None
 
 
 def login_record_failure(keys):
-    """对每个键原子累加失败次数并刷新时间戳，返回最大计数（用于剩余次数提示）。"""
+    """对每个键原子累加失败次数，返回用户名/IP 组合计数。"""
     if not keys:
         return 1
     now = datetime.now(china_tz)
@@ -474,21 +496,27 @@ def login_record_failure(keys):
         app.logger.warning('记录登录失败次数失败: %s', exc)
         return 1
 
-    counts = [
-        row.fail_count
+    counts_by_key = {
+        row.failure_key: row.fail_count
         for row in LoginFailure.query.filter(LoginFailure.failure_key.in_(list(keys))).all()
+    }
+    attempt_counts = [
+        count for key, count in counts_by_key.items()
+        if key.startswith('attempt:')
     ]
+    counts = attempt_counts or list(counts_by_key.values())
     return max(counts) if counts else 1
 
 
 def login_clear_failures(keys):
-    """登录成功后清除该用户名/IP 的全部失败计数。"""
+    """登录成功后清除该用户名/IP 组合及聚合失败计数。"""
     if not keys:
         return
     try:
-        LoginFailure.query.filter(LoginFailure.failure_key.in_(list(keys))).delete(
-            synchronize_session=False
-        )
+        failures = LoginFailure.query.filter(LoginFailure.failure_key.in_(list(keys)))
+        if failures.first() is None:
+            return
+        failures.delete(synchronize_session=False)
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
@@ -510,15 +538,19 @@ def authenticate_api_credentials(username, password, ip_address, user_agent):
             ip_address,
             user_agent,
             False,
-            f'账户已锁定，剩余锁定时间 {remaining_minutes} 分钟'
+            f'该账号在当前登录来源的失败次数过多，剩余 {remaining_minutes} 分钟'
         )
-        return None, api_error('ACCOUNT_LOCKED', f'登录失败次数过多，请在 {remaining_minutes} 分钟后重试', 423)
+        return None, api_error(
+            'ACCOUNT_LOCKED',
+            f'该账号在当前登录来源的失败次数过多，请在 {remaining_minutes} 分钟后重试',
+            423,
+        )
 
-    # 2026-09-22 code review P2：成功校验结果命中缓存则跳过 pbkdf2 重算。
-    # 命中路径不记登录日志、不清失败计数——每次 API 请求都走这里，
-    # 写库会造成日志膨胀；失败计数由真实校验成功时清理即可。
+    # 成功校验结果命中缓存时仍确认数据库中的密码 hash，避免改密或删号后旧凭据继续有效。
+    # 命中路径跳过 PBKDF2 和重复登录日志写入。
     cached_user = _basic_auth_cache_get(normalized_username, raw_password)
     if cached_user is not None:
+        login_clear_failures(failure_keys)
         return cached_user, None
 
     user = validate_user_credentials(normalized_username, raw_password)
@@ -535,7 +567,7 @@ def authenticate_api_credentials(username, password, ip_address, user_agent):
     if remaining_attempts > 0:
         failure_message = f'用户名或密码错误，还有 {remaining_attempts} 次尝试机会'
     else:
-        failure_message = f'登录失败次数过多，账户已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟'
+        failure_message = f'该账号在当前登录来源的失败次数过多，已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟'
 
     record_login_log(normalized_username, ip_address, user_agent, False, failure_message)
     return None, api_error('INVALID_CREDENTIALS', failure_message, 401)
@@ -885,7 +917,7 @@ def build_api_statistics_payload(year, user_id):
     source_mapping = load_comic_mapping()
     ranking_items = []
 
-    for index, entry in enumerate(reading_time_rank, start=1):
+    for entry in reading_time_rank:
         comic_name = entry.get('comic_name')
         if not comic_name:
             continue
@@ -901,7 +933,7 @@ def build_api_statistics_payload(year, user_id):
 
         total_duration = int(entry.get('total_duration') or 0)
         ranking_items.append({
-            'rank': index,
+            'rank': len(ranking_items) + 1,
             'comic_id': summary['id'],
             'title': summary['title'],
             'cover_url': summary['cover_url'],

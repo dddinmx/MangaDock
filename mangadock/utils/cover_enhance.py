@@ -393,7 +393,20 @@ def _stepwise_resize(image, new_size):
     return current
 
 
-def _target_size(width, height):
+def _target_size(width, height, target_short_edge=None):
+    if target_short_edge:
+        shortest = min(width, height)
+        if shortest <= 0 or shortest >= target_short_edge:
+            return None
+        scale = min(
+            target_short_edge / float(shortest),
+            6.0,
+            (24_000_000 / float(width * height)) ** 0.5,
+        )
+        if scale <= 1.05:
+            return None
+        return (max(1, int(round(width * scale))), max(1, int(round(height * scale))))
+
     longest = max(width, height)
     if longest <= 0:
         return None
@@ -446,10 +459,11 @@ def _save_jpeg(image, dest_path):
                 pass
 
 
-def enhance_cover_file(source_path, dest_path, force_pillow=False):
+def enhance_cover_file(source_path, dest_path, force_pillow=False, target_short_edge=None):
     """读源封面 → 超分 → 锐化 → 写 dest。成功返回 dest_path，否则 None。
 
     force_pillow: 为 True 时跳过 AI 引擎，只用 Pillow 兜底（用于跨进程锁不可用的降级场景）。
+    target_short_edge: 可选目标短边，供横幅使用；放大后最多 2400 万像素。
     """
     if not source_path or not os.path.isfile(source_path):
         return None
@@ -461,9 +475,8 @@ def enhance_cover_file(source_path, dest_path, force_pillow=False):
             image.load()
             image = _prepare_rgb(image)
             width, height = image.size
-            target = _target_size(width, height)
-            longest = float(max(width, height))
-            real_factor = HERO_TARGET_EDGE / longest if longest > 0 else 1.0
+            target = _target_size(width, height, target_short_edge=target_short_edge)
+            real_factor = max(target[0] / width, target[1] / height) if target else 1.0
 
             used_engine = 'pillow'
             # 实际选用的引擎（force_pillow 时强制 Pillow）

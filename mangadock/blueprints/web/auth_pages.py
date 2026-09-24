@@ -8,10 +8,12 @@ import time
 from datetime import datetime
 
 from flask import (
+    abort,
     flash,
     redirect,
     render_template,
     request,
+    send_file,
     session,
     url_for,
 )
@@ -99,9 +101,30 @@ def render_login_page():
         wall.append({'url': url_for('static', filename=f'login-covers/{slot:02d}.jpg')})
         if slot < len(comic_names):
             wall.append({
-                'url': url_for('static', filename=f'cover/{comic_names[slot]}.jpg'),
+                # 2026-09-24 code review P2：漫画封面改走登录页专用路由；
+                # /static/cover/* 对未登录用户返回 403，封面墙无法正常加载。
+                'url': url_for('login_comic_cover', slot=slot),
             })
     return render_template('login.html', login_wall=wall)
+
+
+@app.route('/login-cover/<int:slot>.jpg')
+def login_comic_cover(slot):
+    """登录页封面墙专用封面路由（未登录可访问）。
+
+    只服务「当日确定性抽样名单」内的封面：slot 超出名单或文件不存在一律 404，
+    未登录可接触的范围与登录页本身要展示的内容完全一致（非 18+、每日轮换）。
+    """
+    comic_names = _pick_comic_covers()
+    if slot < 0 or slot >= len(comic_names):
+        abort(404)
+    cover_path = os.path.join(COVER_ROOT, f'{comic_names[slot]}.jpg')
+    if not os.path.isfile(cover_path):
+        abort(404)
+    response = send_file(cover_path, conditional=True)
+    # 名单按天轮换，缓存 1 小时即可
+    response.headers['Cache-Control'] = 'public, max-age=3600'
+    return response
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -116,7 +139,7 @@ def login():
         user_agent = request.user_agent.string
         failure_keys = login_failure_keys(username, ip_address)
 
-        # 检查登录失败次数和锁定状态（用户名 + IP 双维度，2026-09-20 P2）
+        # 检查登录失败次数和锁定状态（用户名/IP 组合，2026-09-20 P2）
         locked, remaining_minutes, _hit = login_lock_state(failure_keys)
         if locked:
             flash(f'登录失败次数过多，请在 {remaining_minutes} 分钟后重试')
@@ -126,7 +149,7 @@ def login():
                 ip_address=ip_address,
                 user_agent=user_agent,
                 success=False,
-                message=f'账户已锁定，剩余锁定时间 {remaining_minutes} 分钟'
+                message=f'该账号在当前登录来源的失败次数过多，剩余 {remaining_minutes} 分钟'
             )
             db.session.add(login_log)
             db.session.commit()
@@ -170,8 +193,8 @@ def login():
                     flash(f'用户名或密码错误，还有 {remaining_attempts} 次尝试机会')
                     message = f'用户名或密码错误，剩余 {remaining_attempts} 次尝试机会'
                 else:
-                    flash(f'登录失败次数过多，账户已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟')
-                    message = f'登录失败次数过多，账户已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟'
+                    flash(f'该账号在当前登录来源的失败次数过多，已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟')
+                    message = f'该账号在当前登录来源的失败次数过多，已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟'
 
                 # 记录登录失败日志
                 login_log = LoginLog(
@@ -195,8 +218,8 @@ def login():
                 flash(f'用户名或密码错误，还有 {remaining_attempts} 次尝试机会')
                 message = f'用户名或密码错误，剩余 {remaining_attempts} 次尝试机会'
             else:
-                flash(f'登录失败次数过多，账户已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟')
-                message = f'登录失败次数过多，账户已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟'
+                flash(f'该账号在当前登录来源的失败次数过多，已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟')
+                message = f'该账号在当前登录来源的失败次数过多，已锁定 {LOGIN_LOCKOUT_DURATION.seconds // 60} 分钟'
 
             # 记录登录失败日志
             login_log = LoginLog(

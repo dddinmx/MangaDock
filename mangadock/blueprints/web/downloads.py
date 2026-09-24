@@ -22,12 +22,20 @@ from mangadock.services.download import (
 )
 from mangadock.services.fanqie import classify_fanqie_target
 from mangadock.services.fanqie_api import FanqieApiError
+from mangadock.services.groups import (
+    can_user_access_group,
+    can_user_access_task,
+    get_accessible_group_names,
+    get_comic_group_map,
+    normalize_group_name,
+)
 from mangadock.services.library import load_comic_mapping
 from mangadock.services.tasks import (
     delete_finished_tasks,
     delete_task,
     get_all_tasks,
     get_task,
+    normalize_comic_url_identity,
     update_task,
 )
 from mangadock.services.updates import (
@@ -67,6 +75,26 @@ def download():
                 adult_content_enabled=adult_enabled_for_user,
             )
 
+        normalized_url = normalize_comic_url_identity(comic_url)
+        mapped_names = [
+            comic_name
+            for comic_name, mapped_url in load_comic_mapping().items()
+            if normalize_comic_url_identity(mapped_url) == normalized_url
+        ]
+        comic_group_map = get_comic_group_map()
+        if any(
+            not can_user_access_group(
+                normalize_group_name(comic_group_map.get(comic_name)) or '默认分组',
+                current_user,
+            )
+            for comic_name in mapped_names
+        ):
+            return render_template(
+                'download.html',
+                error='当前账号无权访问该漫画',
+                adult_content_enabled=adult_enabled_for_user,
+            )
+
         if is_adult_content_blocked(comic_url, allow_adult=adult_enabled_for_user):
             return render_template(
                 'download.html',
@@ -85,6 +113,29 @@ def download():
                 adult_content_enabled=adult_enabled_for_user,
             )
 
+        if fanqie_target and fanqie_target['kind'] == 'comic':
+            fanqie_identity = normalize_comic_url_identity(
+                f"fanqie-comic://{fanqie_target['book_id']}"
+            )
+            fanqie_mapped_names = [
+                comic_name
+                for comic_name, mapped_url in load_comic_mapping().items()
+                if normalize_comic_url_identity(mapped_url) == fanqie_identity
+            ]
+            fanqie_group_map = get_comic_group_map()
+            if any(
+                not can_user_access_group(
+                    normalize_group_name(fanqie_group_map.get(comic_name)) or '默认分组',
+                    current_user,
+                )
+                for comic_name in fanqie_mapped_names
+            ):
+                return render_template(
+                    'download.html',
+                    error='当前账号无权访问该漫画',
+                    adult_content_enabled=adult_enabled_for_user,
+                )
+
         if fanqie_target and fanqie_target['kind'] == 'novel':
             task_id, _reused = start_novel_task(
                 fanqie_target['book_id'], title=fanqie_target['title'],
@@ -92,10 +143,17 @@ def download():
             return redirect(url_for('progress', task_id=task_id))
 
         # 启动下载线程并获取任务ID（带创建者 18+ 覆盖授权快照）
-        task_id = start_download_task(
-            comic_url, comic_format,
-            allow_adult=bool(current_user and current_user.can_view_adult),
-        )
+        try:
+            task_id = start_download_task(
+                comic_url, comic_format,
+                allow_adult=bool(current_user and current_user.can_view_adult),
+                created_by_user_id=current_user.id if current_user else None,
+            )
+        except PermissionError:
+            return render_template(
+                'download.html', error='当前账号无权访问该漫画',
+                adult_content_enabled=adult_enabled_for_user,
+            ), 403
 
         # 重定向到进度页
         return redirect(url_for('progress', task_id=task_id))
@@ -106,7 +164,24 @@ def download():
 @library_write_required
 def update():
     # 获取已下载的漫画列表
+    current_user = get_current_user()
     comic_data = load_comic_mapping()
+    comic_group_map = get_comic_group_map()
+    accessible_groups = set(get_accessible_group_names(current_user))
+    if not current_user.is_admin:
+        comic_data = {
+            comic_name: comic_url
+            for comic_name, comic_url in comic_data.items()
+            if (normalize_group_name(comic_group_map.get(comic_name)) or '默认分组') in accessible_groups
+        }
+    update_candidates = get_update_candidates()
+    if not current_user.is_admin:
+        update_candidates = [
+            candidate for candidate in update_candidates
+            if (
+                normalize_group_name(comic_group_map.get(candidate.comic_name)) or '默认分组'
+            ) in accessible_groups
+        ]
     comic_list = list(comic_data.keys())
     comic_update_mode = get_comic_update_mode()
 
@@ -121,21 +196,24 @@ def update():
             return render_template(
                 'update.html',
                 comics=comic_list,
-                update_candidates=get_update_candidates(),
+                update_candidates=update_candidates,
                 update_checking=is_update_check_refreshing(),
                 last_update_checked_at=get_last_update_check_time(),
                 comic_update_mode=comic_update_mode,
                 error="未找到该漫画的URL信息"
             )
 
-        task_id = start_update_task(comic_name, comic_format, comic_url)
+        task_id = start_update_task(
+            comic_name, comic_format, comic_url,
+            created_by_user_id=current_user.id if current_user else None,
+        )
 
         return redirect(url_for('progress', task_id=task_id))
 
     return render_template(
         'update.html',
         comics=comic_list,
-        update_candidates=get_update_candidates(),
+        update_candidates=update_candidates,
         update_checking=is_update_check_refreshing(),
         last_update_checked_at=get_last_update_check_time(),
         comic_update_mode=comic_update_mode
@@ -209,6 +287,8 @@ def progress(task_id):
     task = get_task(task_id)
     if not task:
         return render_template('error.html', message="任务不存在或已过期"), 404
+    if not can_user_access_task(task, get_current_user()):
+        return render_template('error.html', message="任务不存在或已过期"), 404
     from mangadock.services.fanqie import book_id_from_task_url
 
     novel_book_id = book_id_from_task_url(task.url)
@@ -226,7 +306,7 @@ def progress(task_id):
 @library_write_required
 def task_status(task_id):
     task = get_task(task_id)
-    if not task:
+    if not task or not can_user_access_task(task, get_current_user()):
         return jsonify({'error': '任务不存在'}), 404
 
     # 日志
@@ -250,6 +330,8 @@ def task_status(task_id):
 @library_write_required
 def cancel_task(task_id):
     task = get_task(task_id)
+    if not task or not can_user_access_task(task, get_current_user()):
+        return jsonify({'status': 'error', 'message': '任务不存在'}), 404
     if task and task.status in {'pending', 'running'}:
         update_task(task_id, status='cancelled', end_time=datetime.now(china_tz), log="用户已取消任务")
         return jsonify({'status': 'success', 'message': '任务已取消'})
@@ -259,7 +341,13 @@ def cancel_task(task_id):
 @library_write_required
 def tasks():
     """显示所有任务列表"""
-    all_tasks = get_all_tasks()
+    current_user = get_current_user()
+    group_map = get_comic_group_map()
+    allowed_groups = set(get_accessible_group_names(current_user))
+    all_tasks = [
+        task for task in get_all_tasks()
+        if can_user_access_task(task, current_user, group_map, allowed_groups)
+    ]
     active_statuses = {'pending', 'running'}
     active_task_count = sum(1 for task in all_tasks if task.status in active_statuses)
     deletable_task_count = len(all_tasks) - active_task_count
