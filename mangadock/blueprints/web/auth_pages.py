@@ -40,14 +40,49 @@ from mangadock.settings import (
 
 # 登录页封面墙：24 小说封面 + 24 漫画封面。漫画封面按「日期」确定性抽样：
 # 同一天所有访客看到完全相同的一批（用户要求全员一致），跨天自动轮换。
+# 漫画位不足 24 个时，用随仓库分发的 login-covers/c*.jpg 补位（见 render_login_page）。
 _LOGIN_COMIC_COVER_COUNT = 24
 _LOGIN_COVER_POOL_TTL = 600
 _login_cover_pool_cache = {'at': 0.0, 'names': []}
 _login_cover_pool_lock = threading.Lock()
 
+# 登录页专属的人工排除名单：封面画风偏情色、不适合出现在「未登录可见」的公开
+# 登录页上。与 mxs（18+ 来源）无关 —— 这些漫画在库里是正常的，能读能下，
+# 只是封面不上登录页。只影响登录页抽样，漫画库/书架/扩展的封面一律照旧。
+_LOGIN_COVER_DENYLIST = frozenset({
+    '暴君會長的嬌媳們',
+    '理想型演算法',
+    '太妹硬闖成人界',
+    '水電工日誌',
+    '潛入！財閥高校',
+    '家庭教師的祕密課程',
+    '尤物',
+    '恨不得吃掉妳',
+    '开局强吻裂口女',
+    '魔教教主苟在我身边看我偷偷修炼',
+    '我一个网约车司机有点钱怎么了？',
+    '诸天至尊',
+})
+
+# 名字命中这些硬词的封面一律不上登录页。这是「mxs 源判定」失效时的兜底：
+# 2026-09-24 实测候选池 67 张里有 32 张根本没有 comic.json 源映射，
+# is_mxs_url() 对它们无从判断，成人向过滤形同虚设，只能靠名字再兜一层。
+# 只收几乎不可能出现在正常漫画标题里的词，避免误伤（「诱她」「错撩」这类
+# 正常恋爱向标题不含其中任何一个）。
+_LOGIN_COVER_RISK_KEYWORDS = (
+    '成人', '里番', '裏番', '18禁', '18+', '色情', '情色', '淫', '裸',
+    '爆乳', '巨乳', '援交', 'r18', 'h漫',
+)
+
+
+def _is_risky_login_cover(name):
+    """名字带硬关键词的封面不上公开登录页（mxs 判定失效时的兜底）。"""
+    low = name.lower()
+    return any(k in low for k in _LOGIN_COVER_RISK_KEYWORDS)
+
 
 def _eligible_comic_cover_names():
-    """候选池：cover 根目录的 jpg，排除 18+（mxs 源）漫画的封面。"""
+    """候选池：cover 根目录的 jpg，排除三层：mxs（18+ 来源）、人工黑名单、名字硬关键词。"""
     try:
         with open(os.path.join(BASE_DIR, 'comic.json'), 'r', encoding='utf-8') as fh:
             comic_index = json.load(fh)
@@ -66,7 +101,8 @@ def _eligible_comic_cover_names():
         if not entry.lower().endswith('.jpg'):
             continue
         name = entry[:-4]
-        if name in adult_names or name.startswith('._'):
+        if (name in adult_names or name in _LOGIN_COVER_DENYLIST
+                or _is_risky_login_cover(name) or name.startswith('._')):
             continue
         names.append(name)
     return names
@@ -105,6 +141,12 @@ def render_login_page():
                 # /static/cover/* 对未登录用户返回 403，封面墙无法正常加载。
                 'url': url_for('login_comic_cover', slot=slot),
             })
+        else:
+            # 用户自己的漫画不足 24 部、甚至一部都还没下（全新部署时 static/cover
+            # 只有 .gitkeep）时，用随仓库分发的 login-covers/c<slot>.jpg 补位。
+            # 封面墙固定 48 格 = 12 列 × 4 行，少一格就会空出下半屏黑底；
+            # 用户下载的漫画变多后，这些补位封面会被自己的封面逐个顶替掉。
+            wall.append({'url': url_for('static', filename=f'login-covers/c{slot:02d}.jpg')})
     return render_template('login.html', login_wall=wall)
 
 
