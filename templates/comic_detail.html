@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}{{ task.comic_name }} - 详情{% endblock %}
-{% block body_class %}md-body detail-body min-h-screen{% endblock %}
+{% block body_class %}md-body detail-body comic-detail-body min-h-screen{% endblock %}
 
 {% block extra_head %}
 <script>
@@ -133,6 +133,10 @@
         resetReaderEntryButtons();
         bindReaderEntryButtons();
         document.addEventListener('click', function(event) {
+            const groupPicker = document.querySelector('.md-detail-group-picker');
+            if (groupPicker && !groupPicker.contains(event.target)) {
+                groupPicker.open = false;
+            }
             const menu = document.getElementById('detail-overflow-menu');
             const toggle = document.querySelector('[data-detail-menu-toggle]');
             if (!menu || !toggle || menu.hasAttribute('hidden')) {
@@ -190,10 +194,16 @@
 {% block main_wrapper %}
 <div class="md-main--flush app-main-content">
 {% block content %}
-<article class="md-detail">
+<article class="md-detail comic-detail">
     {# 氛围底图（方案 C） #}
     <div class="md-detail-hero-media" aria-hidden="true">
         <img
+            src="{{ cover_hero_image_url(task.comic_name) }}"
+            alt=""
+            data-fallback="{{ asset_url('cover/cover.png') }}"
+        >
+        <img
+            class="md-detail-hero-soft"
             src="{{ cover_hero_image_url(task.comic_name) }}"
             alt=""
             data-fallback="{{ asset_url('cover/cover.png') }}"
@@ -238,6 +248,17 @@
                         <span>{{ '取消隐藏此漫画' if is_current_comic_directly_hidden|default(false) else '隐藏此漫画' }}</span>
                     </button>
                 </form>
+                <form method="post" action="{{ url_for('toggle_admin_hidden_group') }}" class="md-detail-menu-form" data-api-v1="hidden-group">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="group_name" value="{{ current_group|default('') }}">
+                    <input type="hidden" name="task_id" value="{{ task.comic_name }}">
+                    <input type="hidden" name="return_to" value="detail">
+                    <input type="hidden" name="action" value="{{ 'show' if is_current_group_hidden|default(false) else 'hide' }}">
+                    <button type="submit" class="md-detail-menu-item action-press">
+                        <i class="fa {{ 'fa-eye' if is_current_group_hidden|default(false) else 'fa-eye-slash' }}"></i>
+                        <span>{{ '取消隐藏本组' if is_current_group_hidden|default(false) else '隐藏本组' }}</span>
+                    </button>
+                </form>
             </div>
         </div>
         {% endif %}
@@ -268,43 +289,6 @@
                 >
             </div>
             <div class="md-detail-meta">
-                <div class="md-detail-tags">
-                    <span class="md-chip">{{ 'PDF' if task.comic_format == 1 else 'CBZ' }}</span>
-                    <span class="md-chip">{{ task.available_chapters }} 章</span>
-                    {% if can_manage_library %}
-                    <form method="post" action="{{ url_for('assign_comic_group_route') }}" class="md-detail-group-form" data-api-v1="group-assign">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="comic_name" value="{{ task.comic_name }}">
-                        <input type="hidden" name="task_id" value="{{ task.comic_name }}">
-                        <input type="hidden" name="return_to" value="detail">
-                        <label class="md-detail-group-label">
-                            <i class="fa fa-folder-open"></i>
-                            <select name="group_name" aria-label="选择分组">
-                                {% for group_name in groups %}
-                                <option value="{{ group_name }}"{% if group_name == current_group|default('') %} selected{% endif %}>{{ group_name }}</option>
-                                {% endfor %}
-                            </select>
-                        </label>
-                        <button type="submit" class="md-detail-group-save action-press" aria-label="保存分组">
-                            <i class="fa fa-check"></i>
-                        </button>
-                    </form>
-                    <form method="post" action="{{ url_for('toggle_admin_hidden_group') }}" class="md-detail-group-form" data-api-v1="hidden-group">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="group_name" value="{{ current_group|default('') }}">
-                        <input type="hidden" name="task_id" value="{{ task.comic_name }}">
-                        <input type="hidden" name="return_to" value="detail">
-                        <input type="hidden" name="action" value="{{ 'show' if is_current_group_hidden|default(false) else 'hide' }}">
-                        <button type="submit" class="md-chip action-press" style="cursor:pointer;border:0;">
-                            <i class="fa {{ 'fa-eye' if is_current_group_hidden|default(false) else 'fa-eye-slash' }}"></i>
-                            <span style="margin-left:0.35rem">{{ '取消隐藏本组' if is_current_group_hidden|default(false) else '隐藏本组' }}</span>
-                        </button>
-                    </form>
-                    {% else %}
-                    <span class="md-chip"><i class="fa fa-folder-open" style="margin-right:0.35rem"></i>{{ current_group|default('') }}</span>
-                    {% endif %}
-                </div>
-
                 <h1 class="md-detail-title">{{ task.comic_name }}</h1>
 
                 <p class="md-detail-sub">
@@ -317,6 +301,59 @@
                         · 上次读到第 {{ progress.last_chapter + 1 }} 章
                     {% endif %}
                 </p>
+
+                <div class="md-detail-actions">
+                    {% if can_manage_library and groups %}
+                    <details class="md-detail-group-picker">
+                        <summary class="md-detail-action action-press" aria-label="更改分组，当前为{{ current_group }}">
+                            <i class="fa fa-folder-o"></i>
+                            <span class="md-detail-action-copy"><small>分组</small><strong>{{ current_group }}</strong></span>
+                            <i class="fa fa-angle-down md-detail-group-chevron"></i>
+                        </summary>
+                        <form method="post" action="{{ url_for('assign_comic_group_route') }}" class="md-detail-group-options" data-api-v1="group-assign">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="comic_name" value="{{ task.comic_name }}">
+                            <input type="hidden" name="task_id" value="{{ task.comic_name }}">
+                            <input type="hidden" name="return_to" value="detail">
+                            <div class="md-detail-group-heading">选择分组</div>
+                            {% for group_name in groups %}
+                            <label class="md-detail-group-option{% if group_name == current_group|default('') %} is-selected{% endif %}">
+                                <input type="radio" name="group_name" value="{{ group_name }}"{% if group_name == current_group|default('') %} checked{% endif %} onchange="this.form.requestSubmit()">
+                                <span>{{ group_name }}</span>
+                                {% if group_name == current_group|default('') %}<i class="fa fa-check"></i>{% endif %}
+                            </label>
+                            {% endfor %}
+                            <noscript><button type="submit" class="md-detail-group-fallback">保存分组</button></noscript>
+                        </form>
+                    </details>
+                    {% else %}
+                    <span class="md-detail-action" title="当前分组"><i class="fa fa-folder-o"></i><span class="md-detail-action-copy"><small>分组</small><strong>{{ current_group|default('未分组') }}</strong></span></span>
+                    {% endif %}
+                    <a href="{{ url_for('anilist_match', comic_name=task.comic_name) }}" class="md-detail-action action-press">
+                        <i class="fa fa-link"></i><span class="md-detail-action-copy"><small>AniList</small><strong>{{ '管理进度' if anilist_link else '关联进度' }}</strong></span>
+                    </a>
+                    <a href="#detail-chapters" class="md-detail-action action-press">
+                        <i class="fa fa-list-ol"></i><span class="md-detail-action-copy"><small>{{ 'PDF' if task.comic_format == 1 else 'CBZ' }} · 章节</small><strong>{{ task.available_chapters }} 章</strong></span>
+                    </a>
+                </div>
+
+                <div class="md-detail-read-cta">
+                    {% if progress %}
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
+                       class="md-btn-primary reader-entry-btn action-press md-detail-read-btn"
+                       data-reader-entry="true">
+                        <span class="btn-label">继续阅读 第 {{ progress.last_chapter + 1 }} 章</span>
+                        <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
+                    </a>
+                    {% else %}
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
+                       class="md-btn-primary reader-entry-btn action-press md-detail-read-btn"
+                       data-reader-entry="true">
+                        <span class="btn-label">开始阅读</span>
+                        <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
+                    </a>
+                    {% endif %}
+                </div>
 
                 {% if comic_description %}
                 <div class="md-detail-synopsis">
@@ -368,7 +405,7 @@
             </div>
         </header>
 
-        <section class="md-detail-chapters">
+        <section id="detail-chapters" class="md-detail-chapters">
             <div class="md-detail-chapters-bar">
                 <h2 class="md-section-title !mb-0">共 {{ task.available_chapters }} 章</h2>
                 <div class="md-detail-chapter-tools">
@@ -406,24 +443,6 @@
         </section>
     </div>
 
-    {# 吸底主 CTA（详情页内，非全局 Dock） #}
-    <div class="md-detail-sticky-cta">
-        {% if progress %}
-        <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
-           class="md-btn-primary reader-entry-btn action-press md-detail-sticky-btn"
-           data-reader-entry="true">
-            <span class="btn-label">继续阅读 第 {{ progress.last_chapter + 1 }} 章</span>
-            <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
-        </a>
-        {% else %}
-        <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
-           class="md-btn-primary reader-entry-btn action-press md-detail-sticky-btn"
-           data-reader-entry="true">
-            <span class="btn-label">开始阅读</span>
-            <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
-        </a>
-        {% endif %}
-    </div>
 </article>
 {% endblock %}
 </div>

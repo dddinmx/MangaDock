@@ -14,7 +14,7 @@ from flask import (
 from mangadock.auth import admin_required, get_current_user, login_required
 from mangadock.core import app
 from mangadock.extensions import db
-from mangadock.models import ComicScanPath
+from mangadock.models import AniListAccount, ComicScanPath
 from mangadock.services.adult_content import (
     is_adult_content_enabled,
     set_adult_content_enabled,
@@ -38,6 +38,7 @@ def settings():
         current_user=current_user,
         scan_paths=scan_paths,
         adult_content_enabled=is_adult_content_enabled(),
+        anilist_account=db.session.get(AniListAccount, current_user.id),
     )
 
 

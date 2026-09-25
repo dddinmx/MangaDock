@@ -48,6 +48,27 @@ class ReadingProgress(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
 
 
+class AniListAccount(db.Model):
+    user_id = db.Column(db.Integer, primary_key=True)
+    anilist_user_id = db.Column(db.Integer, nullable=False)
+    username = db.Column(db.String(80), nullable=False)
+    encrypted_token = db.Column(db.Text, nullable=False)
+
+
+class AniListComicLink(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    comic_name = db.Column(db.String(255), nullable=False)
+    media_id = db.Column(db.Integer, nullable=False)
+    media_title = db.Column(db.String(255), nullable=False)
+    first_chapter = db.Column(db.Integer, nullable=False, default=1)
+    synced_progress = db.Column(db.Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'comic_name', name='uq_anilist_comic_link'),
+    )
+
+
 class ReadingTime(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=False, index=True)

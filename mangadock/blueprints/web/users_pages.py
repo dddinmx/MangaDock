@@ -12,6 +12,8 @@ from mangadock.auth import admin_required, get_current_user, login_required
 from mangadock.core import app
 from mangadock.extensions import db
 from mangadock.models import (
+    AniListAccount,
+    AniListComicLink,
     LoginLog,
     ReadingProgress,
     ReadingSessionState,
@@ -188,6 +190,8 @@ def delete_user(user_id):
         return redirect(url_for('user_detail', user_id=user.id))
 
     db.session.query(ReadingProgress).filter_by(user_id=user.id).delete(synchronize_session=False)
+    db.session.query(AniListComicLink).filter_by(user_id=user.id).delete(synchronize_session=False)
+    db.session.query(AniListAccount).filter_by(user_id=user.id).delete(synchronize_session=False)
     db.session.query(ReadingTime).filter_by(user_id=user.id).delete(synchronize_session=False)
     db.session.query(ReadingSessionState).filter_by(user_id=user.id).delete(synchronize_session=False)
     db.session.query(UserGroupPermission).filter_by(user_id=user.id).delete(synchronize_session=False)

@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}连接 AniList - MangaDock{% endblock %}
+{% block content %}
+<main class="max-w-xl mx-auto px-4 py-8">
+    <a href="{{ url_for('settings') }}">← 返回我的</a>
+    <h1 class="text-2xl font-bold mt-5 mb-3">连接 AniList</h1>
+    {% for message in get_flashed_messages() %}<p class="mb-3">{{ message }}</p>{% endfor %}
+    <ol class="list-decimal list-inside space-y-3 mb-6">
+        <li><a class="underline" href="{{ authorize_url }}" target="_blank" rel="noopener noreferrer">打开 AniList 授权页面</a>，登录并同意授权。</li>
+        <li>在 AniList 显示的页面复制访问令牌。</li>
+        <li>回到这里粘贴令牌，点击连接。</li>
+    </ol>
+    <form method="post" class="space-y-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="access_token" class="block">AniList 访问令牌</label>
+        <textarea id="access_token" name="access_token" rows="3" maxlength="4096" required autocomplete="off" spellcheck="false" class="md-input w-full" placeholder="粘贴 AniList 显示的访问令牌"></textarea>
+        <button type="submit" class="md-btn-primary">连接 AniList</button>
+    </form>
+    <p class="mt-5 text-sm">访问令牌可用于修改你的 AniList 阅读记录，请不要发给其他人。</p>
+</main>
+{% endblock %}

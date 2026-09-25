@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """漫画详情 / 阅读器 / 进度接口 / 静态漫画文件。"""
 import os
+import mimetypes
+import re
+import zipfile
+from functools import lru_cache
+
+from PIL import Image
 
 from flask import (
     flash,
@@ -8,6 +14,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    Response,
     send_from_directory,
     session,
     url_for,
@@ -23,6 +30,7 @@ from mangadock.auth import (
 )
 from mangadock.core import app
 from mangadock.extensions import csrf, db
+from mangadock.models import AniListAccount, AniListComicLink
 from mangadock.services.download import refresh_comic_description
 from mangadock.services.groups import (
     can_user_access_group,
@@ -32,6 +40,7 @@ from mangadock.services.groups import (
 )
 from mangadock.services.library import (
     detect_local_comic_format,
+    api_page_source_version,
     get_available_comics,
     get_comic_description,
     get_comic_directory,
@@ -111,6 +120,7 @@ def comic_detail(task_id):
     # 获取阅读进度
     current_user_id = session.get('user_id')
     progress = get_reading_progress(task.comic_name, current_user_id)
+    anilist_link = AniListComicLink.query.filter_by(user_id=current_user_id, comic_name=task.comic_name).first()
     # 获取阅读时间（分钟）
     reading_time = get_reading_time_for_comic(task.comic_name, current_user_id)
     current_group = get_comic_group_map().get(task.comic_name) or getattr(task, 'group', None) or '默认分组'
@@ -143,6 +153,7 @@ def comic_detail(task_id):
         task=task,
         chapters=chapters,
         progress=progress,
+        anilist_link=anilist_link,
         reading_time=reading_time,
         comic_description=comic_description,
         current_group=current_group,
@@ -261,6 +272,10 @@ def comic_reader(task_id):
         start_chapter=start_chapter,
         start_page=start_page,
         library_return_url=library_return_url,
+        anilist_enabled=bool(
+            db.session.get(AniListAccount, current_user_id) and
+            AniListComicLink.query.filter_by(user_id=current_user_id, comic_name=task.comic_name).first()
+        ),
     )
 
 @app.route('/save_progress', methods=['POST'])
@@ -381,6 +396,54 @@ def serve_comic_file(filename):
         readable_pdf = repair_pdf_for_reading(file_path)
         return send_from_directory(os.path.dirname(readable_pdf), os.path.basename(readable_pdf))
     return send_from_directory(resolved_file['comic_dir'], resolved_file['relative_filename'])
+
+
+@lru_cache(maxsize=64)
+def cbz_page_manifest(file_path, source_version):
+    with zipfile.ZipFile(file_path) as archive:
+        images = [name for name in archive.namelist()
+                  if not name.endswith('/') and re.search(r'\.(jpg|jpeg|png|gif|webp)$', name, re.I)]
+        images.sort(key=lambda name: [(1, int(part)) if part.isdigit() else (0, part.casefold())
+                                      for part in re.split(r'(\d+)', name)])
+        dimensions = []
+        for name in images:
+            try:
+                with archive.open(name) as image_file, Image.open(image_file) as image:
+                    dimensions.append(image.size)
+            except (OSError, ValueError):
+                dimensions.append((0, 0))
+    return tuple(images), tuple(dimensions)
+
+
+@app.route('/api/comic-pages/<path:filename>')
+@login_required
+def comic_pages(filename):
+    """返回 CBZ 页目录，或单独返回一张图片。"""
+    resolved_file = resolve_comic_file_request(filename)
+    if not resolved_file or not resolved_file['file_path'].lower().endswith('.cbz'):
+        return jsonify({'error': '章节不存在'}), 404
+
+    current_group = get_comic_group_map().get(resolved_file['comic_name']) or '默认分组'
+    if not can_user_access_group(current_group, get_current_user()):
+        return jsonify({'error': '当前账号未被授权访问该分组漫画'}), 403
+
+    try:
+        images, dimensions = cbz_page_manifest(
+            resolved_file['file_path'], api_page_source_version(resolved_file['file_path']))
+        page = request.args.get('page')
+        if page is None:
+            return jsonify({'pages': len(images), 'dimensions': dimensions})
+        if not page.isdecimal() or int(page) >= len(images):
+            return jsonify({'error': '页面不存在'}), 404
+        image_name = images[int(page)]
+        with zipfile.ZipFile(resolved_file['file_path']) as archive:
+            image_data = archive.read(image_name)
+    except (OSError, zipfile.BadZipFile, RuntimeError):
+        return jsonify({'error': '章节读取失败'}), 500
+
+    response = Response(image_data, mimetype=mimetypes.guess_type(image_name)[0] or 'application/octet-stream')
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
 
 @app.route('/api/chapters/<task_id>')
 @login_required

@@ -8,10 +8,8 @@
     <title>{{ task.comic_name }} - 阅读</title>
     <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
     <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
-    {# 2026-09-20 code review P2：这两个 vendor 库合计约 380KB，同步放在 head 会阻塞
-       首屏解析；用法都在函数体内（loadPdfChapter / JSZip 调用），加 defer 安全。 #}
+    {# PDF 库延迟加载，避免阻塞首屏解析。 #}
     <script defer src="{{ asset_url('js/vendor/pdf.min.js') }}"></script>
-    <script defer src="{{ asset_url('js/vendor/jszip.min.js') }}"></script>
     
     <style>
         * {
@@ -82,6 +80,29 @@
         .page-container.margin-50 { max-width: 50%; }
         .page-container.margin-60 { max-width: 40%; }
         .page-container.margin-70 { max-width: 30%; }
+
+        .cbz-page {
+            position: relative;
+            background: #141414 !important;
+        }
+
+        .cbz-page .comic-page {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .cbz-page-retry {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            background: #52657e;
+            border-radius: 8px;
+            padding: 12px 18px;
+        }
         
         /* 加载遮罩 */
         .loading-overlay {
@@ -827,6 +848,12 @@
             <i class="fa fa-arrow-down"></i>
             <span>滚动</span>
         </button>
+        {% if anilist_enabled %}
+        <button id="anilist-complete-btn" class="control-btn" aria-label="标记本章已读并同步 AniList">
+            <i class="fa fa-check"></i>
+            <span>已读</span>
+        </button>
+        {% endif %}
         <button id="width-adjust-btn" class="control-btn" aria-label="阅读设置">
             <i class="fa fa-cog"></i>
             <span>宽度</span>
@@ -868,6 +895,7 @@
         const taskId = {{ task.id|tojson }};
         const startChapter = Number({{ (start_chapter if start_chapter is defined else 0)|tojson }}) || 0;
         const csrfToken = {{ csrf_token()|tojson }};
+        const anilistEnabled = {{ anilist_enabled|tojson }};
         let currentChapter = startChapter;
         let chapters = [];
         let currentChapterData = null;
@@ -880,6 +908,8 @@
         let autoScrollQueueResumeAt = 0;
         let currentMargin = 0;
         let currentChapterFormat = null;
+        let currentChapterReady = false;
+        const autoSyncedChapters = new Set();
         let savedScrollPosition = 0; // 保存的滚动位置
         let scrollSaveTimer = null; // 滚动保存定时器
         let progressIntervalId = null;
@@ -889,6 +919,7 @@
         let continuousSections = [];
         let continuousLoadPending = false;
         let continuousLoadFailed = false;
+        let cbzPageObserver = null;
         let readerDesktopViewport = isDesktopViewport();
         const chapterCache = new Map();
         const MAX_CHAPTER_CACHE_SIZE = 2;
@@ -970,7 +1001,13 @@
         function createChapterSection(index) {
             const element = document.createElement('section');
             element.dataset.chapter = String(index);
-            return { index, element, ready: false };
+            return { index, element, ready: false, loadedLastPage: false, passedEnd: false };
+        }
+
+        function completePassedChapter(section) {
+            if (!section?.passedEnd || !section.loadedLastPage || autoSyncedChapters.has(section.index)) return;
+            autoSyncedChapters.add(section.index);
+            reportCompletedChapter(section.index);
         }
 
         // 以当前章节自己的坐标保存进度，重新打开时无需加载之前的章节。
@@ -992,8 +1029,16 @@
                     visible = item;
                 }
                 if (visible && visible.index !== currentChapter) {
+                    if (visible.index === currentChapter + 1) {
+                        const previous = continuousSections.find(item => item.index === currentChapter);
+                        if (previous) {
+                            previous.passedEnd = true;
+                            completePassedChapter(previous);
+                        }
+                    }
                     currentChapter = visible.index;
                     currentChapterFormat = chapters[currentChapter].format;
+                    currentChapterReady = visible.loadedLastPage;
                     updateChapterInfo();
                     updateChapterSelector();
                     renderChapterNavButtons();
@@ -1003,7 +1048,7 @@
             const tail = continuousSections[continuousSections.length - 1];
             // 只提前追加一章，短章节也不会无限下载整本漫画。
             if (tail.ready && tail.index <= currentChapter && tail.index < chapters.length - 1 &&
-                tail.element.getBoundingClientRect().bottom < window.innerHeight * 2) {
+                tail.element.getBoundingClientRect().bottom < window.innerHeight * 3) {
                 appendNextChapter();
             }
         }
@@ -1016,10 +1061,9 @@
             const section = createChapterSection(tail.index + 1);
             const chapter = chapters[section.index];
             continuousLoadPending = true;
-            const indicator = createBottomLoadingIndicator('正在加载下一章…');
-            pageContent.appendChild(indicator);
+            continuousSections.push(section);
+            pageContent.appendChild(section.element);
             try {
-                // 完整准备后再追加，避免上一章未加载完就插入下一章。
                 if (chapter.format === 'cbz') {
                     await loadCbzChapter(chapter, token, section.element, true);
                 } else if (chapter.format === 'pdf') {
@@ -1029,25 +1073,24 @@
                 }
                 if (token !== activeChapterLoadToken) return;
                 section.ready = true;
-                continuousSections.push(section);
-                pageContent.appendChild(section.element);
                 prefetchNextCbzChapter(section.index);
             } catch (error) {
                 if (token !== activeChapterLoadToken) return;
                 continuousLoadFailed = true;
+                section.element.replaceChildren();
                 const retry = document.createElement('button');
                 retry.type = 'button';
                 retry.className = 'bottom-loading';
                 retry.textContent = '下一章加载失败，点击重试';
                 retry.addEventListener('click', () => {
-                    retry.remove();
+                    section.element.remove();
+                    continuousSections.pop();
                     continuousLoadFailed = false;
                     appendNextChapter();
                 });
-                pageContent.appendChild(retry);
+                section.element.appendChild(retry);
                 console.error('连续阅读加载失败:', error);
             } finally {
-                indicator.remove();
                 if (token === activeChapterLoadToken) {
                     continuousLoadPending = false;
                     queueProgressUiSync();
@@ -1089,26 +1132,6 @@
             }
         }
 
-        async function getCbzImageBlob(cacheEntry, imagePath) {
-            if (!cacheEntry || !imagePath) {
-                return null;
-            }
-
-            const cachedBlob = cacheEntry.blobCache.get(imagePath);
-            if (cachedBlob) {
-                return cachedBlob;
-            }
-
-            const zipEntry = cacheEntry.zip.file(imagePath);
-            if (!zipEntry) {
-                return null;
-            }
-
-            const blob = await zipEntry.async('blob');
-            cacheEntry.blobCache.set(imagePath, blob);
-            return blob;
-        }
-
         async function ensureCbzChapterCache(chapter) {
             const cacheKey = getChapterCacheKey(chapter);
             if (!cacheKey) {
@@ -1126,37 +1149,40 @@
             }
 
             const loadPromise = (async () => {
-                const cbzUrl = `/static/comic/${encodeURIComponent(comicName)}/${encodeURIComponent(chapter.filename)}`;
-                const response = await fetch(cbzUrl);
-                if (!response.ok) {
-                    throw new Error(`章节文件加载失败 (${response.status})`);
-                }
-
-                const buffer = await response.arrayBuffer();
-                const zip = await JSZip.loadAsync(buffer);
-                const imageFiles = [];
-
-                zip.forEach((relativePath, zipEntry) => {
-                    if (!zipEntry.dir && /\.(jpg|jpeg|png|gif|webp)$/i.test(relativePath)) {
-                        imageFiles.push(relativePath);
+                const pagesUrl = `/api/comic-pages/${encodeURIComponent(comicName)}/${encodeURIComponent(chapter.filename)}`;
+                let response;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    await waitForReaderVisible();
+                    const controller = new AbortController();
+                    const abortWhenHidden = () => { if (document.hidden) controller.abort(); };
+                    const abortOnPageHide = () => controller.abort();
+                    document.addEventListener('visibilitychange', abortWhenHidden);
+                    window.addEventListener('pagehide', abortOnPageHide);
+                    try {
+                        response = await fetch(pagesUrl, { signal: controller.signal });
+                    } catch (error) {
+                        if (controller.signal.aborted) {
+                            attempt--;
+                            continue;
+                        }
+                        if (attempt === 2) throw error;
+                        await new Promise((resolve) => window.setTimeout(resolve, 500));
+                        continue;
+                    } finally {
+                        document.removeEventListener('visibilitychange', abortWhenHidden);
+                        window.removeEventListener('pagehide', abortOnPageHide);
                     }
-                });
-
-                imageFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-
+                    if (response.ok) break;
+                    if (response.status < 500 || attempt === 2) throw new Error(`章节目录加载失败 (${response.status})`);
+                    await new Promise((resolve) => window.setTimeout(resolve, 500));
+                }
+                const { pages, dimensions } = await response.json();
                 const cacheEntry = {
                     ready: true,
-                    zip,
-                    images: imageFiles,
-                    blobCache: new Map(),
+                    pagesUrl,
+                    images: Array.from({ length: pages }, (_, index) => index),
+                    dimensions: Array.isArray(dimensions) ? dimensions : [],
                 };
-
-                if (imageFiles.length > 0) {
-                    const firstBlob = await getCbzImageBlob(cacheEntry, imageFiles[0]);
-                    if (firstBlob) {
-                        cacheEntry.firstImagePath = imageFiles[0];
-                    }
-                }
 
                 chapterCache.set(cacheKey, cacheEntry);
                 return cacheEntry;
@@ -1217,6 +1243,9 @@
             });
             chapterSelectorBtn.addEventListener('click', toggleChapterSelector);
             autoScrollBtn.addEventListener('click', toggleAutoScroll);
+            document.getElementById('anilist-complete-btn')?.addEventListener('click', () => {
+                reportCompletedChapter(currentChapter, true);
+            });
             autoScrollSpeedSlider.addEventListener('input', handleAutoScrollSpeedChange);
             progressPrevBtn.addEventListener('click', goToPrevChapter);
             progressNextBtn.addEventListener('click', goToNextChapter);
@@ -1413,6 +1442,8 @@
             }
 
             const chapterLoadToken = ++activeChapterLoadToken;
+            currentChapterReady = false;
+            if (cbzPageObserver) cbzPageObserver.disconnect();
             continuousSections = [];
             continuousLoadPending = false;
             continuousLoadFailed = false;
@@ -1433,16 +1464,20 @@
             const target = section ? section.element : pageContent;
 
             try {
+                let chapterReady = true;
                 if (chapter.format === 'pdf') {
                     await loadPdfChapter(chapter, chapterLoadToken, target);
                 } else if (chapter.format === 'cbz') {
-                    await loadCbzChapter(chapter, chapterLoadToken, target);
+                    chapterReady = await loadCbzChapter(chapter, chapterLoadToken, target);
                 }
 
                 if (chapterLoadToken !== activeChapterLoadToken) {
                     return;
                 }
-                if (section) section.ready = true;
+                if (section) {
+                    section.ready = chapterReady !== false;
+                    if (chapter.format === 'pdf') section.loadedLastPage = currentChapterReady;
+                }
 
                 updateChapterInfo();
                 updateChapterSelector();
@@ -1453,10 +1488,13 @@
                 prefetchNextCbzChapter(currentChapter);
 
                 if (restoreScroll && savedScrollPosition > 0) {
-                    restoreSavedScrollPosition();
+                    restoreSavedScrollPosition(chapterLoadToken, chapter.format === 'cbz' || currentChapterReady);
                 } else {
                     window.scrollTo(0, 0);
                     queueProgressUiSync();
+                }
+                if (chapter.format === 'cbz') {
+                    for (const container of target.querySelectorAll('.cbz-page')) observeCbzPage(container);
                 }
 
                 if (isAutoScrolling) {
@@ -1473,6 +1511,7 @@
                 console.error('加载章节失败:', error);
                 hideLoading();
                 showPageMessage(`加载章节失败: ${error && error.message ? error.message : '未知错误'}`);
+                showChapterRetry(pageContent, chapterLoadToken);
             }
         }
 
@@ -1485,75 +1524,103 @@
             pageContent.replaceChildren(wrap);
         }
 
-        function createBottomLoadingIndicator(message) {
-            const bottomLoading = document.createElement('div');
-            bottomLoading.className = 'bottom-loading';
-            bottomLoading.id = 'bottom-loading';
-            const icon = document.createElement('i');
-            icon.className = 'fa fa-spinner fa-spin';
-            const label = document.createElement('div');
-            label.textContent = message;
-            bottomLoading.append(icon, label);
-            return bottomLoading;
+        function showChapterRetry(target, chapterLoadToken) {
+            if (chapterLoadToken !== activeChapterLoadToken) return;
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'bottom-loading';
+            retry.textContent = '图片加载中断，点击重试';
+            retry.addEventListener('click', () => {
+                savedScrollPosition = Math.max(window.scrollY - getChapterScrollBounds().start, 0);
+                loadChapter(currentChapter, true);
+            });
+            target.appendChild(retry);
         }
 
-        async function buildCbzPageContainer(cacheEntry, imagePath) {
-            const blob = await getCbzImageBlob(cacheEntry, imagePath);
-            if (!blob) {
-                return null;
-            }
-
+        function waitForReaderVisible() {
+            if (!document.hidden) return Promise.resolve();
             return new Promise((resolve) => {
-                const objectUrl = URL.createObjectURL(blob);
-                const img = new Image();
-                img.className = 'comic-page';
-
-                img.onload = () => {
-                    URL.revokeObjectURL(objectUrl);
-                    const pageContainer = document.createElement('div');
-                    pageContainer.className = `page-container margin-${currentMargin}`;
-                    pageContainer.appendChild(img);
-                    resolve(pageContainer);
+                const onVisible = () => {
+                    if (document.hidden) return;
+                    document.removeEventListener('visibilitychange', onVisible);
+                    resolve();
                 };
-
-                img.onerror = () => {
-                    console.error(`图片加载失败: ${imagePath}`);
-                    URL.revokeObjectURL(objectUrl);
-                    resolve(null);
-                };
-
-                img.src = objectUrl;
+                document.addEventListener('visibilitychange', onVisible);
             });
         }
 
-        async function queueRemainingCbzImages(cacheEntry, imageFiles, startIndex, chapterLoadToken, bottomLoading, target = pageContent, propagateError = false) {
-            try {
-                for (let index = startIndex; index < imageFiles.length; index++) {
-                    if (chapterLoadToken !== activeChapterLoadToken) {
-                        break;
+        function observeCbzPage(container) {
+            if (!cbzPageObserver) {
+                cbzPageObserver = new IntersectionObserver((entries) => {
+                    const distance = (entry) => Math.max(entry.boundingClientRect.top - window.innerHeight, -entry.boundingClientRect.bottom, 0);
+                    for (const entry of entries.filter(item => item.isIntersecting).sort((a, b) => distance(a) - distance(b))) {
+                        cbzPageObserver.unobserve(entry.target);
+                        entry.target.loadImage();
                     }
-
-                    const pageContainer = await buildCbzPageContainer(cacheEntry, imageFiles[index]);
-                    if (chapterLoadToken !== activeChapterLoadToken) {
-                        break;
-                    }
-
-                    if (!pageContainer && propagateError) throw new Error('章节图片加载失败');
-                    if (pageContainer) {
-                        target.appendChild(pageContainer);
-                        queueProgressUiSync();
-                    }
-
-                    if ((index - startIndex + 1) % 2 === 0) {
-                        await new Promise((resolve) => window.setTimeout(resolve, 0));
-                    }
-                }
-            } catch (error) {
-                console.error('后台加载剩余 CBZ 图片失败:', error);
-                if (propagateError) throw error;
-            } finally {
-                bottomLoading.remove();
+                }, { rootMargin: '2000px 0px' });
             }
+            cbzPageObserver.observe(container);
+        }
+
+        function buildCbzPageContainer(cacheEntry, pageIndex, pageCount, chapterLoadToken, target) {
+            const [rawWidth, rawHeight] = cacheEntry.dimensions[pageIndex] || [];
+            const width = Number(rawWidth) > 0 ? Number(rawWidth) : 720;
+            const height = Number(rawHeight) > 0 ? Number(rawHeight) : 1000;
+            const container = document.createElement('div');
+            container.className = `page-container cbz-page margin-${currentMargin}`;
+            container.style.aspectRatio = `${width} / ${height}`;
+            const img = document.createElement('img');
+            img.className = 'comic-page';
+            img.width = width;
+            img.height = height;
+            img.alt = `第 ${pageIndex + 1} 页`;
+            img.style.visibility = 'hidden';
+            container.appendChild(img);
+            const url = `${cacheEntry.pagesUrl}?page=${pageIndex}`;
+            let attempts = 0;
+            container.loadImage = async () => {
+                if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
+                await waitForReaderVisible();
+                if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
+                attempts++;
+                container.dataset.loading = 'true';
+                img.onload = () => {
+                    container.dataset.loading = 'loaded';
+                    img.style.visibility = 'visible';
+                    container.style.background = 'transparent';
+                    if (pageIndex === pageCount - 1) {
+                        const section = continuousSections.find(item => item.element === target);
+                        if (section) {
+                            section.loadedLastPage = true;
+                            completePassedChapter(section);
+                        }
+                        if (target === pageContent || section?.index === currentChapter) {
+                            currentChapterReady = true;
+                            queueProgressUiSync();
+                        }
+                    }
+                };
+                img.onerror = () => {
+                    container.dataset.loading = 'error';
+                    if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
+                    if (attempts < 3) {
+                        window.setTimeout(container.loadImage, 600);
+                        return;
+                    }
+                    const retry = document.createElement('button');
+                    retry.type = 'button';
+                    retry.className = 'cbz-page-retry';
+                    retry.textContent = `第 ${pageIndex + 1} 页加载失败，点击重试`;
+                    retry.addEventListener('click', () => {
+                        retry.remove();
+                        attempts = 0;
+                        container.loadImage();
+                    });
+                    container.appendChild(retry);
+                };
+                img.src = `${url}${attempts > 1 ? `&retry=${Date.now()}` : ''}`;
+            };
+            return container;
         }
         
         // 加载PDF章节
@@ -1565,11 +1632,6 @@
                 const pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
                 if (chapterLoadToken !== activeChapterLoadToken) { await pdfDoc.destroy(); return; }
                 if (!background) currentChapterData = pdfDoc;
-
-                const bottomLoading = document.createElement('div');
-                bottomLoading.className = 'bottom-loading';
-                bottomLoading.id = 'bottom-loading';
-                bottomLoading.innerHTML = '<i class="fa fa-spinner fa-spin"></i><div>正在加载剩余页面...</div>';
 
                 const isDesktop = isDesktopViewport();
                 const widthRatio = (100 - currentMargin) / 100;
@@ -1615,14 +1677,19 @@
 
                     if (pageNum === 1) {
                         if (!background) hideLoading();
-                        if (pdfDoc.numPages > 1) {
-                            target.appendChild(bottomLoading);
-                        }
                     }
                 }
 
-                bottomLoading.remove();
                 await pdfDoc.destroy();
+                const section = continuousSections.find(item => item.element === target);
+                if (section && chapterLoadToken === activeChapterLoadToken) {
+                    section.loadedLastPage = true;
+                    completePassedChapter(section);
+                }
+                if (!background && chapterLoadToken === activeChapterLoadToken) {
+                    currentChapterReady = true;
+                    queueProgressUiSync();
+                }
             } catch (error) {
                 console.error('PDF加载失败:', error);
                 throw error;
@@ -1636,7 +1703,6 @@
             const imageFiles = cacheEntry.images;
 
             if (!background) currentChapterData = {
-                zip: cacheEntry.zip,
                 images: imageFiles
             };
 
@@ -1644,27 +1710,19 @@
                 throw new Error('章节中没有可阅读的图片');
             }
 
-            const bottomLoading = createBottomLoadingIndicator('正在后台加载剩余图片...');
-            const firstPageContainer = await buildCbzPageContainer(cacheEntry, imageFiles[0]);
-
-            if (chapterLoadToken !== activeChapterLoadToken) {
-                return;
+            const fragment = document.createDocumentFragment();
+            const containers = imageFiles.map((pageIndex) => {
+                const container = buildCbzPageContainer(cacheEntry, pageIndex, imageFiles.length, chapterLoadToken, target);
+                fragment.appendChild(container);
+                return container;
+            });
+            target.appendChild(fragment);
+            if (background) {
+                for (const container of containers) observeCbzPage(container);
             }
-
-            if (!firstPageContainer && target !== pageContent) throw new Error('章节图片加载失败');
-            if (firstPageContainer) {
-                target.appendChild(firstPageContainer);
-                queueProgressUiSync();
-            }
-
-            await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
             if (!background) hideLoading();
-
-            if (imageFiles.length > 1) {
-                target.appendChild(bottomLoading);
-                const remaining = queueRemainingCbzImages(cacheEntry, imageFiles, 1, chapterLoadToken, bottomLoading, target, target !== pageContent);
-                if (target !== pageContent) await remaining;
-            }
+            queueProgressUiSync();
+            return true;
         }
         
         // 渲染章节导航按钮
@@ -1708,9 +1766,27 @@
         // 下一章
         function goToNextChapter() {
             if (currentChapter < chapters.length - 1) {
+                if (getProgressPercent() >= 95) reportCompletedChapter(currentChapter);
                 savedScrollPosition = 0; // 切换章节时不恢复滚动位置
                 loadChapter(currentChapter + 1, false);
             }
+        }
+
+        function reportCompletedChapter(chapterIndex, manual = false) {
+            if (!anilistEnabled) return;
+            return fetch("{{ url_for('anilist_complete') }}", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                credentials: 'include',
+                body: JSON.stringify({ comic_name: comicName, chapter_index: chapterIndex })
+            }).then(async response => {
+                if (!response.ok) throw new Error((await response.json()).error || 'AniList 同步失败');
+                if (manual) alert('本章已同步至 AniList');
+            }).catch(error => {
+                if (!manual) autoSyncedChapters.delete(chapterIndex);
+                console.error('AniList 同步失败:', error);
+                if (manual) alert(error.message);
+            });
         }
         
         // 更新章节信息
@@ -1913,6 +1989,11 @@
                 progressUiFrameId = null;
                 syncContinuousReading();
                 syncProgressUi();
+                if (anilistEnabled && currentChapterReady && !isDraggingProgressSlider &&
+                    getProgressPercent() >= 95 && !autoSyncedChapters.has(currentChapter)) {
+                    autoSyncedChapters.add(currentChapter);
+                    reportCompletedChapter(currentChapter);
+                }
             });
         }
 
@@ -1945,8 +2026,8 @@
             saveProgress();
         }
 
-        function restoreSavedScrollPosition(attempt = 0, token = activeChapterLoadToken) {
-            if (token !== activeChapterLoadToken) return;
+        function restoreSavedScrollPosition(token = activeChapterLoadToken, complete = false) {
+            if (token !== activeChapterLoadToken || savedScrollPosition <= 0) return;
             const targetScrollTop = savedScrollPosition;
             const maxScrollTop = getMaxScrollTop();
             const clampedScrollTop = Math.min(targetScrollTop, maxScrollTop);
@@ -1954,14 +2035,7 @@
             window.scrollTo(0, clampedScrollTop);
             queueProgressUiSync();
 
-            if (attempt < 10 && maxScrollTop < targetScrollTop) {
-                window.setTimeout(() => {
-                    restoreSavedScrollPosition(attempt + 1, token);
-                }, 200);
-                return;
-            }
-
-            savedScrollPosition = 0;
+            if (maxScrollTop >= targetScrollTop || complete) savedScrollPosition = 0;
         }
         
         function startReadingTimer() {
@@ -1991,7 +2065,7 @@
                 comic_name: comicName,
                 chapter: currentChapter,
                 page: 0,
-                scroll_position: Math.round(Math.max(window.scrollY - getChapterScrollBounds().start, 0)),
+                scroll_position: Math.round(savedScrollPosition || Math.max(window.scrollY - getChapterScrollBounds().start, 0)),
                 total_chapters: chapters.length,
                 total_pages: 0,
                 reading_time: readingSeconds,
@@ -2067,6 +2141,11 @@
                 submitProgressSnapshot({ keepalive: true, includeReadingTime: true });
             } else {
                 startReadingTimer();
+                window.setTimeout(() => {
+                    for (const container of document.querySelectorAll('.cbz-page[data-loading="true"]')) {
+                        container.loadImage();
+                    }
+                }, 800);
             }
         });
 

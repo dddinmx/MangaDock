@@ -275,7 +275,7 @@ def resilient_cover_file(filename):
             os.stat(target)
             response = send_file(target, conditional=True)
             if filename != 'cover.png':
-                response.headers['Cache-Control'] = 'private, no-store'
+                response.headers['Cache-Control'] = 'private, no-cache'
             return response
         except FileNotFoundError:
             # 文件确实不存在：仍走完短重试，规避 SMB 目录负缓存滞后

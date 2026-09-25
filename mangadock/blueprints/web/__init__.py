@@ -6,6 +6,7 @@ import 本包即完成全部路由注册（各模块在被导入时向共享的 
 旧导入路径的 shim。
 """
 from mangadock.blueprints.web import (  # noqa: F401
+    anilist,
     auth_pages,
     downloads,
     home,

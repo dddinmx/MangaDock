@@ -31,6 +31,8 @@ from mangadock.auth import (
 )
 from mangadock.extensions import db
 from mangadock.models import (
+    AniListAccount,
+    AniListComicLink,
     ComicScanPath,
     LoginLog,
     ReadingProgress,
@@ -834,6 +836,8 @@ def register_routes(bp):
             return api_fail('FORBIDDEN', '不能删除管理员账号', 403)
 
         db.session.query(ReadingProgress).filter_by(user_id=user.id).delete(synchronize_session=False)
+        db.session.query(AniListComicLink).filter_by(user_id=user.id).delete(synchronize_session=False)
+        db.session.query(AniListAccount).filter_by(user_id=user.id).delete(synchronize_session=False)
         db.session.query(ReadingTime).filter_by(user_id=user.id).delete(synchronize_session=False)
         db.session.query(ReadingSessionState).filter_by(user_id=user.id).delete(synchronize_session=False)
         db.session.query(UserGroupPermission).filter_by(user_id=user.id).delete(synchronize_session=False)

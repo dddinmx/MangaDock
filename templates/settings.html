@@ -142,6 +142,23 @@
     <section class="md-setting-group">
         <h2 class="md-setting-group__title">账号</h2>
         <div class="md-setting-list">
+            {% if anilist_account %}
+            <div class="md-setting-row md-setting-row--static">
+                <span class="md-setting-row__icon"><i class="fa fa-book"></i></span>
+                <span class="md-setting-row__title">AniList：{{ anilist_account.username }}</span>
+                <a href="{{ url_for('anilist_connect') }}" class="md-btn-secondary">重新授权</a>
+                <form method="post" action="{{ url_for('anilist_disconnect') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="md-btn-secondary">断开</button>
+                </form>
+            </div>
+            {% else %}
+            <a href="{{ url_for('anilist_connect') }}" class="md-setting-row">
+                <span class="md-setting-row__icon"><i class="fa fa-book"></i></span>
+                <span class="md-setting-row__title">连接 AniList</span>
+                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+            </a>
+            {% endif %}
             <a href="{{ url_for('change_password') }}" class="md-setting-row" data-app-loader="true" title="更新当前账号密码。成功后需重新登录">
                 <span class="md-setting-row__icon"><i class="fa fa-lock"></i></span>
                 <span class="md-setting-row__title">修改密码</span>
