@@ -439,7 +439,7 @@ def crawl_chapter_mxs(chapter_url, folder, chapter, comic_format, task_id):
             pass
 
 
-def download_mxs_chapter(chapter, folder, comic_format, task_id):
+def download_mxs_chapter(source, chapter, folder, comic_format, task_id):
     save_dir = os.path.join(COMIC_ROOT, folder, chapter['filename_base'])
 
     from mangadock.services.download import (

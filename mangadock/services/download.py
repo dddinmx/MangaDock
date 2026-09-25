@@ -667,7 +667,7 @@ def release_comic_write_lock(lock_handle):
         pass
 
 
-def incomplete_chapter_reason(success_count, expected_count):
+def incomplete_chapter_reason(success_count, expected_count, max_missing=CHAPTER_MISSING_IMAGE_TOLERANCE):
     """章节下载不完整时返回原因文本；完整则返回 None。"""
     # 2026-09-20 code review 复核补充：`success_count == 0` 必须无条件判失败。
     # 否则「只有 1 张图的章节、且这 1 张也没下下来」会走成 missing(1) <= 容忍度(1)
@@ -677,7 +677,7 @@ def incomplete_chapter_reason(success_count, expected_count):
     if expected_count <= 0:
         return None
     missing = expected_count - success_count
-    if missing <= CHAPTER_MISSING_IMAGE_TOLERANCE:
+    if missing <= max_missing:
         return None
     return f'图片不完整（成功 {success_count}/{expected_count} 张，缺失 {missing} 张）'
 

@@ -27,6 +27,11 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 >
 > 部分图床在中国大陆无法直连（漫画柜的 `*.hamreus.com` 需要通过容器出网代理访问，见 [网络与代理](#网络与代理)。
 
+## v2.11.3
+
+- **漫小肆更新修复**：修正章节下载函数与统一分发器的参数数量，更新任务可以进入章节下载流程。
+- **包子漫画缺图容错**：单章最多容忍 5 张图片下载失败；缺页章节写入补下标记，更新检查会将其列为待更新，后续任务继续补齐。其他来源仍使用原有阈值。
+
 ## v2.11.2
 
 - **Tachimanga / Mihon 封面修复**：封面静态路由现在识别扩展使用的 Basic Auth，并继续按漫画分组检查权限，修复部分书架封面返回 403 的问题。
@@ -53,7 +58,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:v2.11.2`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.11.2` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:v2.11.3`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`v2.11.3` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 

@@ -235,7 +235,7 @@ def download_baozimh_org_chapter(source, chapter, folder, comic_format, task_id)
             return False, "任务已取消"
         # 2026-09-20 code review P2：不能只看 success_count == 0，
         # 部分成功会 finalize 出缺页 CBZ/PDF 且更新检查认为已是最新。
-        incomplete_reason = incomplete_chapter_reason(success_count, len(image_jobs))
+        incomplete_reason = incomplete_chapter_reason(success_count, len(image_jobs), max_missing=5)
         if incomplete_reason:
             shutil.rmtree(save_dir, ignore_errors=True)
             return False, f"章节 {chapter['title']} 下载失败：{incomplete_reason}"

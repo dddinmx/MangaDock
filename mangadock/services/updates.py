@@ -16,8 +16,10 @@ from mangadock.settings import (
     china_tz,
 )
 from mangadock.services.library import (
+    chapter_match_keys,
     detect_local_comic_format,
     get_comic_directory,
+    get_incomplete_chapter_bases,
     get_local_chapter_bases,
     get_local_chapter_match_bases,
     is_existing_local_chapter,
@@ -309,10 +311,12 @@ def refresh_update_checks(force=False, async_refresh=False):
                 remote_total = len(remote_chapters)
                 local_bases = get_local_chapter_bases(comic_name)
                 local_match_bases = get_local_chapter_match_bases(comic_name)
+                incomplete_bases = get_incomplete_chapter_bases(comic_name)
                 local_total = len(local_bases)
                 pending_items = [
                     chapter for chapter in remote_chapters
                     if not is_existing_local_chapter(chapter, local_match_bases)
+                    or chapter_match_keys(chapter) & incomplete_bases
                 ]
                 pending_chapters = len(pending_items)
                 has_updates = pending_chapters > 0
