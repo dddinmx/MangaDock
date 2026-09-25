@@ -229,10 +229,21 @@ _COVER_RETRY_DELAYS = (0.0, 0.4, 1.0, 2.5)  # 总重试窗口约 4 秒
 @app.route('/static/cover/<path:filename>')
 def resilient_cover_file(filename):
     if filename != 'cover.png':
-        from mangadock.auth import get_current_user
+        from mangadock.auth import (
+            authenticate_api_credentials, get_basic_auth_credentials,
+            get_current_user, is_basic_auth_request,
+        )
         from mangadock.services.groups import can_user_access_group, get_comic_group_map
 
-        user = get_current_user()
+        if is_basic_auth_request():
+            username, password = get_basic_auth_credentials()
+            user = None
+            if username is not None:
+                user, _ = authenticate_api_credentials(
+                    username, password, request.remote_addr or '', request.user_agent.string
+                )
+        else:
+            user = get_current_user()
         if not user:
             abort(403)
         if not user.is_admin and not filename.startswith('novels/'):
