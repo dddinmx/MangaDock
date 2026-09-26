@@ -402,7 +402,8 @@ def serve_comic_file(filename):
 def cbz_page_manifest(file_path, source_version):
     with zipfile.ZipFile(file_path) as archive:
         images = [name for name in archive.namelist()
-                  if not name.endswith('/') and re.search(r'\.(jpg|jpeg|png|gif|webp)$', name, re.I)]
+                  if not name.endswith('/') and not any(part.startswith('._') or part == '__MACOSX' for part in name.split('/'))
+                  and re.search(r'\.(jpg|jpeg|png|gif|webp)$', name, re.I)]
         images.sort(key=lambda name: [(1, int(part)) if part.isdigit() else (0, part.casefold())
                                       for part in re.split(r'(\d+)', name)])
         dimensions = []

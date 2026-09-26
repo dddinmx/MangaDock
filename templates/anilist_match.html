@@ -1,37 +1,62 @@
 {% extends 'base.html' %}
 {% block title %}AniList 关联 - {{ comic_name }}{% endblock %}
 {% block content %}
-<main class="max-w-3xl mx-auto px-4 py-8">
-    <a href="{{ url_for('comic_detail', task_id=comic_name) }}">← 返回漫画</a>
-    <h1 class="text-2xl font-bold mt-5 mb-2">关联 AniList：{{ comic_name }}</h1>
-    {% for message in get_flashed_messages() %}<p class="mb-3">{{ message }}</p>{% endfor %}
+<main class="md-anilist-page">
+    <a class="md-anilist-back" href="{{ url_for('comic_detail', task_id=comic_name) }}">← 返回漫画</a>
+    <header class="md-anilist-heading">
+        <span class="md-anilist-eyebrow">ANILIST · 作品关联</span>
+        <h1>关联 AniList</h1>
+        <p>{{ comic_name }}</p>
+    </header>
+    {% for message in get_flashed_messages() %}<p class="md-anilist-flash">{{ message }}</p>{% endfor %}
     {% if not account %}
-        <p>先在「我的」页面连接 AniList 账号。</p>
-        <a href="{{ url_for('settings') }}">前往我的</a>
+    <section class="md-anilist-panel">
+        <h2>先连接账号</h2>
+        <p>连接 AniList 后，即可为这部漫画选择对应的作品。</p>
+        <a class="md-btn-primary" href="{{ url_for('settings') }}">前往我的</a>
+    </section>
     {% else %}
-        <p class="mb-3">已连接 {{ account.username }}。本地共有 {{ chapter_count }} 章。关联作品一次后，读到章末会自动同步；下方数字是本地第一章的章节号，不是当前阅读进度。</p>
-        {% if link %}
-        <p class="mb-3">当前关联：<a href="https://anilist.co/manga/{{ link.media_id }}" target="_blank" rel="noopener noreferrer">{{ link.media_title }}</a>；本地第一章对应第 {{ link.first_chapter }} 章。</p>
-        <form method="post" action="{{ url_for('anilist_unmatch', comic_name=comic_name) }}" class="mb-5">
+    <p class="md-anilist-account">已连接 <strong>{{ account.username }}</strong><span>·</span> 本地 {{ chapter_count }} 章</p>
+    {% if link %}
+    <section class="md-anilist-panel md-anilist-current">
+        <div class="md-anilist-section-head"><span class="md-anilist-kicker">当前关联</span><span class="md-anilist-status">已关联</span></div>
+        <h2><a href="https://anilist.co/manga/{{ link.media_id }}" target="_blank" rel="noopener noreferrer">{{ link.media_title }}</a></h2>
+        <p>本地第一章对应 AniList 第 {{ link.first_chapter }} 章</p>
+        <form method="post" action="{{ url_for('anilist_unmatch', comic_name=comic_name) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="md-btn-secondary">取消关联</button>
+            <button type="submit" class="md-anilist-unlink">取消关联</button>
         </form>
-        {% endif %}
-        <form method="get" class="mb-5 flex gap-2">
-            <input type="search" name="q" value="{{ query }}" maxlength="100" aria-label="搜索 AniList 漫画" class="flex-1 rounded-lg px-3 py-2" placeholder="搜索作品名称">
+    </section>
+    {% endif %}
+    <section class="md-anilist-search-section">
+        <span class="md-anilist-kicker">{{ '更换关联作品' if link else '查找作品' }}</span>
+        <p class="md-anilist-help">搜索 AniList 中的作品名称，选择对应条目。</p>
+        <form method="get" class="md-anilist-search">
+            <input type="search" name="q" value="{{ query }}" maxlength="100" aria-label="搜索 AniList 漫画" placeholder="搜索作品名称">
             <button type="submit" class="md-btn-primary">搜索</button>
         </form>
-        {% for media in results %}
-        <form method="post" class="mb-3 rounded-lg border p-3">
+    </section>
+    {% if results %}<div class="md-anilist-results"><span class="md-anilist-kicker">搜索结果</span>
+    {% for media in results %}
+        <form method="post" class="md-anilist-panel md-anilist-result">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="media_id" value="{{ media.id }}">
-            <p class="font-semibold">{{ media.title.userPreferred or media.title.romaji or media.title.native }}</p>
-            <p class="text-sm mb-2">AniList ID {{ media.id }}{% if media.chapters %} · 总 {{ media.chapters }} 章{% endif %} · <a href="https://anilist.co/manga/{{ media.id }}" target="_blank" rel="noopener noreferrer">查看条目</a></p>
-            <label>本地第一章对应 AniList 第 <input type="number" name="first_chapter" min="1" max="{{ media.chapters or 100000 }}" value="{{ link.first_chapter if link and link.media_id == media.id else suggested_first_chapter }}" required class="w-20 rounded px-2 py-1"> 章</label>
-            <button type="submit" class="md-btn-primary ml-2">{{ '更新关联' if link and link.media_id == media.id else '确认关联' }}</button>
+            <h2>{{ media.title.userPreferred or media.title.romaji or media.title.native }}</h2>
+            <p class="md-anilist-meta">AniList ID {{ media.id }}{% if media.chapters %}<span>·</span> 总 {{ media.chapters }} 章{% endif %}<span>·</span> <a href="https://anilist.co/manga/{{ media.id }}" target="_blank" rel="noopener noreferrer">查看条目 ↗</a></p>
+            <div class="md-anilist-result-actions">
+                <label for="first-chapter-{{ media.id }}">本地第一章对应 AniList 第 <input id="first-chapter-{{ media.id }}" type="number" name="first_chapter" min="1" max="{{ media.chapters or 100000 }}" value="{{ link.first_chapter if link and link.media_id == media.id else suggested_first_chapter }}" required> 章</label>
+                <button type="submit" class="md-btn-primary">{{ '更新关联' if link and link.media_id == media.id else '确认关联' }}</button>
+            </div>
         </form>
-        {% else %}<p>没有找到条目，可换作品的原文名搜索。</p>{% endfor %}
-        <p class="mt-5 text-sm">关联后仅在章节读完时向 AniList 更新章节进度；不会回写页码或降低 AniList 上已有进度。</p>
+    {% endfor %}</div>
+    {% else %}
+    <div class="md-anilist-panel md-anilist-empty">
+        <span class="md-anilist-kicker">搜索结果</span>
+        <h2>暂时没有找到作品</h2>
+        <p>试试作品的原文名、英文名或罗马音。</p>
+    </div>
+    {% endif %}
+    <p class="md-anilist-note">关联后仅在章节读完时向 AniList 更新章节进度；不会回写页码或降低 AniList 上已有进度。第一章对应数字是章节号，并非当前阅读进度。</p>
     {% endif %}
 </main>
 {% endblock %}

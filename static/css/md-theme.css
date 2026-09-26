@@ -3938,3 +3938,54 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
   }
 
 }
+/* AniList 作品关联 */
+.md-anilist-page { width: min(100%, 760px); margin: 0 auto; padding: 38px 20px 72px; }
+.md-anilist-back { display: inline-block; margin-bottom: 30px; color: var(--md-muted); font-size: 14px; text-decoration: none; }
+.md-anilist-back:hover, .md-anilist-panel a:hover { color: var(--md-brand-soft); }
+.md-anilist-heading { margin-bottom: 26px; }
+.md-anilist-eyebrow, .md-anilist-kicker { color: var(--md-brand-soft); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
+.md-anilist-heading h1 { margin: 8px 0 4px; font-size: clamp(27px, 5vw, 36px); line-height: 1.2; font-weight: 800; }
+.md-anilist-heading p { margin: 0; color: var(--md-muted); font-size: 17px; overflow-wrap: anywhere; }
+.md-anilist-account { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 24px; color: var(--md-muted); font-size: 14px; }
+.md-anilist-account strong { color: var(--md-text); }
+.md-anilist-account span { padding: 0 3px; }
+.md-anilist-panel { padding: 24px; border: 1px solid var(--md-border); border-radius: 18px; background: var(--md-bg-elevated); }
+.md-anilist-panel h2 { margin: 10px 0 7px; font-size: 19px; line-height: 1.35; font-weight: 700; overflow-wrap: anywhere; }
+.md-anilist-panel h2 a { color: var(--md-text); text-decoration: none; }
+.md-anilist-panel p { color: var(--md-muted); line-height: 1.55; }
+.md-anilist-panel > .md-btn-primary { margin-top: 12px; }
+.md-anilist-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.md-anilist-status { border-radius: 999px; padding: 4px 10px; color: var(--md-mint); background: rgba(45,212,168,.12); font-size: 12px; font-weight: 700; }
+.md-anilist-current { margin-bottom: 30px; }
+.md-anilist-current p { margin: 0 0 14px; font-size: 14px; }
+.md-anilist-unlink { border: 0; padding: 0; background: none; color: var(--md-muted); font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.md-anilist-unlink:hover { color: var(--md-brand-soft); }
+.md-anilist-search-section { margin-bottom: 28px; }
+.md-anilist-help { margin: 8px 0 16px; color: var(--md-muted); font-size: 14px; }
+.md-anilist-search { display: flex; gap: 10px; }
+.md-anilist-search input { min-width: 0; flex: 1; border: 1px solid var(--md-border); border-radius: 12px; padding: 12px 15px; }
+.md-anilist-search .md-btn-primary { flex: none; border-radius: 12px; box-shadow: none; }
+.md-anilist-results > .md-anilist-kicker { display: block; margin-bottom: 12px; }
+.md-anilist-result { margin-bottom: 12px; }
+.md-anilist-result h2 { margin-top: 0; }
+.md-anilist-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; font-size: 13px; }
+.md-anilist-meta a { color: var(--md-brand-soft); text-decoration: none; }
+.md-anilist-result-actions { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 18px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--md-border); }
+.md-anilist-result-actions label { color: var(--md-text); font-size: 14px; line-height: 2.8; }
+.md-anilist-result-actions input { width: 64px; margin: 0 4px; border: 1px solid var(--md-border); border-radius: 8px; padding: 8px; text-align: center; }
+.md-anilist-result-actions .md-btn-primary { box-shadow: none; }
+.md-anilist-note, .md-anilist-empty { color: var(--md-muted); font-size: 13px; line-height: 1.65; }
+.md-anilist-note { margin-top: 28px; }
+.md-anilist-empty { margin: 18px 0; }
+.md-anilist-empty h2 { color: var(--md-text); }
+.md-anilist-empty p { margin: 0; }
+.md-anilist-flash { margin: 0 0 20px; border-radius: 12px; padding: 12px 16px; background: rgba(var(--md-brand-rgb), .12); }
+@media (max-width: 540px) {
+  .md-anilist-page { padding: 28px 20px 64px; }
+  .md-anilist-back { margin-bottom: 24px; }
+  .md-anilist-panel { padding: 20px; }
+  .md-anilist-search .md-btn-primary { padding-inline: 18px; }
+  .md-anilist-result-actions { align-items: stretch; flex-direction: column; gap: 12px; }
+  .md-anilist-result-actions label { line-height: 2.4; }
+  .md-anilist-result-actions .md-btn-primary { width: 100%; }
+}
