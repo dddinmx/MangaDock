@@ -27,7 +27,9 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 >
 > 部分图床在中国大陆无法直连（漫画柜的 `*.hamreus.com` 需要通过容器出网代理访问，见 [网络与代理](#网络与代理)。  
 
-## v2.11.11
+## v2.11.12
+
+- **阅读位置修复**：AniList 定时双向同步继续合并已读进度，但不再强制切换正在阅读的章节，回看旧章节时保持当前位置。
 
 - **阅读加载**：CBZ 章节先加载当前定位附近的图片，再以 6 路并行持续加载整章；滚动时可见页优先，远处预加载可让出请求槽位；显示加载状态和重试入口，加载失败自动重试，切换章节取消旧请求。
 - **网盘读取**：不同页面可并行读取 WebDAV 分段数据，复用连接与有效缓存。缓存写入和清理仍受锁保护；不支持分段读取时回退到整章缓存。
@@ -36,7 +38,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:2.11.11`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.11` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.12`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.12` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 

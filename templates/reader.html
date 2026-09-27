@@ -978,11 +978,7 @@
                             body: JSON.stringify({ comic_name: comicName })
                         });
                         if (!response.ok) return;
-                        const result = await response.json();
-                        if (Number.isInteger(result.chapter_index) && result.chapter_index > currentChapter) {
-                            savedScrollPosition = 0;
-                            await loadChapter(result.chapter_index, false);
-                        }
+                        // 同步已读进度，不改变本次阅读的位置（用户可能正在回看）。
                     } catch (error) {
                         console.error('AniList 双向同步失败:', error);
                     }
