@@ -31,6 +31,8 @@ from mangadock.services.webdav import WebDavError, disconnect as disconnect_webd
 from mangadock.services.webdav import save_settings as save_webdav_settings
 from mangadock.services.webdav import settings_view as webdav_settings_view
 from mangadock.services.webdav import queue_library_sync
+from mangadock.services.updates import update_webdav_sync_state
+from mangadock.services.webdav_metadata import metadata_progress
 from mangadock.settings import COMIC_ROOT, china_tz
 
 
@@ -96,9 +98,22 @@ def webdav_sync_progress():
     from mangadock.services.library import comic_deletion_version
     response = jsonify(status=command.status if command else 'idle',
                        message=command.message if command else '',
-                       progress=progress, version=str(comic_deletion_version()))
+                       progress=progress, metadata=metadata_progress(), version=str(comic_deletion_version()))
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+@app.route('/settings/webdav/control', methods=['POST'])
+@login_required
+@admin_required
+def control_webdav_sync():
+    action = request.form.get('action')
+    if action not in ('pause', 'resume', 'cancel'):
+        return jsonify(error='无效操作'), 400
+    command = BackgroundCommand.query.filter_by(command_type='sync_webdav').order_by(BackgroundCommand.id.desc()).first()
+    if command:
+        update_webdav_sync_state(command.id, action=action)
+    return redirect(url_for('settings'))
 
 
 @app.route('/settings/webdav/disconnect', methods=['POST'])

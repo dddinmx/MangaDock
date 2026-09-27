@@ -163,7 +163,10 @@ def cover_image_url(comic_name, variant='default'):
       - hero: upscaled cache for full-bleed banners (generated on demand)
     """
     if not comic_name:
-        return asset_url('cover/cover.png')
+        return asset_url('default-comic-cover.jpg')
+    from mangadock.services.webdav_metadata import metadata_view
+    if not os.path.isfile(os.path.join(COVER_ROOT, comic_name + '.jpg')) and metadata_view(comic_name).get('status') in ('unmatched', 'error', 'partial'):
+        return asset_url('default-comic-cover.jpg')
 
     # 2026-09-22 code review P1：漫画名含空格/#/&/% 时直接拼进 URL 会让 src 截断 404。
     # 文件名部分统一用 quote 编码；注意只编码一次（下方直接拼前缀，不走 url_for，

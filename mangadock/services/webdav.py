@@ -48,6 +48,10 @@ class WebDavError(ValueError):
     pass
 
 
+class WebDavSyncCancelled(WebDavError):
+    pass
+
+
 def cache_root():
     path = os.path.join(app.instance_path, 'webdav_comics')
     return os.path.abspath(path)
@@ -304,7 +308,9 @@ def _sync_library_locked(progress=None):
             kept.add(comic_name)
             added += 1
             _publish_library_change()
-            report(position + 1)
+        report(position + 1)
+        with _config_lock():
+            _sync_config(config)
             try:
                 _save_cover(config, comic_name, cover)
             except WebDavError as exc:
@@ -316,6 +322,7 @@ def _sync_library_locked(progress=None):
         except Exception as exc:
             app.logger.warning('WebDAV 资料补全排队失败 %s: %s', comic_name, exc)
 
+    report(len(candidates))
     with _config_lock():
         _sync_config(config)
         pruned = False

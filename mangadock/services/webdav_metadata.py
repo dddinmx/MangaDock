@@ -66,8 +66,11 @@ def _target(comic_name, source=None):
     if not is_safe_comic_name(comic_name):
         return None
     directory = get_comic_directory(comic_name)
-    if not directory or not webdav.is_cache_path(directory):
+    if not directory:
         return None
+    if not webdav.is_cache_path(directory):
+        local_source = 'local:' + hashlib.sha256(os.path.realpath(directory).encode()).hexdigest()[:16]
+        return (directory, local_source) if source is None or source == local_source else None
     index = webdav._read_index_payload(directory)
     config = webdav._read_config()
     if not config.get('url') or not index['source'] or index['source'] != webdav._source_id(config):
@@ -127,7 +130,10 @@ def _graphql(query, variables):
 
 def search_metadata(title):
     data = _graphql('query ($search: String) { Page(page: 1, perPage: 10) { media(search: $search, type: MANGA) { ' + MEDIA_FIELDS + ' } } }', {'search': title[:100]})
-    return (data.get('Page') or {}).get('media') or []
+    results = (data.get('Page') or {}).get('media') or []
+    for media in results:
+        media['description'] = plain_description(media.get('description'))
+    return results
 
 
 def queue_metadata(comic_name, media_id=None, force=False):
@@ -138,7 +144,8 @@ def queue_metadata(comic_name, media_id=None, force=False):
         if not _target(comic_name, target[1]):
             return None
         value = metadata_view(comic_name)
-        if not force and value.get('status') in ('completed', 'unmatched') and time.time() - value.get('checked_at', 0) < 86400:
+        # A finished first attempt is permanent until the user retries manually.
+        if not force and value.get('status') in ('completed', 'unmatched', 'error', 'partial'):
             return None
         payload = json.dumps({'comic_name': comic_name, 'source': target[1], 'media_id': media_id}, ensure_ascii=False, sort_keys=True)
         with webdav._chapter_file_lock(os.path.join(target[0], METADATA_FILENAME)):
@@ -179,7 +186,7 @@ def _cover_digest(path):
 def enrich_metadata(payload):
     comic_name, source = payload['comic_name'], payload['source']
     if not _target(comic_name, source):
-        return '漫画已移除或 WebDAV 连接已更改'
+        return '漫画已移除或来源已更改'
     value = metadata_view(comic_name)
     selected = value.get('selected_id')
     if payload.get('media_id') and selected and payload['media_id'] != selected:
@@ -198,6 +205,7 @@ def enrich_metadata(payload):
     else:
         media = exact_match(comic_name, search_metadata(comic_name))
     cover_content = None
+    cover_failed = False
     if media:
         cover_path = os.path.join(COVER_ROOT, comic_name + '.jpg')
         owned = value.get('cover_digest') and value['cover_digest'] == _cover_digest(cover_path)
@@ -205,16 +213,21 @@ def enrich_metadata(payload):
             url = (media.get('coverImage') or {}).get('extraLarge') or (media.get('coverImage') or {}).get('large')
             parsed = urlparse(url or '')
             if parsed.scheme == 'https' and (parsed.hostname or '').endswith('.anilist.co'):
-                response = safe_http_get(url, timeout=15, max_bytes=MAX_IMAGE_RESPONSE_BYTES)
                 try:
-                    response.raise_for_status()
-                    cover_content = response.content
-                finally:
-                    response.close()
+                    response = safe_http_get(url, timeout=15, max_bytes=MAX_IMAGE_RESPONSE_BYTES)
+                    try:
+                        response.raise_for_status()
+                        cover_content = response.content
+                    finally:
+                        response.close()
+                except Exception:
+                    cover_failed = True
+            else:
+                cover_failed = True
     with webdav._config_lock():
         target = _target(comic_name, source)
         if not target:
-            return '漫画已移除或 WebDAV 连接已更改'
+            return '漫画已移除或来源已更改'
         current = metadata_view(comic_name)
         if current.get('selected_id') != selected:
             return '已选择其他 AniList 作品，跳过旧任务'
@@ -229,14 +242,23 @@ def enrich_metadata(payload):
                     owned = current.get('cover_digest') and current['cover_digest'] == _cover_digest(cover_path)
                     if not os.path.isfile(cover_path) or (owned and value.get('media_id') != media['id']):
                         os.makedirs(COVER_ROOT, exist_ok=True)
-                        if not normalize_cover_bytes(cover_content, cover_path):
-                            raise ValueError('AniList 封面格式无效')
-                        current['cover_digest'] = _cover_digest(cover_path)
+                        try:
+                            cover_saved = normalize_cover_bytes(cover_content, cover_path)
+                        except Exception:
+                            cover_saved = False
+                        if cover_saved:
+                            current['cover_digest'] = _cover_digest(cover_path)
+                        else:
+                            cover_failed = True
+                if cover_failed:
+                    current['status'] = 'partial'
             else:
                 current['status'] = 'unmatched'
             current.update(source=source, checked_at=time.time())
             webdav._atomic_json(os.path.join(target[0], METADATA_FILENAME), current)
             webdav._publish_library_change()
+    if media and cover_failed:
+        return 'AniList 简介已保存，封面获取失败；可手动重试'
     return 'AniList 封面与简介已补全' if media else '未找到唯一精确匹配，请在漫画详情中选择 AniList 资料'
 
 
@@ -248,7 +270,7 @@ def mark_error(payload):
                 value = metadata_view(payload['comic_name'])
                 if payload.get('media_id') and value.get('selected_id') != payload['media_id']:
                     return
-                value.update(source=payload['source'], status='error')
+                value.update(source=payload['source'], status='error', checked_at=time.time())
                 webdav._atomic_json(os.path.join(target[0], METADATA_FILENAME), value)
     except Exception:
         app.logger.warning('WebDAV 资料失败状态无法保存')
@@ -260,7 +282,9 @@ def queue_existing_metadata():
         return
     for entry in os.scandir(root):
         if entry.is_dir():
-            queue_metadata(entry.name)
+            target = _target(entry.name)
+            if target and not target[1].startswith('local:'):
+                queue_metadata(entry.name)
 
 
 def clear_metadata(comic_dir):
@@ -285,3 +309,25 @@ def clear_metadata(comic_dir):
         os.remove(os.path.join(comic_dir, METADATA_FILENAME))
     except FileNotFoundError:
         pass
+
+
+def metadata_progress():
+    counts = {key: 0 for key in ('pending', 'completed', 'unmatched', 'error', 'partial')}
+    root = webdav.cache_root()
+    config = webdav._read_config()
+    source = webdav._source_id(config) if config.get('url') else None
+    if source and os.path.isdir(root):
+        for entry in os.scandir(root):
+            if not entry.is_dir():
+                continue
+            try:
+                with open(os.path.join(entry.path, METADATA_FILENAME), encoding='utf-8') as handle:
+                    value = json.load(handle)
+                if value.get('source') == source and webdav._read_index_payload(entry.path)['source'] == source:
+                    status = value.get('status')
+                    if status in counts:
+                        counts[status] += 1
+            except (OSError, ValueError, AttributeError):
+                continue
+    counts['total'] = sum(counts.values())
+    return counts

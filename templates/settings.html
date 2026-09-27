@@ -244,6 +244,13 @@
                         <button type="submit" class="md-btn-secondary action-press whitespace-nowrap">断开连接</button>
                     </form>
                 </div>
+                <div id="webdav-sync-controls" hidden><form method="post" action="{{ url_for('control_webdav_sync') }}" class="flex gap-2 mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" name="action" value="pause" class="md-btn-ghost" id="webdav-sync-pause">暂停</button>
+                    <button type="submit" name="action" value="cancel" class="md-btn-ghost">取消同步</button>
+                </form>
+                </div>
+                <p id="webdav-metadata-progress" role="status" class="text-sm text-ink-400 mt-2"></p>
                 <p id="webdav-sync-progress" role="status" aria-live="polite" class="text-sm text-ink-400 mt-2"></p>
                 <p class="text-xs text-ink-400 mt-2">
                     {% if webdav.last_sync_at %}上次同步 {{ webdav.last_sync_at }}，写入 {{ webdav.comic_count }} 部，跳过本地已有 {{ webdav.skipped_count }} 部。{% else %}尚未同步。{% endif %}
@@ -339,7 +346,15 @@
             const data = await response.json(), p = data.progress;
             const active = ['pending', 'running'].includes(data.status);
             if (button) button.disabled = active;
-            label.textContent = data.status === 'pending' ? '等待后台同步，可以离开此页' :
+            document.getElementById('webdav-sync-controls').hidden = !active;
+            const pause = document.getElementById('webdav-sync-pause');
+            pause.value = p._paused ? 'resume' : 'pause';
+            pause.textContent = p._paused ? '继续' : '暂停';
+            const m = data.metadata;
+            document.getElementById('webdav-metadata-progress').textContent = m.total ? `资料补全：已完成 ${m.completed} 部，未匹配 ${m.unmatched} 部，部分完成 ${m.partial} 部，失败 ${m.error} 部，处理中或排队 ${m.pending} 部` : '';
+            label.textContent = p._cancelled && active ? '正在取消，将在当前请求结束后停止，保留已索引的漫画' :
+                p._paused && active ? '同步已请求暂停，将在当前请求结束后暂停；已索引的漫画可以阅读' :
+                data.status === 'pending' ? '等待后台同步，可以离开此页' :
                 data.status === 'running' && p.total === undefined ? '正在读取云端书库目录，可以离开此页' :
                 data.status === 'running' ? `正在同步 ${p.done || 0}/${p.total || 0} 部，已索引 ${p.added || 0} 部，跳过 ${p.skipped || 0} 部，失败 ${p.failed || 0} 部${p.current ? ' · ' + p.current : ''}。可以离开此页` :
                 data.message || '';

@@ -33,7 +33,7 @@
     {% if metadata_mode %}
     <section class="md-anilist-panel">
         <p>公开资料无需连接 AniList 账号。选择条目后后台补全封面与简介，不开启进度同步。</p>
-        <p>{{ {'pending': '正在后台补全', 'completed': '资料已补全', 'unmatched': '未找到唯一精确匹配，请搜索并选择作品', 'error': '补全失败，可重试'}.get(metadata.status, '等待补全') }}{% if metadata.title %} · {{ metadata.title }}{% endif %}</p>
+        <p>{{ {'partial': '简介已保存，封面未获取到，可手动重试', 'pending': '正在后台补全', 'completed': '资料已补全', 'unmatched': '未找到唯一精确匹配，不会自动重试，请搜索并选择作品', 'error': '首次补全失败，不会自动重试，可手动重试'}.get(metadata.status, '等待补全') }}{% if metadata.title %} · {{ metadata.title }}{% endif %}</p>
         {% if metadata.media_id %}<a href="https://anilist.co/manga/{{ metadata.media_id }}" target="_blank" rel="noopener noreferrer">资料来源：AniList ↗</a>{% endif %}
         <form method="post" action="{{ url_for('anilist_save_metadata', comic_name=comic_name) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -58,6 +58,7 @@
             <h2>{{ media.title.userPreferred or media.title.romaji or media.title.native }}</h2>
             <p class="md-anilist-meta">AniList ID {{ media.id }}{% if media.chapters %}<span>·</span> 总 {{ media.chapters }} 章{% endif %}<span>·</span> <a href="https://anilist.co/manga/{{ media.id }}" target="_blank" rel="noopener noreferrer">查看条目 ↗</a></p>
             {% if metadata_mode and media.coverImage %}<img src="{{ media.coverImage.large or media.coverImage.extraLarge }}" alt="{{ media.title.userPreferred }}" loading="lazy" referrerpolicy="no-referrer" style="width:90px;border-radius:8px">{% endif %}
+            {% if metadata_mode and media.description %}<p class="md-anilist-meta">{{ media.description|striptags|truncate(400) }}</p>{% endif %}
             <div class="md-anilist-result-actions">
                 {% if metadata_mode %}<button type="submit" class="md-btn-primary">使用此作品的封面与简介</button>{% else %}
                 <label for="first-chapter-{{ media.id }}">本地第一章对应 AniList 第 <input id="first-chapter-{{ media.id }}" type="number" name="first_chapter" min="1" max="{{ media.chapters or 100000 }}" value="{{ link.first_chapter if link and link.media_id == media.id else suggested_first_chapter }}" required> 章</label>

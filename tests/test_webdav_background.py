@@ -78,6 +78,73 @@ class WebDavBackgroundTests(unittest.TestCase):
                 self.assertEqual(library.get_available_comics(), [{'comic_name': 'new'}])
                 refresh.assert_called_once_with(force=True)
 
+    def test_pause_resume_and_cancel_flags_survive_progress_updates(self):
+        with app.app_context():
+            command = updates.queue_background_command('sync_webdav', dedupe_pending=False)
+            command_id = command.id
+        try:
+            state = updates.update_webdav_sync_state(command_id, action='pause')
+            self.assertTrue(state['_paused'])
+            state = updates.update_webdav_sync_state(command_id, value={'done': 1, 'total': 3})
+            self.assertTrue(state['_paused'])
+            state = updates.update_webdav_sync_state(command_id, action='resume')
+            self.assertFalse(state['_paused'])
+            updates.update_webdav_sync_state(command_id, action='cancel')
+            with app.app_context():
+                self.assertEqual(db.session.get(BackgroundCommand, command_id).status, 'cancelled')
+        finally:
+            with app.app_context():
+                BackgroundCommand.query.filter_by(id=command_id).delete()
+                db.session.commit()
+
+    def test_paused_sync_waits_for_resume_before_network_call(self):
+        with app.app_context():
+            command = updates.queue_background_command('sync_webdav', dedupe_pending=False)
+            command_id = command.id
+        updates.update_webdav_sync_state(command_id, action='pause')
+        try:
+            with patch.object(webdav, 'sync_library', return_value='done') as sync:
+                updates.execute_background_command(command_id)
+                time.sleep(.1)
+                sync.assert_not_called()
+                updates.update_webdav_sync_state(command_id, action='resume')
+                for _ in range(150):
+                    with app.app_context():
+                        state = db.session.get(BackgroundCommand, command_id).status
+                    if state == 'completed':
+                        break
+                    time.sleep(.02)
+                self.assertEqual(state, 'completed')
+                sync.assert_called_once()
+        finally:
+            updates.update_webdav_sync_state(command_id, action='cancel')
+            with app.app_context():
+                BackgroundCommand.query.filter_by(id=command_id).delete()
+                db.session.commit()
+
+    def test_cancelled_running_sync_stops_before_network_call(self):
+        with app.app_context():
+            command = updates.queue_background_command('sync_webdav', dedupe_pending=False)
+            command_id = command.id
+            BackgroundCommand.query.filter_by(id=command_id).update({'status': 'running'})
+            db.session.commit()
+        updates.update_webdav_sync_state(command_id, action='cancel')
+        try:
+            with patch.object(webdav, 'sync_library') as sync:
+                updates.execute_background_command(command_id)
+                for _ in range(100):
+                    with app.app_context():
+                        state = db.session.get(BackgroundCommand, command_id).status
+                    if state == 'cancelled':
+                        break
+                    time.sleep(.01)
+                self.assertEqual(state, 'cancelled')
+                sync.assert_not_called()
+        finally:
+            with app.app_context():
+                BackgroundCommand.query.filter_by(id=command_id).delete()
+                db.session.commit()
+
     def test_queue_deduplicates_active_sync(self):
         with tempfile.TemporaryDirectory() as root, patch.object(app, 'instance_path', root), \
                 patch.object(webdav, '_require_config', return_value={'url': 'http://localhost/dav'}):

@@ -24,7 +24,7 @@
                     alt=""
                     data-cover-src="{{ cover_image_url(spotlight.comic_name) }}"
                     data-banner-src="{{ spotlight.banner_url or '' }}"
-                    data-fallback="{{ asset_url('cover/cover.png') }}"
+                    data-fallback="{{ asset_url('default-comic-cover.jpg') }}"
                 >
             </picture>
         </div>
@@ -82,7 +82,7 @@
                      alt="{{ spotlight.comic_name }}"
                      loading="eager"
                      decoding="async"
-                     data-fallback="{{ asset_url('cover/cover.png') }}">
+                     data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
             </div>
         </div>
         {% if recent_comics %}
@@ -107,7 +107,7 @@
                     <img src="{{ cover_image_url(comic.comic_name) }}"
                          alt="{{ comic.comic_name }}"
                          loading="lazy"
-                         data-fallback="{{ asset_url('cover/cover.png') }}">
+                         data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
                     <span class="md-home-rail__cap">{{ comic.comic_name }}</span>
                 </a>
                 {% endfor %}

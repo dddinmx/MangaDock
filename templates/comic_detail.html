@@ -200,13 +200,13 @@
         <img
             src="{{ cover_hero_image_url(task.comic_name) }}"
             alt=""
-            data-fallback="{{ asset_url('cover/cover.png') }}"
+            data-fallback="{{ asset_url('default-comic-cover.jpg') }}"
         >
         <img
             class="md-detail-hero-soft"
             src="{{ cover_hero_image_url(task.comic_name) }}"
             alt=""
-            data-fallback="{{ asset_url('cover/cover.png') }}"
+            data-fallback="{{ asset_url('default-comic-cover.jpg') }}"
         >
     </div>
     <div class="md-detail-hero-shade"></div>
@@ -227,6 +227,10 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="2" y="9" width="5" height="6" rx="1.5"/><rect x="9.5" y="9" width="5" height="6" rx="1.5"/><rect x="17" y="9" width="5" height="6" rx="1.5"/></svg>
             </button>
             <div id="detail-overflow-menu" class="md-detail-menu" hidden>
+                <a href="{{ url_for('anilist_match', comic_name=task.comic_name, metadata='1') }}" class="md-detail-menu-item action-press" onclick="toggleDetailOverflowMenu(true)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 3 1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg>
+                    <span>补全封面与简介</span>
+                </a>
                 <button
                     type="button"
                     class="md-detail-menu-item action-press"
@@ -298,7 +302,7 @@
                 <img
                     src="{{ cover_hero_image_url(task.comic_name) }}"
                     alt="{{ task.comic_name }}封面"
-                    data-fallback="{{ asset_url('cover/cover.png') }}"
+                    data-fallback="{{ asset_url('default-comic-cover.jpg') }}"
                 >
             </div>
             <div class="md-detail-meta">
@@ -345,11 +349,6 @@
                     <a href="{{ url_for('anilist_match', comic_name=task.comic_name) }}" class="md-detail-action action-press">
                         <svg class="md-detail-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 3 1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg><span class="md-detail-action-copy"><small>AniList</small><strong>{{ '管理进度' if anilist_link else '关联进度' }}</strong></span>
                     </a>
-                    {% if can_manage_library and is_webdav_comic %}
-                    <a href="{{ url_for('anilist_match', comic_name=task.comic_name, metadata='1') }}" class="md-detail-action action-press">
-                        <span class="md-detail-action-copy"><small>AniList</small><strong>补全封面与简介</strong></span>
-                    </a>
-                    {% endif %}
                     <a href="#detail-chapters" class="md-detail-action action-press">
                         <svg class="md-detail-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 6h11M10 12h11M10 18h11M3 4h1v4M3 11c0-2 3-2 3 0 0 1-3 3-3 3h3M3 17h3l-2 2c3-1 3 3-1 2"/></svg><span class="md-detail-action-copy"><small>{{ 'PDF' if task.comic_format == 1 else 'CBZ' }} · 章节</small><strong>{{ task.available_chapters }} 章</strong></span>
                     </a>

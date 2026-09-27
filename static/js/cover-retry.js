@@ -15,7 +15,7 @@
         var img = e.target;
         if (!img || img.tagName !== 'IMG' || !img.hasAttribute('data-fallback')) return;
         var src = img.getAttribute('src') || '';
-        if (src.indexOf('cover.png') !== -1) return;
+        if (src.indexOf('cover.png') !== -1 || src.indexOf('default-comic-cover.jpg') !== -1) return;
         var n = parseInt(img.getAttribute('data-err-n') || '0', 10);
         if (n >= DELAYS.length) {
             img.src = img.getAttribute('data-fallback');
@@ -24,7 +24,7 @@
         img.setAttribute('data-err-n', String(n + 1));
         setTimeout(function () {
             var cur = img.getAttribute('src') || '';
-            if (cur.indexOf('cover.png') !== -1) return;
+            if (cur.indexOf('cover.png') !== -1 || cur.indexOf('default-comic-cover.jpg') !== -1) return;
             if (!img.hasAttribute('data-orig-src')) img.setAttribute('data-orig-src', cur);
             var orig = img.getAttribute('data-orig-src');
             img.src = orig + (orig.indexOf('?') > -1 ? '&' : '?') + 'retry=' + n + Date.now();

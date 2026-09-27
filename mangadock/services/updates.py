@@ -2,6 +2,9 @@
 """Comic update checks and background command queue."""
 import json
 import threading
+import os
+import time
+import fcntl
 from datetime import datetime
 
 from mangadock.core import app
@@ -193,6 +196,34 @@ def finish_background_command(command_id, status='completed', message=None):
         db.session.commit()
 
 
+def update_webdav_sync_state(command_id, value=None, action=None):
+    from mangadock.services.webdav import _open_lock_file
+    with _open_lock_file(os.path.join(app.instance_path, f'webdav-sync-{command_id}')) as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        with app.app_context():
+            command = db.session.get(BackgroundCommand, command_id)
+            if not command or command.command_type != 'sync_webdav':
+                return {}
+            payload = json.loads(command.payload or '{}')
+            if value is None and action is None:
+                return payload
+            if value is not None:
+                payload = {**value, '_paused': payload.get('_paused', False), '_cancelled': payload.get('_cancelled', False)}
+            if action and command.status in ('pending', 'running'):
+                if action in ('pause', 'resume'):
+                    payload['_paused'] = action == 'pause'
+                elif action == 'cancel':
+                    payload['_cancelled'] = True
+                    if command.status == 'pending':
+                        command.status = 'cancelled'
+                        command.finished_at = datetime.now(china_tz)
+                        command.message = '同步已取消'
+            command.payload = json.dumps(payload, ensure_ascii=False)
+            command.updated_at = datetime.now(china_tz)
+            db.session.commit()
+            return payload
+
+
 def execute_background_command(command_id):
     with app.app_context():
         command = db.session.get(BackgroundCommand, command_id)
@@ -218,17 +249,24 @@ def execute_background_command(command_id):
             def run_sync():
                 from mangadock.services.webdav import sync_library
                 def progress(value):
-                    with app.app_context():
-                        item = db.session.get(BackgroundCommand, command_id)
-                        item.payload = json.dumps(value, ensure_ascii=False)
-                        item.updated_at = datetime.now(china_tz)
-                        db.session.commit()
+                    from mangadock.services.webdav import WebDavSyncCancelled
+                    state = update_webdav_sync_state(command_id, value=value)
+                    while True:
+                        if state.get('_cancelled'):
+                            raise WebDavSyncCancelled('同步已取消，已索引的漫画保留')
+                        if not state.get('_paused'):
+                            return
+                        time.sleep(1)
+                        state = update_webdav_sync_state(command_id)
                 try:
+                    progress({})
                     with app.app_context():
                         message = sync_library(progress=progress)
                     finish_background_command(command_id, message=message)
                 except Exception as exc:
-                    finish_background_command(command_id, status='error', message=str(exc))
+                    from mangadock.services.webdav import WebDavSyncCancelled
+                    status = 'cancelled' if isinstance(exc, WebDavSyncCancelled) else 'error'
+                    finish_background_command(command_id, status=status, message=str(exc))
             threading.Thread(target=run_sync, name='webdav-sync', daemon=True).start()
             return True
 

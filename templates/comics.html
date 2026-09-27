@@ -123,6 +123,7 @@
             </div>
         </div>
 
+        <div id="comic-library-results">
         {% if tasks %}
         <div data-comics-grid="true" class="md-cover-grid">
             {% for task in tasks %}
@@ -146,7 +147,7 @@
                                  alt="{{ task.comic_name }}封面"
                                  loading="lazy"
                                  decoding="async"
-                                 data-fallback="{{ asset_url('cover/cover.png') }}">
+                                 data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
                         </div>
                     </div>
                     <div class="md-cover-card__title">{{ task.comic_name }}</div>
@@ -194,6 +195,7 @@
             </div>
         </div>
         {% endif %}
+        </div>
     </div>
     </div>
 </div>
@@ -204,15 +206,32 @@
 {% if current_user and current_user.is_admin %}
 <script>
 (() => {
-    const version = {{ library_version|tojson }};
+    let version = {{ library_version|tojson }};
     async function poll() {
         try {
             const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
             if (!response.ok) return;
             const data = await response.json();
             if (version !== undefined && version !== data.version) {
-                location.reload();
-                return;
+                const page = await fetch(location.href, {cache: 'no-store'});
+                if (!page.ok) throw new Error('library refresh failed');
+                const doc = new DOMParser().parseFromString(await page.text(), 'text/html');
+                const current = document.getElementById('comic-library-results');
+                const next = doc.getElementById('comic-library-results');
+                if (!current || !next) throw new Error('missing library results');
+                const oldGrid = current.querySelector('[data-comics-grid]');
+                const newGrid = next.querySelector('[data-comics-grid]');
+                if (oldGrid && newGrid) {
+                    const cards = new Map(Array.from(oldGrid.children).map(card => [card.querySelector('a').getAttribute('href'), card]));
+                    for (const card of Array.from(newGrid.children)) {
+                        const old = cards.get(card.querySelector('a').getAttribute('href'));
+                        if (old && old.innerHTML === card.innerHTML) card.replaceWith(old);
+                    }
+                }
+                const y = window.scrollY;
+                current.replaceChildren(...Array.from(next.childNodes));
+                window.scrollTo(0, y);
+                version = data.version;
             }
         } catch (_) {}
         setTimeout(poll, 2000);

@@ -113,6 +113,44 @@ class WebDavMetadataTests(unittest.TestCase):
         self.assertIsNone(updates.claim_next_background_command())
         self.assertEqual(updates.claim_next_background_command('webdav_metadata'), first)
 
+    def test_cover_download_failure_keeps_description_and_does_not_auto_retry(self):
+        with patch.object(metadata, 'search_metadata', return_value=[self.media]), \
+                patch.object(metadata, 'safe_http_get', side_effect=OSError('cover unavailable')):
+            metadata.enrich_metadata(self.payload)
+        value = metadata.metadata_view('Book')
+        self.assertEqual(value['status'], 'partial')
+        self.assertTrue(library.get_comic_description('Book'))
+        self.assertIsNone(metadata.queue_metadata('Book'))
+        self.assertEqual(metadata.metadata_progress()['partial'], 1)
+
+    def test_cover_conversion_exception_keeps_description(self):
+        with patch.object(metadata, 'search_metadata', return_value=[self.media]), \
+                patch.object(metadata, 'safe_http_get', return_value=self.image_response()), \
+                patch.object(metadata, 'normalize_cover_bytes', side_effect=OSError('conversion failed')):
+            metadata.enrich_metadata(self.payload)
+        self.assertEqual(metadata.metadata_view('Book')['status'], 'partial')
+        self.assertTrue(library.get_comic_description('Book'))
+
+    def test_invalid_cover_keeps_description(self):
+        from unittest.mock import Mock
+        with patch.object(metadata, 'search_metadata', return_value=[self.media]), \
+                patch.object(metadata, 'safe_http_get', return_value=Mock(content=b'not an image')):
+            metadata.enrich_metadata(self.payload)
+        self.assertEqual(metadata.metadata_view('Book')['status'], 'partial')
+        self.assertTrue(library.get_comic_description('Book'))
+
+    def test_finished_first_attempt_never_requeues_automatically_but_manual_retry_works(self):
+        for status in ('completed', 'unmatched', 'error', 'partial'):
+            with self.subTest(status=status):
+                self.clean_commands()
+                webdav._atomic_json(os.path.join(self.comic, metadata.METADATA_FILENAME),
+                    {'source': self.source, 'status': status, 'checked_at': time.time() - 30 * 86400})
+                self.assertIsNone(metadata.queue_metadata('Book'))
+                metadata.queue_existing_metadata()
+                with app.app_context():
+                    self.assertEqual(BackgroundCommand.query.filter_by(command_type='webdav_metadata').count(), 0)
+                self.assertIsNotNone(metadata.queue_metadata('Book', force=True))
+
     def test_reselecting_a_queued_choice_updates_selection(self):
         first = metadata.queue_metadata('Book', media_id=123, force=True)
         metadata.queue_metadata('Book', media_id=456, force=True)
@@ -153,6 +191,19 @@ class WebDavMetadataTests(unittest.TestCase):
             response = client.post('/anilist/metadata/Book', data={'media_id': '123'})
             self.assertEqual(response.status_code, 302)
         self.assertEqual(metadata.metadata_view('Book')['selected_id'], 123)
+
+    def test_local_comic_metadata_is_selectable_without_anilist_account(self):
+        local = os.path.join(self.root, 'local', 'Book')
+        os.makedirs(local)
+        with patch.object(library, 'get_comic_directory', return_value=local):
+            target = metadata._target('Book')
+            self.assertTrue(target[1].startswith('local:'))
+            command_id = metadata.queue_metadata('Book', media_id=123, force=True)
+            with patch.object(metadata, '_graphql', return_value={'Media': self.media}), \
+                    patch.object(metadata, 'safe_http_get', return_value=self.image_response()):
+                self.assertTrue(updates.execute_background_command(command_id))
+            self.assertEqual(metadata.metadata_view('Book')['media_id'], 123)
+            self.assertTrue(os.path.isfile(os.path.join(local, metadata.METADATA_FILENAME)))
 
     def test_rate_limit_cooldown_is_shared_and_429_is_preserved(self):
         import requests

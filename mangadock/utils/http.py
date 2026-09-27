@@ -171,8 +171,8 @@ def validate_safe_upstream_url(url):
     return url
 
 
-def _resolve_and_validate_host(host, port):
-    """在真正建连时解析并校验目标 IP（DNS 重绑定防护）。返回可用安全 IP，否则抛错。
+def _resolve_and_validate_addresses(host, port):
+    """在真正建连时解析并校验目标 IP（DNS 重绑定防护）。返回按 IPv4 优先排序的安全 IP 列表，否则抛错。
 
     2026-09-22 code review P2：validate_safe_upstream_url 在请求入口解析并校验过 IP，
     但随后 requests 会再次解析，二者之间存在重绑定窗口（攻击者可把域名改指向内网）。
@@ -190,14 +190,14 @@ def _resolve_and_validate_host(host, port):
             literal_ip in network for network in SAFE_HTTP_ALLOWED_PROXY_NETWORKS
         ):
             raise ValueError('不允许访问内网或保留地址')
-        return str(literal_ip)
+        return [str(literal_ip)]
     # DNS 抖动退避重试（与入口校验一致）
     for dns_attempt in range(SAFE_HTTP_DNS_RETRIES):
         try:
-            addresses = {
+            addresses = list(dict.fromkeys(
                 result[4][0]
                 for result in socket.getaddrinfo(host, port or 443, type=socket.SOCK_STREAM)
-            }
+            ))
             break
         except socket.gaierror as exc:
             if dns_attempt >= SAFE_HTTP_DNS_RETRIES - 1:
@@ -211,7 +211,7 @@ def _resolve_and_validate_host(host, port):
     safe_addresses = [a for a in addresses if is_safe_resolved_upstream_address(host, a)]
     if not safe_addresses:
         raise ValueError('上游域名解析到不安全地址')
-    return safe_addresses[0]
+    return sorted(safe_addresses, key=lambda address: ipaddress.ip_address(address).version)
 
 
 # === DNS 重绑定防护：自定义连接类，在 _new_conn 阶段固定到已校验 IP =================
@@ -227,13 +227,25 @@ class _SafeHTTPConnection(_HTTPConnection):
     def _new_conn(self):
         if getattr(self, 'proxy', None):
             return super()._new_conn()
-        validated_ip = _resolve_and_validate_host(self.host, self.port)
-        return _urllib3_create_connection(
-            (validated_ip, self.port),
-            self.timeout,
-            source_address=self.source_address,
-            socket_options=self.socket_options,
-        )
+        addresses = _resolve_and_validate_addresses(self.host, self.port)
+        last_error = None
+        for validated_ip in addresses:
+            try:
+                return _urllib3_create_connection(
+                    (validated_ip, self.port),
+                    self.timeout,
+                    source_address=self.source_address,
+                    socket_options=self.socket_options,
+                )
+            except OSError as exc:
+                last_error = exc
+        if isinstance(last_error, socket.timeout):
+            raise urllib3.exceptions.ConnectTimeoutError(
+                self, f'Connection to {self.host} timed out (connect timeout={self.timeout})'
+            ) from last_error
+        raise urllib3.exceptions.NewConnectionError(
+            self, f'Failed to establish a new connection: {last_error}'
+        ) from last_error
 
 
 class _SafeHTTPSConnection(_SafeHTTPConnection, _HTTPSConnection):

@@ -80,7 +80,7 @@ def anilist_match(comic_name):
 def anilist_save_metadata(comic_name):
     user = get_current_user()
     if not user_can_access_progress_key(comic_name, user) or not _target(comic_name):
-        return render_template('error.html', message='WebDAV 漫画不存在或无权访问'), 404
+        return render_template('error.html', message='漫画不存在或无权访问'), 404
     try:
         raw_id = request.form.get('media_id', '')
         media_id = int(raw_id) if raw_id else None
