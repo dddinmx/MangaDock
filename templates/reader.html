@@ -1579,6 +1579,7 @@
 
         const cbzImageQueue = new Set();
         let cbzImagesLoading = 0;
+        const cbzImagesInFlight = new Set();
 
         function drainCbzImageQueue() {
             for (const page of cbzImageQueue) {
@@ -1587,22 +1588,43 @@
             if (document.hidden) return;
             const distance = (page) => {
                 const rect = page.getBoundingClientRect();
-                return Math.max(rect.top - window.innerHeight, -rect.bottom, 0);
+                if (rect.bottom <= 0) return 1 - rect.bottom;
+                if (rect.top >= window.innerHeight) return rect.top - window.innerHeight + 1;
+                return 0;
             };
-            while (cbzImagesLoading < 4 && cbzImageQueue.size) {
+            while (cbzImagesLoading < 6 && cbzImageQueue.size) {
                 const page = Array.from(cbzImageQueue).sort((a, b) => distance(a) - distance(b))[0];
                 cbzImageQueue.delete(page);
                 cbzImagesLoading++;
+                cbzImagesInFlight.add(page);
                 Promise.resolve(page.loadImage()).finally(() => {
                     cbzImagesLoading--;
+                    cbzImagesInFlight.delete(page);
                     drainCbzImageQueue();
                 });
             }
         }
 
+        function prioritizeVisibleCbzImages() {
+            if (document.hidden || cbzImagesLoading < 6) return;
+            const visible = Array.from(cbzImageQueue).some(page => {
+                const rect = page.getBoundingClientRect();
+                return rect.bottom > 0 && rect.top < window.innerHeight;
+            });
+            if (!visible) return;
+            const distant = Array.from(cbzImagesInFlight).filter(page => {
+                const rect = page.getBoundingClientRect();
+                return rect.bottom < -window.innerHeight || rect.top > window.innerHeight * 2;
+            }).sort((a, b) => Math.abs(b.getBoundingClientRect().top) - Math.abs(a.getBoundingClientRect().top))[0];
+            distant?.cancelImageLoad?.(true);
+        }
+
+        window.addEventListener('scroll', prioritizeVisibleCbzImages, { passive: true });
+
         function queueCbzImage(container) {
             if (!container.isConnected || ['true', 'loaded'].includes(container.dataset.loading)) return;
             cbzImageQueue.add(container);
+            prioritizeVisibleCbzImages();
             drainCbzImageQueue();
         }
 
@@ -1634,6 +1656,16 @@
             container.appendChild(img);
             const url = `${cacheEntry.pagesUrl}?page=${pageIndex}`;
             let attempts = 0;
+            const status = document.createElement('button');
+            status.type = 'button';
+            status.className = 'cbz-page-retry';
+            status.textContent = `第 ${pageIndex + 1} 页等待加载`;
+            status.addEventListener('click', () => {
+                container.cancelImageLoad?.();
+                attempts = 0;
+                queueCbzImage(container);
+            });
+            container.appendChild(status);
             container.retryIfInterrupted = () => {
                 if (container.dataset.loading === 'true' && img.complete && !img.naturalWidth) img.onerror?.();
             };
@@ -1643,6 +1675,7 @@
                 if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
                 attempts++;
                 container.dataset.loading = 'true';
+                status.textContent = `第 ${pageIndex + 1} 页加载中，点击重试`;
                 await new Promise((resolve) => {
                     let settled = false;
                     const timeout = window.setTimeout(() => {
@@ -1657,15 +1690,20 @@
                         resolve();
                         return true;
                     };
-                    container.cancelImageLoad = () => {
+                    container.cancelImageLoad = (requeue = false) => {
                         if (!finish()) return;
                         container.dataset.loading = 'error';
                         img.removeAttribute('src');
+                        if (requeue) {
+                            attempts--;
+                            cbzImageQueue.add(container);
+                        }
                     };
                     img.onload = () => {
                         if (!finish()) return;
                         if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
                         container.dataset.loading = 'loaded';
+                        status.remove();
                         const anchor = Array.from(document.querySelectorAll('.cbz-page')).find(page => {
                             const rect = page.getBoundingClientRect();
                             return rect.bottom > 0 && rect.top < window.innerHeight;
@@ -1699,20 +1737,12 @@
                         if (!finish()) return;
                         container.dataset.loading = 'error';
                         if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
+                        status.textContent = `第 ${pageIndex + 1} 页加载失败，点击重试`;
                         if (attempts < 3) {
                             window.setTimeout(() => queueCbzImage(container), 600 * attempts);
                             return;
                         }
-                        const retry = document.createElement('button');
-                        retry.type = 'button';
-                        retry.className = 'cbz-page-retry';
-                        retry.textContent = `第 ${pageIndex + 1} 页加载失败，点击重试`;
-                        retry.addEventListener('click', () => {
-                            retry.remove();
-                            attempts = 0;
-                            queueCbzImage(container);
-                        });
-                        container.appendChild(retry);
+
                     };
                     img.src = `${url}${attempts > 1 ? `&retry=${Date.now()}` : ''}`;
                 });
