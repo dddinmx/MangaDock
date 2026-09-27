@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block title %}MangaDock - 本地扫盘{% endblock %}
+{% block body_class %}md-body min-h-screen{% endblock %}
+{% block extra_head %}{% include '_md_ios_ui.html' %}
+<style>
+    /* 扫盘面板 */
+    .md-setting-scan { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.7rem 0.85rem; border-radius: 0.7rem; border: 1px solid var(--md-border); }
+    .md-setting-scan + .md-setting-scan { margin-top: 0.55rem; }
+
+    /* 扫盘面板：主按钮辉光压住下方「立即扫盘」的修正（2026-09-19）
+       基类 .md-btn-primary 的辉光是 0 12px 30px，向下蔓延约 27px，
+       而次按钮外层 form 只有 mt-2(8px) → 视觉上两个按钮粘在一起。
+       面板作用域内的辉光收紧在 _md_ios_ui.html 里，这里只补间距。 */
+    .md-setting-panel form[data-api-v1="scan-rescan"] { margin-top: 1.375rem; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="md-setting-page">
+    {% set flash_messages = get_flashed_messages() %}
+    {% if flash_messages %}
+    <section class="space-y-2 mb-4" id="settings-flash">
+        {% for message in flash_messages %}
+        <div class="md-ios-alert is-success">
+            <i class="fa fa-check-circle md-ios-alert__icon"></i>
+            <span>{{ message }}</span>
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    <a href="{{ url_for('settings') }}" class="md-lib-link action-press" data-app-loader="true"><i class="fa fa-arrow-left"></i> 返回设置</a>
+    <header class="md-setting-header">
+        <h1 class="md-setting-header__title">本地扫盘</h1>
+        <p class="md-setting-header__sub">管理漫画目录与扫描书库</p>
+    </header>
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">本地扫盘</h2>
+        <div class="md-setting-list">
+            <div class="md-setting-panel">
+                <div class="flex items-center gap-3 mb-2">
+                    <span class="md-setting-row__icon"><i class="fa fa-folder-open"></i></span>
+                    <span class="text-base font-semibold">漫画扫盘</span>
+                </div>
+                <p class="text-xs text-ink-400 mb-3">可添加自定义漫画目录，当前支持 PDF 和 CBZ。</p>
+
+                <form method="post" action="{{ url_for('add_scan_path') }}" class="flex flex-col gap-2 md:flex-row md:items-stretch" data-api-v1="scan-add">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input
+                        type="text"
+                        name="scan_path"
+                        placeholder="输入漫画目录路径，例如 /Volumes/NAS/Comics"
+                        class="md-input min-w-0 flex-1"
+                        required
+                    >
+                    <button type="submit" class="md-btn-primary action-press whitespace-nowrap md:flex-shrink-0">
+                        <i class="fa fa-plus" style="margin-right:0.35rem"></i>添加路径
+                    </button>
+                </form>
+                <form method="post" action="{{ url_for('rescan_comic_library') }}" data-api-v1="scan-rescan" class="mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="md-btn-ghost action-press whitespace-nowrap">
+                        <i class="fa fa-refresh" style="margin-right:0.35rem"></i>立即扫盘
+                    </button>
+                </form>
+                <p class="text-xs text-ink-400 mt-2">新增路径会持久保存；移除路径后，来源于该路径的漫画会在重新扫描后从应用中消失。</p>
+
+                <div class="text-sm font-semibold text-ink-200 mt-4 mb-2">已记录路径</div>
+                {% for scan_path in scan_paths %}
+                <div class="md-setting-scan">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-sm font-semibold break-all">{{ scan_path.path }}</span>
+                        {% if scan_path.is_default %}
+                        <span class="md-chip">默认目录</span>
+                        {% endif %}
+                        {% if scan_path.exists %}
+                        <span class="md-chip" style="border-color:rgba(45,212,168,0.35);color:var(--md-mint)">可访问</span>
+                        {% else %}
+                        <span class="md-chip" style="border-color:rgba(251,113,133,0.35);color:#fb7185">目录不存在</span>
+                        {% endif %}
+                    </div>
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <p class="text-xs text-ink-400">应用会把该目录下每个子目录视作一部漫画。</p>
+                        {% if not scan_path.is_default %}
+                        <form method="post" action="{{ url_for('delete_scan_path', scan_path_id=scan_path.id) }}" data-api-v1="scan-delete" data-scan-id="{{ scan_path.id }}" data-api-confirm="确定移除该扫盘路径吗？">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="rounded-lg border border-rose-400/30 bg-rose-500/10 text-rose-300 px-3 py-1.5 text-xs font-semibold action-press whitespace-nowrap">
+                                <i class="fa fa-trash" style="margin-right:0.25rem"></i>移除
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="rounded-xl border border-dashed border-white/10 px-4 py-4 text-sm text-ink-400">
+                    当前仅使用默认漫画目录。
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

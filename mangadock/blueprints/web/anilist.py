@@ -10,7 +10,8 @@ from mangadock.models import AniListAccount, AniListComicLink, ReadingProgress
 from mangadock.services.anilist import CLIENT_ID, chapter_number, connect, link_manga, search_manga, sync_completed_chapter, reconcile_progress
 from mangadock.services.library import get_comic_directory, list_local_chapters
 from mangadock.services.reading import user_can_access_progress_key
-from mangadock.services.webdav_metadata import _target, metadata_view, queue_metadata, search_metadata
+from mangadock.services.webdav_metadata import _target, metadata_view, queue_metadata, search_metadata, PROVIDERS
+from mangadock.services import mangaupdates_metadata
 
 
 @app.route('/anilist/connect', methods=['GET', 'POST'])
@@ -60,18 +61,25 @@ def anilist_match(comic_name):
     query = (request.args.get('q') or comic_name).strip()[:100]
     metadata_mode = request.args.get('metadata') == '1' and user.is_admin and bool(_target(comic_name))
     metadata = metadata_view(comic_name) if metadata_mode else {}
+    metadata_provider = request.args.get('provider', 'anilist') if metadata_mode else 'anilist'
+    if metadata_provider not in PROVIDERS:
+        metadata_provider = 'anilist'
     results = []
     if (account or metadata_mode) and query:
         try:
-            results = search_metadata(query) if metadata_mode else search_manga(query)
+            if metadata_mode:
+                results = mangaupdates_metadata.search_metadata(query) if metadata_provider == 'mangaupdates' else search_metadata(query)
+            else:
+                results = search_manga(query)
         except Exception:
             app.logger.exception('AniList manga search failed')
-            flash('AniList 搜索暂时失败，请稍后重试')
+            flash(PROVIDERS[metadata_provider] + ' 搜索暂时失败，请稍后重试')
     chapters = list_local_chapters(comic_name)
     suggested_first_chapter = chapter_number(chapters[0].get('title')) if chapters else None
     return render_template('anilist_match.html', comic_name=comic_name, account=account,
                            link=link, query=query, results=results, metadata_mode=metadata_mode, metadata=metadata,
-                           chapter_count=len(chapters), suggested_first_chapter=suggested_first_chapter or 1)
+                           chapter_count=len(chapters), suggested_first_chapter=suggested_first_chapter or 1,
+                           metadata_provider=metadata_provider, metadata_source_name=PROVIDERS[metadata_provider])
 
 
 @app.route('/anilist/metadata/<path:comic_name>', methods=['POST'])
@@ -86,11 +94,15 @@ def anilist_save_metadata(comic_name):
         media_id = int(raw_id) if raw_id else None
         if media_id is not None and media_id <= 0:
             raise ValueError('无效条目')
-        queue_metadata(comic_name, media_id=media_id, force=True)
+        provider = request.form.get('provider', 'anilist')
+        if provider not in PROVIDERS:
+            raise ValueError('无效的资料来源')
+        queue_metadata(comic_name, media_id=media_id, force=True, provider=provider)
         flash('封面与简介已加入后台补全队列，不会开启进度同步')
     except ValueError:
-        flash('请选择有效的 AniList 条目')
-    return redirect(url_for('anilist_match', comic_name=comic_name, metadata='1'))
+        flash('请选择有效的资料条目')
+    provider = request.form.get('provider', 'anilist')
+    return redirect(url_for('anilist_match', comic_name=comic_name, metadata='1', provider=provider if provider in PROVIDERS else 'anilist'))
 
 
 @app.route('/anilist/match/<path:comic_name>', methods=['POST'])

@@ -39,15 +39,6 @@
     .settings-switch.is-on::after { left: calc(100% - 1.44rem); }
     html:not(.theme-dark) .settings-switch:not(.is-on) { background: rgba(100, 116, 139, 0.42); }
 
-    /* 扫盘面板 */
-    .md-setting-scan { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.7rem 0.85rem; border-radius: 0.7rem; border: 1px solid var(--md-border); }
-    .md-setting-scan + .md-setting-scan { margin-top: 0.55rem; }
-
-    /* 扫盘面板：主按钮辉光压住下方「立即扫盘」的修正（2026-09-19）
-       基类 .md-btn-primary 的辉光是 0 12px 30px，向下蔓延约 27px，
-       而次按钮外层 form 只有 mt-2(8px) → 视觉上两个按钮粘在一起。
-       面板作用域内的辉光收紧在 _md_ios_ui.html 里，这里只补间距。 */
-    .md-setting-panel form[data-api-v1="scan-rescan"] { margin-top: 1.375rem; }
 </style>
 {% endblock %}
 
@@ -200,169 +191,20 @@
     </section>
 
     <section class="md-setting-group">
-        <h2 class="md-setting-group__title">WebDAV（测试）</h2>
+        <h2 class="md-setting-group__title">书库来源</h2>
         <div class="md-setting-list">
-            <div class="md-setting-panel">
-                <div class="flex items-center gap-3 mb-2">
-                    <span class="md-setting-row__icon"><i class="fa fa-cloud"></i></span>
-                    <span class="text-base font-semibold">云端漫画库</span>
-                </div>
-                <p class="text-xs text-ink-400 mb-3">连接 Alist 或其他 WebDAV。只读取已有的 CBZ 和 PDF，不上传、不删除云端文件。打开章节时才下载到本机缓存。索引后后台通过 AniList 自动补全缺失封面与简介；未匹配的作品可在详情页手动选择。</p>
-                <form method="post" action="{{ url_for('save_webdav') }}" class="flex flex-col gap-2">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="url" name="url" value="{{ webdav.url }}" placeholder="地址，例如 http://127.0.0.1:5244/dav" class="md-input" required>
-                    <div class="flex flex-col gap-2 md:flex-row">
-                        <input type="text" name="username" value="{{ webdav.username }}" placeholder="用户名" class="md-input min-w-0 flex-1" autocomplete="username">
-                        <input type="password" name="password" placeholder="{{ '密码已保存，留空则不修改' if webdav.password_set else '密码' }}" class="md-input min-w-0 flex-1" autocomplete="new-password">
-                    </div>
-                    <div class="flex flex-col gap-2 md:flex-row">
-                        <div class="flex flex-col gap-2 min-w-0 flex-1">
-                            <label for="webdav-root" class="text-xs text-ink-400">漫画根目录</label>
-                            <input id="webdav-root" type="text" name="root" value="{{ webdav.root }}" placeholder="例如 /nas" class="md-input min-w-0">
-                        </div>
-                        <div class="flex flex-col gap-2 md:w-40">
-                            <label for="webdav-cache-gb" class="text-xs text-ink-400">本地缓存上限</label>
-                            <div class="flex items-center gap-2">
-                                <input id="webdav-cache-gb" type="number" name="cache_gb" value="{{ webdav.cache_gb }}" min="1" max="200" class="md-input min-w-0 flex-1" aria-describedby="webdav-cache-help" aria-label="本地缓存上限，单位 GB">
-                                <span class="text-xs text-ink-400">GB</span>
-                            </div>
-                        </div>
-                    </div>
-                    <p id="webdav-cache-help" class="text-xs text-ink-400">可设置 1～200 GB。超出上限时清理较久未使用的本地缓存，不会删除网盘文件。</p>
-                    <button type="submit" class="md-btn-primary action-press whitespace-nowrap md:self-start">保存连接</button>
-                </form>
-                {% if webdav.configured %}
-                <div class="mt-3 flex flex-col gap-2 md:flex-row">
-                    <form method="post" action="{{ url_for('sync_webdav') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="md-btn-ghost action-press whitespace-nowrap">
-                            <i class="fa fa-refresh" style="margin-right:0.35rem"></i>同步书库
-                        </button>
-                    </form>
-                    <form method="post" action="{{ url_for('disconnect_webdav_route') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="md-btn-secondary action-press whitespace-nowrap">断开连接</button>
-                    </form>
-                </div>
-                <div id="webdav-sync-controls" hidden><form method="post" action="{{ url_for('control_webdav_sync') }}" class="flex gap-2 mt-2">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" name="action" value="pause" class="md-btn-ghost" id="webdav-sync-pause">暂停</button>
-                    <button type="submit" name="action" value="cancel" class="md-btn-ghost">取消同步</button>
-                </form>
-                </div>
-                <p id="webdav-metadata-progress" role="status" class="text-sm text-ink-400 mt-2"></p>
-                <p id="webdav-sync-progress" role="status" aria-live="polite" class="text-sm text-ink-400 mt-2"></p>
-                <p class="text-xs text-ink-400 mt-2">
-                    {% if webdav.last_sync_at %}上次同步 {{ webdav.last_sync_at }}，写入 {{ webdav.comic_count }} 部，跳过本地已有 {{ webdav.skipped_count }} 部。{% else %}尚未同步。{% endif %}
-                    {% if webdav.last_error %}最近失败：{{ webdav.last_error }}{% endif %}
-                </p>
-                {% endif %}
-                <p class="text-xs text-ink-400 mt-2">本地扫盘里已有的同名漫画会跳过。缓存按 GB 计算，空间不够时删掉最久没读的章节。连续阅读仍用阅读器原有的下一章预取。</p>
-            </div>
-        </div>
-    </section>
-
-    <section class="md-setting-group">
-        <h2 class="md-setting-group__title">管理员</h2>
-        <div class="md-setting-list">
-            <div class="md-setting-panel">
-                <div class="flex items-center gap-3 mb-2">
-                    <span class="md-setting-row__icon"><i class="fa fa-folder-open"></i></span>
-                    <span class="text-base font-semibold">漫画扫盘</span>
-                </div>
-                <p class="text-xs text-ink-400 mb-3">可添加自定义漫画目录，当前支持 PDF 和 CBZ。</p>
-
-                <form method="post" action="{{ url_for('add_scan_path') }}" class="flex flex-col gap-2 md:flex-row md:items-stretch" data-api-v1="scan-add">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input
-                        type="text"
-                        name="scan_path"
-                        placeholder="输入漫画目录路径，例如 /Volumes/NAS/Comics"
-                        class="md-input min-w-0 flex-1"
-                        required
-                    >
-                    <button type="submit" class="md-btn-primary action-press whitespace-nowrap md:flex-shrink-0">
-                        <i class="fa fa-plus" style="margin-right:0.35rem"></i>添加路径
-                    </button>
-                </form>
-                <form method="post" action="{{ url_for('rescan_comic_library') }}" data-api-v1="scan-rescan" class="mt-2">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="md-btn-ghost action-press whitespace-nowrap">
-                        <i class="fa fa-refresh" style="margin-right:0.35rem"></i>立即扫盘
-                    </button>
-                </form>
-                <p class="text-xs text-ink-400 mt-2">新增路径会持久保存；移除路径后，来源于该路径的漫画会在重新扫描后从应用中消失。</p>
-
-                <div class="text-sm font-semibold text-ink-200 mt-4 mb-2">已记录路径</div>
-                {% for scan_path in scan_paths %}
-                <div class="md-setting-scan">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-sm font-semibold break-all">{{ scan_path.path }}</span>
-                        {% if scan_path.is_default %}
-                        <span class="md-chip">默认目录</span>
-                        {% endif %}
-                        {% if scan_path.exists %}
-                        <span class="md-chip" style="border-color:rgba(45,212,168,0.35);color:var(--md-mint)">可访问</span>
-                        {% else %}
-                        <span class="md-chip" style="border-color:rgba(251,113,133,0.35);color:#fb7185">目录不存在</span>
-                        {% endif %}
-                    </div>
-                    <div class="flex flex-wrap items-center justify-between gap-3">
-                        <p class="text-xs text-ink-400">应用会把该目录下每个子目录视作一部漫画。</p>
-                        {% if not scan_path.is_default %}
-                        <form method="post" action="{{ url_for('delete_scan_path', scan_path_id=scan_path.id) }}" data-api-v1="scan-delete" data-scan-id="{{ scan_path.id }}" data-api-confirm="确定移除该扫盘路径吗？">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="rounded-lg border border-rose-400/30 bg-rose-500/10 text-rose-300 px-3 py-1.5 text-xs font-semibold action-press whitespace-nowrap">
-                                <i class="fa fa-trash" style="margin-right:0.25rem"></i>移除
-                            </button>
-                        </form>
-                        {% endif %}
-                    </div>
-                </div>
-                {% else %}
-                <div class="rounded-xl border border-dashed border-white/10 px-4 py-4 text-sm text-ink-400">
-                    当前仅使用默认漫画目录。
-                </div>
-                {% endfor %}
-            </div>
+            <a href="{{ url_for('webdav_settings') }}" class="md-setting-row" data-app-loader="true">
+                <span class="md-setting-row__icon"><i class="fa fa-cloud"></i></span>
+                <span class="md-setting-row__title">WebDAV 连接</span>
+                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+            </a>
+            <a href="{{ url_for('scan_settings') }}" class="md-setting-row" data-app-loader="true">
+                <span class="md-setting-row__icon"><i class="fa fa-folder-open"></i></span>
+                <span class="md-setting-row__title">本地扫盘</span>
+                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+            </a>
         </div>
     </section>
     {% endif %}
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
-{{ super() }}
-{% if current_user and current_user.is_admin %}
-<script>
-(() => {
-    const label = document.getElementById('webdav-sync-progress');
-    if (!label) return;
-    const button = document.querySelector('form[action="{{ url_for("sync_webdav") }}"] button');
-    async function poll() {
-        try {
-            const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
-            if (!response.ok) return;
-            const data = await response.json(), p = data.progress;
-            const active = ['pending', 'running'].includes(data.status);
-            if (button) button.disabled = active;
-            document.getElementById('webdav-sync-controls').hidden = !active;
-            const pause = document.getElementById('webdav-sync-pause');
-            pause.value = p._paused ? 'resume' : 'pause';
-            pause.textContent = p._paused ? '继续' : '暂停';
-            const m = data.metadata;
-            document.getElementById('webdav-metadata-progress').textContent = m.total ? `资料补全：已完成 ${m.completed} 部，未匹配 ${m.unmatched} 部，部分完成 ${m.partial} 部，失败 ${m.error} 部，处理中或排队 ${m.pending} 部` : '';
-            label.textContent = p._cancelled && active ? '正在取消，将在当前请求结束后停止，保留已索引的漫画' :
-                p._paused && active ? '同步已请求暂停，将在当前请求结束后暂停；已索引的漫画可以阅读' :
-                data.status === 'pending' ? '等待后台同步，可以离开此页' :
-                data.status === 'running' && p.total === undefined ? '正在读取云端书库目录，可以离开此页' :
-                data.status === 'running' ? `正在同步 ${p.done || 0}/${p.total || 0} 部，已索引 ${p.added || 0} 部，跳过 ${p.skipped || 0} 部，失败 ${p.failed || 0} 部${p.current ? ' · ' + p.current : ''}。可以离开此页` :
-                data.message || '';
-        } catch (_) {}
-        setTimeout(poll, 2000);
-    }
-    poll();
-})();
-</script>
-{% endif %}
 {% endblock %}

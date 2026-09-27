@@ -955,7 +955,7 @@
                 <a href="{{ mode_library_url }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">{{ mode_library_label }}</a>
                 <a href="{{ url_for(mode_history_endpoint) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_history_endpoint %} is-active{% endif %}">历史</a>
                 <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == 'statistics' %} is-active{% endif %}">统计</a>
-                <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">我的</a>
+                <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'webdav_settings', 'scan_settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">我的</a>
             </nav>
 
             {# 顶栏常驻搜索：结果页 /search，与书架分离 #}
@@ -1025,7 +1025,7 @@
         <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == 'statistics' %} is-active{% endif %}">
             <i class="fa fa-bar-chart"></i><span>统计</span>
         </a>
-        <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint in ['settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">
+        <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint in ['settings', 'webdav_settings', 'scan_settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">
             <i class="fa fa-user-o"></i><span>我的</span>
         </a>
     </nav>

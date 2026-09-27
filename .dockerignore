@@ -52,3 +52,6 @@ dockerhub-src/
 *.epub
 *.pdf
 *.cbz
+
+# Unselected local artwork is not part of the release build.
+docs/banner-candidates/

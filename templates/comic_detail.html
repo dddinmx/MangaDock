@@ -376,8 +376,15 @@
                 <div class="md-detail-synopsis">
                     <div class="md-detail-synopsis-label">简介</div>
                     <p class="md-detail-synopsis-text">{{ comic_description }}</p>
-                    {% if anilist_metadata.media_id and comic_description == anilist_metadata.description %}<a href="https://anilist.co/manga/{{ anilist_metadata.media_id }}" target="_blank" rel="noopener noreferrer" class="text-xs text-ink-400">简介来源：AniList ↗</a>{% endif %}
+                    {% if comic_description == anilist_metadata.description %}
+                    {% if anilist_metadata.description_url %}<a href="{{ anilist_metadata.description_url }}" target="_blank" rel="noopener noreferrer" class="text-xs text-ink-400">简介来源：{{ 'MangaUpdates' if anilist_metadata.description_provider == 'mangaupdates' else 'AniList' }} ↗</a>
+                    {% elif anilist_metadata.media_id %}<a href="https://anilist.co/manga/{{ anilist_metadata.media_id }}" target="_blank" rel="noopener noreferrer" class="text-xs text-ink-400">简介来源：AniList ↗</a>{% endif %}
+                    {% endif %}
                 </div>
+                {% endif %}
+
+                {% if anilist_metadata.cover_provider == 'mangaupdates' and anilist_metadata.cover_url %}
+                <p class="text-xs text-ink-400"><a href="{{ anilist_metadata.cover_url }}" target="_blank" rel="noopener noreferrer">封面来源：MangaUpdates ↗</a></p>
                 {% endif %}
 
                 {% if can_manage_library and is_current_comic_hidden|default(false) %}

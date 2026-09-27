@@ -95,6 +95,89 @@ class RemoteCbzTests(unittest.TestCase):
                 remote.read(1)
         self.assertFalse(os.path.isfile(os.path.join(self.path + '.webdav-ranges', '0')))
 
+    def test_transient_failure_retries_and_reuses_connection_session(self):
+        failed = Response(self.data, 0, BLOCK_BYTES - 1, status=503)
+        successful = Response(self.data, 0, BLOCK_BYTES - 1)
+        with patch.object(webdav, '_request', side_effect=[failed, successful]) as request, \
+             patch('mangadock.services.webdav_cbz.time.sleep'), self.reader() as remote:
+            self.assertEqual(remote.read(1), self.data[:1])
+            sessions = [call.kwargs['session'] for call in request.call_args_list]
+            self.assertIs(sessions[0], sessions[1])
+            self.assertTrue(failed.closed)
+            self.assertTrue(successful.closed)
+
+    def test_temporary_failure_keeps_previously_validated_blocks(self):
+        from mangadock.services.webdav_cbz import RemoteReadInterrupted
+        with patch.object(webdav, '_request', side_effect=self.request), self.reader() as remote:
+            remote.read(1)
+        with patch.object(webdav, '_request', side_effect=lambda *args, **kwargs: Response(self.data, BLOCK_BYTES, 2 * BLOCK_BYTES - 1, status=502)), \
+             patch('mangadock.services.webdav_cbz.time.sleep'), self.reader() as remote:
+            remote.seek(BLOCK_BYTES)
+            with self.assertRaises(RemoteReadInterrupted):
+                remote.read(1)
+        self.assertTrue(os.path.isfile(os.path.join(self.path + '.webdav-ranges', '0')))
+        self.assertFalse(os.path.isfile(os.path.join(self.path + '.webdav-ranges', '1')))
+        with patch.object(webdav, '_request', side_effect=AssertionError('cached block fetched again')), self.reader() as remote:
+            self.assertEqual(remote.read(1), self.data[:1])
+
+    def test_reader_temporary_failure_does_not_discard_chapter_cache(self):
+        from mangadock.core import app
+        from mangadock.blueprints.web import reader
+        from mangadock.services.webdav_cbz import RemoteReadInterrupted
+        resolved = {'file_path': self.path, 'comic_name': 'Book'}
+        with app.test_request_context('/?page=0'), \
+             patch.object(reader, 'resolve_comic_file_request', return_value=resolved), \
+             patch.object(reader, 'get_comic_group_map', return_value={}), \
+             patch.object(reader, 'get_current_user', return_value=None), \
+             patch.object(reader, 'can_user_access_group', return_value=True), \
+             patch('mangadock.services.webdav_cbz.read_remote_cbz', side_effect=RemoteReadInterrupted('interrupted')), \
+             patch.object(webdav, 'discard_cached_chapter') as discard:
+            response, status = reader.comic_pages.__wrapped__('Book/1.cbz')
+            self.assertEqual(status, 503)
+            discard.assert_not_called()
+
+    def test_parallel_pages_keep_eviction_locked_out(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from mangadock.core import app
+        release = threading.Event()
+        entered = [threading.Event(), threading.Event()]
+        with patch.object(app, 'instance_path', self.temp.name):
+            directory = os.path.join(webdav.cache_root(), 'Book')
+            os.makedirs(directory)
+            self.path = os.path.join(directory, '1.cbz')
+            source = webdav._source_id(self.config)
+            webdav._write_index(directory, [self.chapter], source)
+            with RemoteCbz(self.config, self.chapter, source, self.path):
+                pass
+            def read_page(index):
+                def callback(remote):
+                    entered[index].set()
+                    if not release.wait(4):
+                        raise AssertionError('parallel page reads did not enter together')
+                    remote.seek(index * BLOCK_BYTES)
+                    return remote.read(10)
+                return read_remote_cbz(self.path, callback)
+            with patch.object(webdav, '_read_config', return_value=self.config), \
+                 patch.object(webdav, '_request', side_effect=self.request), \
+                 patch.object(webdav, '_maybe_evict_cached_chapters'), ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(read_page, index) for index in range(2)]
+                try:
+                    self.assertTrue(all(event.wait(2) for event in entered))
+                    self.assertEqual(webdav.evict_cached_chapters(webdav.cache_root(), 1, None), [])
+                finally:
+                    release.set()
+                self.assertEqual([future.result() for future in futures], [self.data[:10], self.data[BLOCK_BYTES:BLOCK_BYTES + 10]])
+
+    def test_parallel_dimension_updates_are_merged(self):
+        with self.reader() as first, self.reader() as second:
+            first.dimensions['1.jpg'] = [100, 200]
+            first._touch()
+            second.dimensions['2.jpg'] = [300, 400]
+            second._touch()
+        with self.reader() as remote:
+            self.assertEqual(remote.dimensions, {'1.jpg': [100, 200], '2.jpg': [300, 400]})
+
     def test_real_http_range_requests_read_first_page_only(self):
         import threading
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -188,6 +271,20 @@ class RemoteCbzTests(unittest.TestCase):
                 remote.read(1)
             self.assertEqual(webdav.evict_cached_chapters(webdav.cache_root(), 1, None), [self.path])
             self.assertFalse(os.path.exists(self.path + '.webdav-ranges'))
+
+    def test_block_locks_are_evicted_with_cached_blocks(self):
+        from mangadock.core import app
+        with patch.object(app, 'instance_path', self.temp.name):
+            directory = os.path.join(webdav.cache_root(), 'Book')
+            os.makedirs(directory)
+            self.path = os.path.join(directory, '1.cbz')
+            webdav._write_index(directory, [self.chapter], 'source')
+            with patch.object(webdav, '_request', side_effect=self.request), self.reader() as remote:
+                remote.read(1)
+            lock_path = os.path.join(self.path + '.webdav-ranges', '0.lock')
+            self.assertTrue(os.path.isfile(lock_path))
+            self.assertEqual(webdav.evict_cached_chapters(webdav.cache_root(), 1, None), [self.path])
+            self.assertFalse(os.path.exists(lock_path))
 
     def test_wrong_source_never_requests_remote_file(self):
         with patch.object(webdav, 'is_cache_path', return_value=True), \

@@ -11,7 +11,7 @@ from PIL import Image
 from mangadock.core import app
 from mangadock.extensions import db
 from mangadock.models import BackgroundCommand, AniListComicLink, User
-from mangadock.services import library, updates, webdav, webdav_metadata as metadata
+from mangadock.services import library, updates, webdav, webdav_metadata as metadata, mangaupdates_metadata as secondary
 
 
 class WebDavMetadataTests(unittest.TestCase):
@@ -23,7 +23,8 @@ class WebDavMetadataTests(unittest.TestCase):
         self.patches = [patch.object(app, 'instance_path', self.root),
                         patch.object(webdav, '_read_config', side_effect=lambda: dict(self.config)),
                         patch.object(library, 'get_comic_scan_roots', return_value=[os.path.join(self.root, 'webdav_comics')]),
-                        patch.object(metadata, 'COVER_ROOT', os.path.join(self.root, 'covers'))]
+                        patch.object(metadata, 'COVER_ROOT', os.path.join(self.root, 'covers')),
+                        patch.object(secondary, 'search_metadata', return_value=[])]
         for mocked in self.patches:
             mocked.start()
             self.addCleanup(mocked.stop)
@@ -51,6 +52,8 @@ class WebDavMetadataTests(unittest.TestCase):
 
     def test_exact_match_rejects_ambiguous_or_fuzzy_names(self):
         self.assertEqual(metadata.exact_match('ＢＯＯＫ', [self.media])['id'], 123)
+        chinese = {**self.media, 'title': {'native': '进击的巨人'}}
+        self.assertEqual(metadata.exact_match('進擊的巨人', [chinese])['id'], 123)
         self.assertIsNone(metadata.exact_match('Book 2', [self.media]))
         self.assertIsNone(metadata.exact_match('Book', [self.media, {**self.media, 'id': 456}]))
 
@@ -139,17 +142,36 @@ class WebDavMetadataTests(unittest.TestCase):
         self.assertEqual(metadata.metadata_view('Book')['status'], 'partial')
         self.assertTrue(library.get_comic_description('Book'))
 
-    def test_finished_first_attempt_never_requeues_automatically_but_manual_retry_works(self):
+    def test_incomplete_legacy_results_requeue_with_new_provider(self):
         for status in ('completed', 'unmatched', 'error', 'partial'):
             with self.subTest(status=status):
                 self.clean_commands()
                 webdav._atomic_json(os.path.join(self.comic, metadata.METADATA_FILENAME),
-                    {'source': self.source, 'status': status, 'checked_at': time.time() - 30 * 86400})
+                    {'source': self.source, 'status': status, 'checked_at': time.time()})
+                self.assertIsNotNone(metadata.queue_metadata('Book'))
+
+    def test_retry_cooldown_and_manual_retry(self):
+        for status in ('unmatched', 'error', 'partial'):
+            with self.subTest(status=status):
+                self.clean_commands()
+                webdav._atomic_json(os.path.join(self.comic, metadata.METADATA_FILENAME),
+                    {'source': self.source, 'status': status, 'metadata_version': metadata.METADATA_VERSION,
+                     'checked_at': time.time()})
                 self.assertIsNone(metadata.queue_metadata('Book'))
-                metadata.queue_existing_metadata()
-                with app.app_context():
-                    self.assertEqual(BackgroundCommand.query.filter_by(command_type='webdav_metadata').count(), 0)
                 self.assertIsNotNone(metadata.queue_metadata('Book', force=True))
+        self.clean_commands()
+        webdav._atomic_json(os.path.join(self.comic, metadata.METADATA_FILENAME),
+            {'source': self.source, 'status': 'unmatched', 'metadata_version': metadata.METADATA_VERSION,
+             'checked_at': time.time() - 8 * 86400})
+        self.assertIsNotNone(metadata.queue_metadata('Book'))
+
+    def test_completed_metadata_requeues_after_cover_is_removed(self):
+        with patch.object(metadata, 'search_metadata', return_value=[self.media]), \
+             patch.object(metadata, 'safe_http_get', return_value=self.image_response()):
+            metadata.enrich_metadata(self.payload)
+        self.assertIsNone(metadata.queue_metadata('Book'))
+        os.remove(os.path.join(metadata.COVER_ROOT, 'Book.jpg'))
+        self.assertIsNotNone(metadata.queue_metadata('Book'))
 
     def test_reselecting_a_queued_choice_updates_selection(self):
         first = metadata.queue_metadata('Book', media_id=123, force=True)
@@ -187,7 +209,7 @@ class WebDavMetadataTests(unittest.TestCase):
                 session['user_id'] = admin_id
             response = client.get('/anilist/match/Book?metadata=1')
             self.assertEqual(response.status_code, 200)
-            self.assertIn('使用此作品的封面与简介'.encode(), response.data)
+            self.assertIn('使用这部作品的资料'.encode(), response.data)
             response = client.post('/anilist/metadata/Book', data={'media_id': '123'})
             self.assertEqual(response.status_code, 302)
         self.assertEqual(metadata.metadata_view('Book')['selected_id'], 123)
@@ -217,6 +239,144 @@ class WebDavMetadataTests(unittest.TestCase):
                 metadata._graphql('query', {})
         stamp = Path(self.root, 'anilist-metadata-rate.json')
         self.assertGreater(json.loads(stamp.read_text()), time.time() + 60)
+
+    def secondary_media(self):
+        return {**self.media, 'id': 456, 'provider': 'mangaupdates',
+                'description': 'Secondary synopsis', 'coverImage': {'large': 'https://cdn.mangaupdates.com/cover.jpg'},
+                'url': 'https://www.mangaupdates.com/series/example/book'}
+
+    def test_no_anilist_match_falls_back_to_secondary_without_progress_link(self):
+        with app.app_context():
+            before = AniListComicLink.query.count()
+        with patch.object(metadata, 'search_metadata', return_value=[]), \
+             patch.object(secondary, 'search_metadata', return_value=[self.secondary_media()]), \
+             patch.object(metadata, 'safe_http_get', return_value=self.image_response()):
+            metadata.enrich_metadata(self.payload)
+        value = metadata.metadata_view('Book')
+        self.assertEqual(value['status'], 'completed')
+        self.assertEqual(value['mangaupdates_id'], 456)
+        self.assertNotIn('media_id', value)
+        self.assertEqual(value['description_provider'], 'mangaupdates')
+        self.assertEqual(value['cover_provider'], 'mangaupdates')
+        with app.app_context():
+            self.assertEqual(AniListComicLink.query.count(), before)
+
+    def test_secondary_fills_missing_cover_without_replacing_anilist_description(self):
+        media = {**self.media, 'coverImage': {}}
+        with patch.object(metadata, 'search_metadata', return_value=[media]), \
+             patch.object(secondary, 'search_metadata', return_value=[self.secondary_media()]), \
+             patch.object(metadata, 'safe_http_get', return_value=self.image_response()):
+            metadata.enrich_metadata(self.payload)
+        value = metadata.metadata_view('Book')
+        self.assertEqual(value['description_provider'], 'anilist')
+        self.assertEqual(value['cover_provider'], 'mangaupdates')
+        self.assertEqual(value['status'], 'completed')
+
+    def test_secondary_fills_missing_description_without_replacing_anilist_cover(self):
+        media = {**self.media, 'description': ''}
+        with patch.object(metadata, 'search_metadata', return_value=[media]), \
+             patch.object(secondary, 'search_metadata', return_value=[self.secondary_media()]), \
+             patch.object(metadata, 'safe_http_get', return_value=self.image_response()) as download:
+            metadata.enrich_metadata(self.payload)
+        self.assertEqual(download.call_count, 1)
+        value = metadata.metadata_view('Book')
+        self.assertEqual(value['description_provider'], 'mangaupdates')
+        self.assertEqual(value['cover_provider'], 'anilist')
+
+    def test_invalid_primary_image_uses_secondary_cover(self):
+        from unittest.mock import Mock
+        with patch.object(metadata, 'search_metadata', return_value=[self.media]), \
+             patch.object(secondary, 'search_metadata', return_value=[self.secondary_media()]), \
+             patch.object(metadata, 'safe_http_get', side_effect=[Mock(content=b'bad image'), self.image_response()]):
+            metadata.enrich_metadata(self.payload)
+        self.assertEqual(metadata.metadata_view('Book')['cover_provider'], 'mangaupdates')
+
+    def test_primary_query_failure_can_still_complete_from_secondary(self):
+        with patch.object(metadata, 'search_metadata', side_effect=OSError('upstream')), \
+             patch.object(secondary, 'search_metadata', return_value=[self.secondary_media()]), \
+             patch.object(metadata, 'safe_http_get', return_value=self.image_response()):
+            metadata.enrich_metadata(self.payload)
+        self.assertEqual(metadata.metadata_view('Book')['status'], 'completed')
+
+    def test_manual_secondary_selection_uses_secondary_id_only(self):
+        command_id = metadata.queue_metadata('Book', media_id=456, provider='mangaupdates', force=True)
+        with patch.object(secondary, 'get_metadata', return_value=self.secondary_media()) as fetch, \
+             patch.object(metadata, '_graphql', side_effect=AssertionError('AniList called for secondary ID')), \
+             patch.object(metadata, 'safe_http_get', return_value=self.image_response()):
+            self.assertTrue(updates.execute_background_command(command_id))
+        fetch.assert_called_once_with(456)
+        value = metadata.metadata_view('Book')
+        self.assertEqual(value['mangaupdates_id'], 456)
+        self.assertNotIn('media_id', value)
+
+    def test_secondary_manual_search_and_choice_route(self):
+        with app.app_context():
+            admin_id = User.query.filter_by(username='admin').first().id
+        with app.test_client() as client, patch.dict(app.config, {'WTF_CSRF_ENABLED': False}), \
+             patch('mangadock.blueprints.web.anilist.user_can_access_progress_key', return_value=True), \
+             patch('mangadock.blueprints.web.anilist.list_local_chapters', return_value=[]), \
+             patch.object(secondary, 'search_metadata', return_value=[self.secondary_media()]):
+            with client.session_transaction() as session:
+                session['user_id'] = admin_id
+            response = client.get('/anilist/match/Book?metadata=1&provider=mangaupdates')
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b'name="provider" value="mangaupdates"', response.data)
+            self.assertIn(b'Secondary synopsis', response.data)
+            self.assertIn('https://cdn.mangaupdates.com', response.headers['Content-Security-Policy'])
+            response = client.post('/anilist/metadata/Book', data={'media_id': '456', 'provider': 'mangaupdates'})
+            self.assertEqual(response.status_code, 302)
+        self.assertEqual(metadata.metadata_view('Book')['selected_provider'], 'mangaupdates')
+
+    def test_existing_local_library_with_missing_fields_is_queued(self):
+        local_root = os.path.join(self.root, 'local')
+        local = os.path.join(local_root, 'Book')
+        os.makedirs(local)
+        with patch.object(library, 'get_comic_scan_roots', return_value=[local_root]), \
+             patch.object(library, 'get_comic_directory', return_value=local), \
+             patch.object(metadata, 'queue_metadata') as queue:
+            metadata.queue_existing_metadata()
+            queue.assert_called_once_with('Book')
+
+    def test_reselected_work_does_not_keep_old_generated_description(self):
+        webdav._atomic_json(os.path.join(self.comic, metadata.METADATA_FILENAME),
+            {'source': self.source, 'media_id': 123, 'description': 'Old work synopsis', 'provider': 'anilist'})
+        payload = {**self.payload, 'media_id': 456, 'provider': 'mangaupdates'}
+        metadata.queue_metadata('Book', media_id=456, provider='mangaupdates', force=True)
+        with patch.object(secondary, 'get_metadata', return_value={**self.secondary_media(), 'description': ''}), \
+             patch.object(metadata, 'safe_http_get', return_value=self.image_response()):
+            metadata.enrich_metadata(payload)
+        value = metadata.metadata_view('Book')
+        self.assertFalse(value.get('description'))
+        self.assertEqual(value['status'], 'partial')
+
+    def test_same_numeric_id_in_other_provider_makes_old_task_stale(self):
+        command_id = metadata.queue_metadata('Book', media_id=123, force=True)
+        metadata.queue_metadata('Book', media_id=123, provider='mangaupdates', force=True)
+        with patch.object(metadata, '_graphql', side_effect=AssertionError('stale request')):
+            self.assertTrue(updates.execute_background_command(command_id))
+        self.assertEqual(metadata.metadata_view('Book')['selected_provider'], 'mangaupdates')
+
+    def test_settings_pages_keep_forms_on_admin_subpages(self):
+        from types import SimpleNamespace
+        with app.app_context():
+            admin_id = User.query.filter_by(username='admin').first().id
+        with app.test_client() as client:
+            with client.session_transaction() as session:
+                session['user_id'] = admin_id
+            response = client.get('/settings')
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn(b'name="scan_path"', response.data)
+            self.assertNotIn(b'name="cache_gb"', response.data)
+            self.assertIn(b'/settings/webdav', response.data)
+            self.assertIn(b'/settings/scan_paths', response.data)
+            self.assertIn(b'name="cache_gb"', client.get('/settings/webdav').data)
+            self.assertIn(b'name="scan_path"', client.get('/settings/scan_paths').data)
+            user = SimpleNamespace(id=admin_id, role='user', is_admin=False)
+            with patch('mangadock.auth.db.session.get', return_value=user):
+                for route in ('/settings/webdav', '/settings/scan_paths'):
+                    response = client.get(route)
+                    self.assertEqual(response.status_code, 302)
+                    self.assertIn('/comics', response.location)
 
     def test_cleanup_keeps_user_replaced_cover(self):
         with patch.object(metadata, 'search_metadata', return_value=[self.media]), \

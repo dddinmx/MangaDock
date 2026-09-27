@@ -363,20 +363,20 @@ def run_task_worker(worker_index):
 
 
 def run_webdav_metadata_worker():
-    try:
-        from mangadock.services.webdav_metadata import queue_existing_metadata
-        with app.app_context():
-            queue_existing_metadata()
-    except Exception as exc:
-        app.logger.warning('WebDAV 已有漫画资料补全排队失败：%s', exc)
+    from mangadock.services.webdav_metadata import queue_existing_metadata
+    next_refresh = 0
     while True:
         try:
+            if time.monotonic() >= next_refresh:
+                next_refresh = time.monotonic() + 3600
+                with app.app_context():
+                    queue_existing_metadata()
             command_id = claim_next_background_command('webdav_metadata')
             if command_id:
                 execute_background_command(command_id)
                 continue
         except Exception as exc:
-            app.logger.warning('WebDAV 资料任务失败：%s', exc)
+            app.logger.warning('漫画资料任务失败：%s', exc)
         time.sleep(WORKER_POLL_INTERVAL_SECONDS)
 
 

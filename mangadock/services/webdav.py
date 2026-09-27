@@ -744,19 +744,19 @@ def _save_cover(config, comic_name, cover):
         normalize_cover_bytes(content, destination)
 
 
-def _request(config, method, url, data=None, headers=None, stream=False):
+def _request(config, method, url, data=None, headers=None, stream=False, session=None, timeout=(15, 300)):
     _assert_same_origin(config['url'], url)
     request_headers = {'User-Agent': 'MangaDock'}
     if headers:
         request_headers.update(headers)
     try:
-        return requests.request(
+        return (session.request if session is not None else requests.request)(
             method,
             url,
             data=data,
             headers=request_headers,
             auth=(config.get('username') or '', config.get('password') or ''),
-            timeout=(15, 300),
+            timeout=timeout,
             stream=stream,
             allow_redirects=False,
         )
@@ -1044,6 +1044,16 @@ def _chapter_file_lock(destination):
         if not acquired:
             raise WebDavError('章节缓存正忙')
         yield
+
+
+@contextmanager
+def chapter_range_read_lock(destination):
+    """Allow parallel range readers while keeping cache mutation/eviction exclusive."""
+    with _open_lock_file(os.path.dirname(destination)) as directory_handle:
+        fcntl.flock(directory_handle.fileno(), fcntl.LOCK_SH)
+        with _open_lock_file(destination) as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+            yield
 
 
 @contextmanager

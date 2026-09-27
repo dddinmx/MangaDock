@@ -924,7 +924,6 @@
         let continuousSections = [];
         let continuousLoadPending = false;
         let continuousLoadFailed = false;
-        let cbzPageObserver = null;
         let readerDesktopViewport = isDesktopViewport();
         const chapterCache = new Map();
         const MAX_CHAPTER_CACHE_SIZE = 2;
@@ -1469,7 +1468,10 @@
 
             const chapterLoadToken = ++activeChapterLoadToken;
             currentChapterReady = false;
-            if (cbzPageObserver) cbzPageObserver.disconnect();
+            cbzImageQueue.clear();
+            for (const container of document.querySelectorAll('.cbz-page[data-loading="true"]')) {
+                container.cancelImageLoad?.();
+            }
             continuousSections = [];
             continuousLoadPending = false;
             continuousLoadFailed = false;
@@ -1520,7 +1522,7 @@
                     queueProgressUiSync();
                 }
                 if (chapter.format === 'cbz') {
-                    for (const container of target.querySelectorAll('.cbz-page')) observeCbzPage(container);
+                    queueCbzChapterImages(target);
                 }
 
                 if (isAutoScrolling) {
@@ -1575,17 +1577,44 @@
             });
         }
 
-        function observeCbzPage(container) {
-            if (!cbzPageObserver) {
-                cbzPageObserver = new IntersectionObserver((entries) => {
-                    const distance = (entry) => Math.max(entry.boundingClientRect.top - window.innerHeight, -entry.boundingClientRect.bottom, 0);
-                    for (const entry of entries.filter(item => item.isIntersecting).sort((a, b) => distance(a) - distance(b))) {
-                        cbzPageObserver.unobserve(entry.target);
-                        entry.target.loadImage();
-                    }
-                }, { rootMargin: '2000px 0px' });
+        const cbzImageQueue = new Set();
+        let cbzImagesLoading = 0;
+
+        function drainCbzImageQueue() {
+            for (const page of cbzImageQueue) {
+                if (!page.isConnected || page.dataset.loading === 'loaded') cbzImageQueue.delete(page);
             }
-            cbzPageObserver.observe(container);
+            if (document.hidden) return;
+            const distance = (page) => {
+                const rect = page.getBoundingClientRect();
+                return Math.max(rect.top - window.innerHeight, -rect.bottom, 0);
+            };
+            while (cbzImagesLoading < 4 && cbzImageQueue.size) {
+                const page = Array.from(cbzImageQueue).sort((a, b) => distance(a) - distance(b))[0];
+                cbzImageQueue.delete(page);
+                cbzImagesLoading++;
+                Promise.resolve(page.loadImage()).finally(() => {
+                    cbzImagesLoading--;
+                    drainCbzImageQueue();
+                });
+            }
+        }
+
+        function queueCbzImage(container) {
+            if (!container.isConnected || ['true', 'loaded'].includes(container.dataset.loading)) return;
+            cbzImageQueue.add(container);
+            drainCbzImageQueue();
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) drainCbzImageQueue();
+        });
+
+        function queueCbzChapterImages(target) {
+            for (const container of target.querySelectorAll('.cbz-page')) {
+                if (!['true', 'loaded'].includes(container.dataset.loading)) cbzImageQueue.add(container);
+            }
+            drainCbzImageQueue();
         }
 
         function buildCbzPageContainer(cacheEntry, pageIndex, pageCount, chapterLoadToken, target) {
@@ -1605,62 +1634,88 @@
             container.appendChild(img);
             const url = `${cacheEntry.pagesUrl}?page=${pageIndex}`;
             let attempts = 0;
+            container.retryIfInterrupted = () => {
+                if (container.dataset.loading === 'true' && img.complete && !img.naturalWidth) img.onerror?.();
+            };
             container.loadImage = async () => {
-                if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
+                if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected || ['true', 'loaded'].includes(container.dataset.loading)) return;
                 await waitForReaderVisible();
                 if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
                 attempts++;
                 container.dataset.loading = 'true';
-                img.onload = () => {
-                    container.dataset.loading = 'loaded';
-                    const anchor = Array.from(document.querySelectorAll('.cbz-page')).find(page => {
-                        const rect = page.getBoundingClientRect();
-                        return rect.bottom > 0 && rect.top < window.innerHeight;
-                    });
-                    const anchorTop = anchor?.getBoundingClientRect().top;
-                    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-                        cacheEntry.dimensions[pageIndex] = [img.naturalWidth, img.naturalHeight];
-                        img.width = img.naturalWidth;
-                        img.height = img.naturalHeight;
-                        container.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
-                    }
-                    if (anchor && anchor !== container && !isDraggingProgressSlider) {
-                        const shift = anchor.getBoundingClientRect().top - anchorTop;
-                        if (Math.abs(shift) > 0.5) window.scrollBy(0, shift);
-                    }
-                    img.style.visibility = 'visible';
-                    container.style.background = 'transparent';
-                    if (pageIndex === pageCount - 1) {
-                        const section = continuousSections.find(item => item.element === target);
-                        if (section) {
-                            section.loadedLastPage = true;
-                            completePassedChapter(section);
+                await new Promise((resolve) => {
+                    let settled = false;
+                    const timeout = window.setTimeout(() => {
+                        img.onerror?.();
+                        img.removeAttribute('src');
+                    }, 45000);
+                    const finish = () => {
+                        if (settled) return false;
+                        settled = true;
+                        window.clearTimeout(timeout);
+                        img.onload = img.onerror = null;
+                        resolve();
+                        return true;
+                    };
+                    container.cancelImageLoad = () => {
+                        if (!finish()) return;
+                        container.dataset.loading = 'error';
+                        img.removeAttribute('src');
+                    };
+                    img.onload = () => {
+                        if (!finish()) return;
+                        if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
+                        container.dataset.loading = 'loaded';
+                        const anchor = Array.from(document.querySelectorAll('.cbz-page')).find(page => {
+                            const rect = page.getBoundingClientRect();
+                            return rect.bottom > 0 && rect.top < window.innerHeight;
+                        });
+                        const anchorTop = anchor?.getBoundingClientRect().top;
+                        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                            cacheEntry.dimensions[pageIndex] = [img.naturalWidth, img.naturalHeight];
+                            img.width = img.naturalWidth;
+                            img.height = img.naturalHeight;
+                            container.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
                         }
-                        if (target === pageContent || section?.index === currentChapter) {
-                            currentChapterReady = true;
-                            queueProgressUiSync();
+                        if (anchor && anchor !== container && !isDraggingProgressSlider) {
+                            const shift = anchor.getBoundingClientRect().top - anchorTop;
+                            if (Math.abs(shift) > 0.5) window.scrollBy(0, shift);
                         }
-                    }
-                };
-                img.onerror = () => {
-                    container.dataset.loading = 'error';
-                    if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
-                    if (attempts < 3) {
-                        window.setTimeout(container.loadImage, 600);
-                        return;
-                    }
-                    const retry = document.createElement('button');
-                    retry.type = 'button';
-                    retry.className = 'cbz-page-retry';
-                    retry.textContent = `第 ${pageIndex + 1} 页加载失败，点击重试`;
-                    retry.addEventListener('click', () => {
-                        retry.remove();
-                        attempts = 0;
-                        container.loadImage();
-                    });
-                    container.appendChild(retry);
-                };
-                img.src = `${url}${attempts > 1 ? `&retry=${Date.now()}` : ''}`;
+                        img.style.visibility = 'visible';
+                        container.style.background = 'transparent';
+                        if (pageIndex === pageCount - 1) {
+                            const section = continuousSections.find(item => item.element === target);
+                            if (section) {
+                                section.loadedLastPage = true;
+                                completePassedChapter(section);
+                            }
+                            if (target === pageContent || section?.index === currentChapter) {
+                                currentChapterReady = true;
+                                queueProgressUiSync();
+                            }
+                        }
+                    };
+                    img.onerror = () => {
+                        if (!finish()) return;
+                        container.dataset.loading = 'error';
+                        if (chapterLoadToken !== activeChapterLoadToken || !container.isConnected) return;
+                        if (attempts < 3) {
+                            window.setTimeout(() => queueCbzImage(container), 600 * attempts);
+                            return;
+                        }
+                        const retry = document.createElement('button');
+                        retry.type = 'button';
+                        retry.className = 'cbz-page-retry';
+                        retry.textContent = `第 ${pageIndex + 1} 页加载失败，点击重试`;
+                        retry.addEventListener('click', () => {
+                            retry.remove();
+                            attempts = 0;
+                            queueCbzImage(container);
+                        });
+                        container.appendChild(retry);
+                    };
+                    img.src = `${url}${attempts > 1 ? `&retry=${Date.now()}` : ''}`;
+                });
             };
             return container;
         }
@@ -1753,14 +1808,13 @@
             }
 
             const fragment = document.createDocumentFragment();
-            const containers = imageFiles.map((pageIndex) => {
+            imageFiles.forEach((pageIndex) => {
                 const container = buildCbzPageContainer(cacheEntry, pageIndex, imageFiles.length, chapterLoadToken, target);
                 fragment.appendChild(container);
-                return container;
             });
             target.appendChild(fragment);
             if (background) {
-                for (const container of containers) observeCbzPage(container);
+                queueCbzChapterImages(target);
             }
             if (!background) hideLoading();
             queueProgressUiSync();
@@ -2184,7 +2238,7 @@
                 startReadingTimer();
                 window.setTimeout(() => {
                     for (const container of document.querySelectorAll('.cbz-page[data-loading="true"]')) {
-                        container.loadImage();
+                        container.retryIfInterrupted?.();
                     }
                 }, 800);
             }

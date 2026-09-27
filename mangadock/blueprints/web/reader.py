@@ -480,7 +480,7 @@ def comic_pages(filename):
         return jsonify({'error': '当前账号未被授权访问该分组漫画'}), 403
 
     from mangadock.services.webdav import chapter_access, WebDavError
-    from mangadock.services.webdav_cbz import read_remote_cbz
+    from mangadock.services.webdav_cbz import read_remote_cbz, RemoteReadInterrupted
     try:
         remote_result = read_remote_cbz(resolved_file['file_path'], _read_cbz_page)
         if remote_result is not None:
@@ -492,6 +492,8 @@ def comic_pages(filename):
                 images, dimensions, image_name, image_data = _read_cbz_page(file_path)
     except LookupError:
         return jsonify({'error': '页面不存在'}), 404
+    except RemoteReadInterrupted:
+        return jsonify({'error': '网盘连接暂时中断，请重试'}), 503
     except (OSError, zipfile.BadZipFile, RuntimeError, WebDavError):
         from mangadock.services.webdav import discard_cached_chapter
         discard_cached_chapter(resolved_file['file_path'])

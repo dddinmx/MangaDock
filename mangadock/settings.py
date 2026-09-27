@@ -107,6 +107,7 @@ MANHUAGUI_IMAGE_REFERER_FALLBACK = 'https://www.manhuagui.com/'
 SAFE_HTTP_ALLOWED_HOST_SUFFIXES = (
     # Horizontal artwork metadata/image endpoints used by homepage banner lookup.
     'anilist.co',
+    'mangaupdates.com',
     'kitsu.io',
     'webtoons.com',
     'webtoon-phinf.pstatic.net',

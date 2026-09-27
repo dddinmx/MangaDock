@@ -40,15 +40,26 @@ from mangadock.settings import COMIC_ROOT, china_tz
 @login_required
 def settings():
     current_user = get_current_user()
-    scan_paths = get_scan_path_entries() if current_user and current_user.is_admin else []
     return render_template(
         'settings.html',
         current_user=current_user,
-        scan_paths=scan_paths,
         adult_content_enabled=is_adult_content_enabled(),
         anilist_account=db.session.get(AniListAccount, current_user.id),
-        webdav=webdav_settings_view() if current_user and current_user.is_admin else None,
     )
+
+
+@app.route('/settings/webdav', methods=['GET'])
+@login_required
+@admin_required
+def webdav_settings():
+    return render_template('settings_webdav.html', webdav=webdav_settings_view())
+
+
+@app.route('/settings/scan_paths', methods=['GET'])
+@login_required
+@admin_required
+def scan_settings():
+    return render_template('settings_scan.html', scan_paths=get_scan_path_entries())
 
 
 @app.route('/settings/webdav', methods=['POST'])
@@ -66,9 +77,9 @@ def save_webdav():
         )
     except WebDavError as exc:
         flash(str(exc))
-        return redirect(url_for('settings'))
+        return redirect(url_for('webdav_settings'))
     flash('WebDAV 已保存，并确认根目录可以读取')
-    return redirect(url_for('settings'))
+    return redirect(url_for('webdav_settings'))
 
 
 @app.route('/settings/webdav/sync', methods=['POST'])
@@ -80,7 +91,7 @@ def sync_webdav():
         flash('WebDAV 同步已加入后台队列，可以离开此页')
     except WebDavError as exc:
         flash(str(exc))
-    return redirect(url_for('settings'))
+    return redirect(url_for('webdav_settings'))
 
 
 @app.route('/settings/webdav/progress')
@@ -113,7 +124,7 @@ def control_webdav_sync():
     command = BackgroundCommand.query.filter_by(command_type='sync_webdav').order_by(BackgroundCommand.id.desc()).first()
     if command:
         update_webdav_sync_state(command.id, action=action)
-    return redirect(url_for('settings'))
+    return redirect(url_for('webdav_settings'))
 
 
 @app.route('/settings/webdav/disconnect', methods=['POST'])
@@ -124,7 +135,7 @@ def disconnect_webdav_route():
     invalidate_comics_cache()
     refresh_comics_cache(force=True)
     flash('已断开 WebDAV。已缓存的章节还在，云端文件未改动')
-    return redirect(url_for('settings'))
+    return redirect(url_for('webdav_settings'))
 
 
 @app.route('/settings/adult-content', methods=['POST'])
@@ -148,16 +159,16 @@ def add_scan_path():
 
     if not scan_path:
         flash('请输入有效的漫画目录路径')
-        return redirect(url_for('settings'))
+        return redirect(url_for('scan_settings'))
 
     if not os.path.isdir(scan_path):
         flash('目录不存在，无法加入扫盘路径')
-        return redirect(url_for('settings'))
+        return redirect(url_for('scan_settings'))
 
     default_root = normalize_scan_path(COMIC_ROOT)
     if scan_path == default_root:
         flash('该路径已经是系统默认漫画目录')
-        return redirect(url_for('settings'))
+        return redirect(url_for('scan_settings'))
 
     existing_scan_path = ComicScanPath.query.filter_by(path=scan_path).first()
     if existing_scan_path:
@@ -167,14 +178,14 @@ def add_scan_path():
         invalidate_comics_cache()
         refresh_comics_cache(force=True)
         flash('扫盘路径已存在，已重新启用并刷新漫画库')
-        return redirect(url_for('settings'))
+        return redirect(url_for('scan_settings'))
 
     db.session.add(ComicScanPath(path=scan_path, enabled=True))
     db.session.commit()
     invalidate_comics_cache()
     refresh_comics_cache(force=True)
     flash(f'已加入扫盘路径：{scan_path}')
-    return redirect(url_for('settings'))
+    return redirect(url_for('scan_settings'))
 
 
 @app.route('/settings/scan_paths/<int:scan_path_id>/delete', methods=['POST'])
@@ -184,7 +195,7 @@ def delete_scan_path(scan_path_id):
     scan_path = db.session.get(ComicScanPath, scan_path_id)
     if not scan_path:
         flash('扫盘路径不存在')
-        return redirect(url_for('settings'))
+        return redirect(url_for('scan_settings'))
 
     removed_path = scan_path.path
     db.session.delete(scan_path)
@@ -192,7 +203,7 @@ def delete_scan_path(scan_path_id):
     invalidate_comics_cache()
     refresh_comics_cache(force=True)
     flash(f'已移除扫盘路径：{removed_path}')
-    return redirect(url_for('settings'))
+    return redirect(url_for('scan_settings'))
 
 
 @app.route('/settings/scan_paths/rescan', methods=['POST'])
@@ -202,4 +213,4 @@ def rescan_comic_library():
     invalidate_comics_cache()
     refreshed_comics = refresh_comics_cache(force=True) or []
     flash(f'扫盘完成，当前共发现 {len(refreshed_comics)} 本漫画')
-    return redirect(url_for('settings'))
+    return redirect(url_for('scan_settings'))
