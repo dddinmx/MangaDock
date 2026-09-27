@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """只读 WebDAV 书库。
 
-同步时只保存漫画和章节索引，以及小封面。打开章节时才把 CBZ/PDF
-下载到本地缓存，阅读器、分组、进度和 AniList 继续走原有逻辑。
+同步时只保存漫画和章节索引，以及小封面。网页 CBZ 阅读支持按需分段
+缓存；PDF 和完整文件下载沿用整章缓存，分组、进度和 AniList 走原有逻辑。
 """
 import base64
 import fcntl
@@ -463,7 +463,7 @@ def _maybe_evict_cached_chapters(config, protect_path):
 
 
 def _chapter_derivatives(path):
-    paths = []
+    paths = [path + '.webdav-ranges'] if path.lower().endswith('.cbz') else []
     if path.lower().endswith('.pdf'):
         repaired_root = os.path.join(os.path.dirname(path), '.repaired')
         filename = os.path.basename(path)
@@ -1112,7 +1112,7 @@ def _chapter_lock(destination, blocking):
 
 def _chapter_last_used(path):
     try:
-        with open(path + CACHE_META_SUFFIX, encoding='utf-8') as handle:
+        with open(path + CACHE_META_SUFFIX if os.path.isfile(path + CACHE_META_SUFFIX) else os.path.join(path + '.webdav-ranges', 'meta.json'), encoding='utf-8') as handle:
             meta = json.load(handle)
         if isinstance(meta, dict) and meta.get('last_used'):
             return int(meta['last_used'])

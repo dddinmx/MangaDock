@@ -4,6 +4,7 @@ import os
 import mimetypes
 import re
 import zipfile
+import io
 from functools import lru_cache
 
 from PIL import Image
@@ -443,14 +444,19 @@ def serve_comic_file(filename):
     return chapter_file_response(handle, os.path.basename(file_path), mimetypes.guess_type(file_path)[0] or 'application/octet-stream')
 
 
+def _cbz_images(archive):
+    images = [name for name in archive.namelist()
+              if not name.endswith('/') and not any(part.startswith('._') or part == '__MACOSX' for part in name.split('/'))
+              and re.search(r'\.(jpg|jpeg|png|gif|webp)$', name, re.I)]
+    images.sort(key=lambda name: [(1, int(part)) if part.isdigit() else (0, part.casefold())
+                                  for part in re.split(r'(\d+)', name)])
+    return images
+
+
 @lru_cache(maxsize=64)
 def cbz_page_manifest(file_path, source_version):
     with zipfile.ZipFile(file_path) as archive:
-        images = [name for name in archive.namelist()
-                  if not name.endswith('/') and not any(part.startswith('._') or part == '__MACOSX' for part in name.split('/'))
-                  and re.search(r'\.(jpg|jpeg|png|gif|webp)$', name, re.I)]
-        images.sort(key=lambda name: [(1, int(part)) if part.isdigit() else (0, part.casefold())
-                                      for part in re.split(r'(\d+)', name)])
+        images = _cbz_images(archive)
         dimensions = []
         for name in images:
             try:
@@ -473,15 +479,20 @@ def comic_pages(filename):
     if not can_user_access_group(current_group, get_current_user()):
         return jsonify({'error': '当前账号未被授权访问该分组漫画'}), 403
 
-    from mangadock.services.webdav import chapter_access
+    from mangadock.services.webdav import chapter_access, WebDavError
+    from mangadock.services.webdav_cbz import read_remote_cbz
     try:
-        with chapter_access(resolved_file['file_path']) as file_path:
-            if not file_path:
-                return jsonify({'error': '章节不存在'}), 404
-            images, dimensions, image_name, image_data = _read_cbz_page(file_path)
+        remote_result = read_remote_cbz(resolved_file['file_path'], _read_cbz_page)
+        if remote_result is not None:
+            images, dimensions, image_name, image_data = remote_result
+        else:
+            with chapter_access(resolved_file['file_path']) as file_path:
+                if not file_path:
+                    return jsonify({'error': '章节不存在'}), 404
+                images, dimensions, image_name, image_data = _read_cbz_page(file_path)
     except LookupError:
         return jsonify({'error': '页面不存在'}), 404
-    except (OSError, zipfile.BadZipFile, RuntimeError):
+    except (OSError, zipfile.BadZipFile, RuntimeError, WebDavError):
         from mangadock.services.webdav import discard_cached_chapter
         discard_cached_chapter(resolved_file['file_path'])
         return jsonify({'error': '章节读取失败'}), 500
@@ -494,6 +505,25 @@ def comic_pages(filename):
 
 
 def _read_cbz_page(file_path):
+    if hasattr(file_path, 'read'):
+        with zipfile.ZipFile(file_path) as archive:
+            images = _cbz_images(archive)
+            page = request.args.get('page')
+            if page is None:
+                return images, [file_path.dimensions.get(name, (0, 0)) for name in images], None, None
+            if not page.isdecimal() or int(page) >= len(images):
+                raise LookupError('页面不存在')
+            image_name = images[int(page)]
+            if archive.getinfo(image_name).file_size > 64 * 1024 * 1024:
+                raise RuntimeError('单页图片超过 64MB')
+            image_data = archive.read(image_name)
+            try:
+                with Image.open(io.BytesIO(image_data)) as image:
+                    file_path.dimensions[image_name] = list(image.size)
+                file_path._touch()
+            except (OSError, ValueError):
+                pass
+            return images, [], image_name, image_data
     images, dimensions = cbz_page_manifest(file_path, api_page_source_version(file_path))
     page = request.args.get('page')
     if page is None:

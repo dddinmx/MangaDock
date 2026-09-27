@@ -1593,6 +1593,7 @@
             const width = Number(rawWidth) > 0 ? Number(rawWidth) : 720;
             const height = Number(rawHeight) > 0 ? Number(rawHeight) : 1000;
             const container = document.createElement('div');
+            container.style.overflowAnchor = 'none';
             container.className = `page-container cbz-page margin-${currentMargin}`;
             container.style.aspectRatio = `${width} / ${height}`;
             const img = document.createElement('img');
@@ -1612,6 +1613,21 @@
                 container.dataset.loading = 'true';
                 img.onload = () => {
                     container.dataset.loading = 'loaded';
+                    const anchor = Array.from(document.querySelectorAll('.cbz-page')).find(page => {
+                        const rect = page.getBoundingClientRect();
+                        return rect.bottom > 0 && rect.top < window.innerHeight;
+                    });
+                    const anchorTop = anchor?.getBoundingClientRect().top;
+                    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                        cacheEntry.dimensions[pageIndex] = [img.naturalWidth, img.naturalHeight];
+                        img.width = img.naturalWidth;
+                        img.height = img.naturalHeight;
+                        container.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+                    }
+                    if (anchor && anchor !== container && !isDraggingProgressSlider) {
+                        const shift = anchor.getBoundingClientRect().top - anchorTop;
+                        if (Math.abs(shift) > 0.5) window.scrollBy(0, shift);
+                    }
                     img.style.visibility = 'visible';
                     container.style.background = 'transparent';
                     if (pageIndex === pageCount - 1) {
