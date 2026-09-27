@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Image/PDF conversion helpers."""
 import glob
+import hashlib
 import os
 import re
 import shutil
@@ -112,7 +113,10 @@ def repair_pdf_for_reading(pdf_path):
     if not pdf_needs_repair(pdf_path):
         return pdf_path
 
-    repaired_dir = os.path.join(os.path.dirname(pdf_path), ".repaired")
+    source_stat = os.stat(pdf_path)
+    signature = f'{source_stat.st_mtime_ns}:{source_stat.st_ctime_ns}:{source_stat.st_size}:{source_stat.st_ino}'
+    version = hashlib.sha256(signature.encode('utf-8')).hexdigest()[:16]
+    repaired_dir = os.path.join(os.path.dirname(pdf_path), ".repaired", version)
     repaired_path = os.path.join(repaired_dir, os.path.basename(pdf_path))
     ensure_directory(repaired_dir)
 

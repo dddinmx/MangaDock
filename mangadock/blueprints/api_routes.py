@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """JSON API routes."""
 import os
+import mimetypes
 import time
 import subprocess
 import zipfile
@@ -40,12 +41,12 @@ from mangadock.services.library import (
     build_api_page_list,
     api_page_source_version,
     get_available_comics,
-    get_chapter_file_path,
     get_comic_directory,
     list_local_chapters,
     load_comic_mapping,
     resolve_chapter_page_image,
 )
+from mangadock.utils.files import resolve_file_under_directory
 from mangadock.services.reading import (
     get_all_reading_progress,
     get_reading_progress,
@@ -327,15 +328,13 @@ def api_comic_chapter_file(comic_id, chapter_id):
     if not comic_dir:
         return api_error('COMIC_NOT_FOUND', '漫画不存在', 404)
 
-    filename = chapter.get('filename')
-    file_path = resolve_file_under_directory(comic_dir, filename)
-    if not file_path or not os.path.exists(file_path):
-        return api_error('CHAPTER_NOT_FOUND', '章节文件不存在', 404)
-
-    if file_path.lower().endswith('.pdf'):
-        readable_pdf = repair_pdf_for_reading(file_path)
-        return send_from_directory(os.path.dirname(readable_pdf), os.path.basename(readable_pdf))
-    return send_from_directory(comic_dir, filename)
+    from mangadock.services.webdav import chapter_access, chapter_file_response
+    with chapter_access(resolve_file_under_directory(comic_dir, chapter['filename'])) as file_path:
+        if not file_path:
+            return api_error('CHAPTER_NOT_FOUND', '章节文件不存在', 404)
+        readable = repair_pdf_for_reading(file_path) if file_path.lower().endswith('.pdf') else file_path
+        handle = open(readable, 'rb')
+    return chapter_file_response(handle, os.path.basename(file_path), 'application/pdf' if file_path.lower().endswith('.pdf') else 'application/octet-stream')
 
 
 @app.route('/api/comics/<comic_id>/chapters/<chapter_id>/pages')
@@ -354,14 +353,18 @@ def api_comic_chapter_pages(comic_id, chapter_id):
     if not chapter:
         return api_error('CHAPTER_NOT_FOUND', '章节不存在', 404)
 
-    file_path = get_chapter_file_path(identity.comic_name, chapter)
-    if not file_path:
-        return api_error('CHAPTER_NOT_FOUND', '章节文件不存在', 404)
+    from mangadock.services.webdav import chapter_access
+    comic_dir = get_comic_directory(identity.comic_name)
+    if not comic_dir:
+        return api_error('COMIC_NOT_FOUND', '漫画不存在', 404)
+    with chapter_access(resolve_file_under_directory(comic_dir, chapter['filename'])) as file_path:
+        if not file_path:
+            return api_error('CHAPTER_NOT_FOUND', '章节文件不存在', 404)
 
-    try:
-        pages, total_pages = build_api_page_list(identity.comic_id, chapter_id, file_path)
-    except ValueError as exc:
-        return api_error('PAGE_LIST_FAILED', str(exc), 500)
+        try:
+            pages, total_pages = build_api_page_list(identity.comic_id, chapter_id, file_path)
+        except ValueError as exc:
+            return api_error('PAGE_LIST_FAILED', str(exc), 500)
 
     return jsonify({
         'comic_id': identity.comic_id,
@@ -387,41 +390,48 @@ def api_comic_chapter_page_image(comic_id, chapter_id, page_index):
     if not chapter:
         return api_error('CHAPTER_NOT_FOUND', '章节不存在', 404)
 
-    file_path = get_chapter_file_path(identity.comic_name, chapter)
-    if not file_path:
-        return api_error('CHAPTER_NOT_FOUND', '章节文件不存在', 404)
+    from mangadock.services.webdav import chapter_access
+    comic_dir = get_comic_directory(identity.comic_name)
+    if not comic_dir:
+        return api_error('COMIC_NOT_FOUND', '漫画不存在', 404)
+    with chapter_access(resolve_file_under_directory(comic_dir, chapter['filename'])) as file_path:
+        if not file_path:
+            return api_error('CHAPTER_NOT_FOUND', '章节文件不存在', 404)
 
-    requested_version = request.args.get('v')
-    if requested_version is not None and requested_version != api_page_source_version(file_path):
-        response, status = api_error(
-            'STALE_PAGE_IMAGE', '章节内容已更新，请重新获取页面列表', 409
-        )
-        response.headers['Cache-Control'] = 'no-store'
-        return response, status
+        requested_version = request.args.get('v')
+        if requested_version is not None and requested_version != api_page_source_version(file_path):
+            response, status = api_error(
+                'STALE_PAGE_IMAGE', '章节内容已更新，请重新获取页面列表', 409
+            )
+            response.headers['Cache-Control'] = 'no-store'
+            return response, status
 
-    try:
-        image_path = resolve_chapter_page_image(file_path, identity.comic_id, chapter_id, page_index)
-    except RuntimeError as exc:
-        return api_error('PAGE_RENDER_FAILED', str(exc), 500)
-    except subprocess.CalledProcessError as exc:
-        return api_error('PAGE_RENDER_FAILED', exc.stderr or 'PDF 页面渲染失败', 500)
-    except zipfile.BadZipFile:
-        return api_error('PAGE_RENDER_FAILED', 'CBZ 文件损坏或格式不受支持', 500)
-    except Exception as exc:
-        safe_print(f"页面渲染失败: {exc}")
-        return api_error('PAGE_RENDER_FAILED', '页面渲染失败', 500)
+        try:
+            image_path = resolve_chapter_page_image(file_path, identity.comic_id, chapter_id, page_index)
+        except RuntimeError as exc:
+            return api_error('PAGE_RENDER_FAILED', str(exc), 500)
+        except subprocess.CalledProcessError as exc:
+            return api_error('PAGE_RENDER_FAILED', exc.stderr or 'PDF 页面渲染失败', 500)
+        except zipfile.BadZipFile:
+            return api_error('PAGE_RENDER_FAILED', 'CBZ 文件损坏或格式不受支持', 500)
+        except Exception as exc:
+            safe_print(f"页面渲染失败: {exc}")
+            return api_error('PAGE_RENDER_FAILED', '页面渲染失败', 500)
 
-    if requested_version is not None and requested_version != api_page_source_version(file_path):
-        response, status = api_error(
-            'STALE_PAGE_IMAGE', '章节内容已更新，请重新获取页面列表', 409
-        )
-        response.headers['Cache-Control'] = 'no-store'
-        return response, status
+        if requested_version is not None and requested_version != api_page_source_version(file_path):
+            response, status = api_error(
+                'STALE_PAGE_IMAGE', '章节内容已更新，请重新获取页面列表', 409
+            )
+            response.headers['Cache-Control'] = 'no-store'
+            return response, status
 
-    if not image_path or not os.path.exists(image_path):
-        return api_error('PAGE_NOT_FOUND', '页面不存在', 404)
+        if not image_path or not os.path.exists(image_path):
+            return api_error('PAGE_NOT_FOUND', '页面不存在', 404)
+        handle = open(image_path, 'rb')
 
-    return send_from_directory(os.path.dirname(image_path), os.path.basename(image_path))
+    from mangadock.services.webdav import chapter_file_response
+    return chapter_file_response(handle, os.path.basename(image_path),
+                                 mimetypes.guess_type(image_path)[0] or 'application/octet-stream')
 
 
 @app.route('/api/comics/<comic_id>/progress')

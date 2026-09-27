@@ -261,6 +261,10 @@
 
         .reading-progress-chapter-side {
             min-width: 24px;
+            max-width: 80px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
             color: rgba(255, 255, 255, 0.96);
             font-size: 12px;
             font-weight: 500;
@@ -964,6 +968,27 @@
             setComicMargin(currentMargin);
             loadChapters();
             bindAllEvents();
+            if (anilistEnabled) {
+                window.setInterval(async () => {
+                    if (document.hidden || !chapters.length) return;
+                    try {
+                        const response = await fetch("{{ url_for('anilist_sync') }}", {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                            credentials: 'include',
+                            body: JSON.stringify({ comic_name: comicName })
+                        });
+                        if (!response.ok) return;
+                        const result = await response.json();
+                        if (Number.isInteger(result.chapter_index) && result.chapter_index > currentChapter) {
+                            savedScrollPosition = 0;
+                            await loadChapter(result.chapter_index, false);
+                        }
+                    } catch (error) {
+                        console.error('AniList 双向同步失败:', error);
+                    }
+                }, 60000);
+            }
             if (!progressIntervalId) {
                 progressIntervalId = window.setInterval(() => saveProgress(), 30000);
             }
@@ -1794,10 +1819,9 @@
         function updateChapterInfo() {
             const chapter = chapters[currentChapter];
             headerChapter.textContent = chapter ? chapter.title : `第 ${currentChapter + 1} 章`;
-            readingProgressCurrentChapter.textContent = String(Math.max(currentChapter + 1, 1));
-            readingProgressNextChapter.textContent = String(
-                Math.min(currentChapter + 2, Math.max(chapters.length, 1))
-            );
+            readingProgressCurrentChapter.textContent = chapter ? chapter.title : '';
+            const nextChapter = chapters[currentChapter + 1];
+            readingProgressNextChapter.textContent = nextChapter ? nextChapter.title : '完';
             progressPrevBtn.disabled = currentChapter <= 0;
             progressNextBtn.disabled = currentChapter >= chapters.length - 1;
         }

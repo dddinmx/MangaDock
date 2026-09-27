@@ -80,6 +80,12 @@ def get_comic_scan_roots(existing_only=False):
             continue
         roots.append(normalized_path)
 
+    from mangadock.services.webdav import cache_root
+    webdav_root = cache_root()
+    if webdav_root and webdav_root not in seen_roots:
+        if not existing_only or os.path.isdir(webdav_root):
+            roots.append(webdav_root)
+
     return roots
 
 
@@ -366,6 +372,10 @@ API_PAGE_CACHE_ROOT = os.path.join(app.instance_path, 'api_page_cache')
 
 
 def api_page_source_version(file_path):
+    from mangadock.services.webdav import cached_chapter_version
+    remote_version = cached_chapter_version(file_path)
+    if remote_version is not None:
+        return remote_version
     try:
         stat_result = os.stat(file_path)
         signature = (
@@ -421,6 +431,9 @@ def get_chapter_file_path(comic_name, chapter):
     file_path = resolve_file_under_directory(comic_dir, filename)
     if not file_path:
         return None
+    from mangadock.services.webdav import ensure_chapter_cached, is_cache_path
+    if is_cache_path(comic_dir):
+        return ensure_chapter_cached(comic_dir, filename)
     return file_path if os.path.exists(file_path) else None
 
 
@@ -609,8 +622,16 @@ def resolve_comic_file_request(filename):
 
     absolute_comic_dir = os.path.realpath(os.path.abspath(comic_dir))
     absolute_file_path = resolve_file_under_directory(absolute_comic_dir, relative_filename)
+    if not absolute_file_path:
+        return None
 
-    if not absolute_file_path or not os.path.isfile(absolute_file_path):
+    from mangadock.services.webdav import index_has_chapter, is_cache_path
+    if is_cache_path(absolute_comic_dir):
+        if not os.path.isfile(absolute_file_path) and not index_has_chapter(
+            absolute_comic_dir, os.path.basename(relative_filename)
+        ):
+            return None
+    elif not os.path.isfile(absolute_file_path):
         return None
 
     return {
@@ -619,6 +640,25 @@ def resolve_comic_file_request(filename):
         'relative_filename': relative_filename,
         'file_path': absolute_file_path,
     }
+
+
+def materialize_comic_file(resolved):
+    """分组权限通过之后再下载。非 WebDAV 文件只确认本地文件还在。"""
+    if not resolved:
+        return None
+    comic_dir = resolved.get('comic_dir')
+    from mangadock.services.webdav import ensure_chapter_cached, is_cache_path
+    if comic_dir and is_cache_path(comic_dir):
+        file_path = ensure_chapter_cached(comic_dir, resolved.get('relative_filename'))
+        if not file_path:
+            return None
+        materialized = dict(resolved)
+        materialized['file_path'] = file_path
+        return materialized
+    file_path = resolved.get('file_path')
+    if file_path and os.path.isfile(file_path):
+        return resolved
+    return None
 
 def get_directory_signature(path):
     try:
@@ -688,17 +728,13 @@ def get_cached_local_comic_scan(comic_name, comic_path=None):
     cbz_count = 0
     chapter_count = 0
     try:
-        with os.scandir(normalized_path) as chapter_entries:
-            for entry in chapter_entries:
-                if not entry.is_file():
-                    continue
-                filename = entry.name
-                if is_valid_local_chapter_file(filename, ('.pdf',)):
-                    pdf_count += 1
-                    chapter_count += 1
-                elif is_valid_local_chapter_file(filename, ('.cbz',)):
-                    cbz_count += 1
-                    chapter_count += 1
+        for filename in chapter_filenames_in(normalized_path):
+            if is_valid_local_chapter_file(filename, ('.pdf',)):
+                pdf_count += 1
+                chapter_count += 1
+            elif is_valid_local_chapter_file(filename, ('.cbz',)):
+                cbz_count += 1
+                chapter_count += 1
     except OSError:
         return {
             'available_chapters': 0,
@@ -745,17 +781,14 @@ def get_local_chapter_bases(comic_name):
     if not comic_path or not os.path.isdir(comic_path):
         return set()
 
-    chapter_bases = set()
     try:
-        with os.scandir(comic_path) as chapter_entries:
-            for entry in chapter_entries:
-                if not entry.is_file():
-                    continue
-                if is_valid_local_chapter_file(entry.name):
-                    chapter_bases.add(os.path.splitext(entry.name)[0])
+        return {
+            os.path.splitext(filename)[0]
+            for filename in chapter_filenames_in(comic_path)
+            if is_valid_local_chapter_file(filename)
+        }
     except OSError:
         return set()
-    return chapter_bases
 
 
 def get_local_chapter_match_bases(comic_name):
@@ -892,6 +925,14 @@ def build_available_comics_snapshot():
         return list(comics.values())
 
 
+def comic_deletion_version():
+    try:
+        stat = os.stat(os.path.join(app.instance_path, 'comic-deletion.version'))
+        return stat.st_mtime_ns
+    except FileNotFoundError:
+        return 0
+
+
 def refresh_comics_cache(force=False, async_refresh=False):
     current_time = time.time()
 
@@ -911,9 +952,11 @@ def refresh_comics_cache(force=False, async_refresh=False):
 
     def _refresh():
         try:
+            deletion_version = comic_deletion_version()
             refreshed_data = build_available_comics_snapshot()
             with comics_cache_lock:
                 comics_cache['data'] = refreshed_data
+                comics_cache['deletion_version'] = deletion_version
                 comics_cache['timestamp'] = time.time()
         finally:
             with comics_cache_lock:
@@ -930,6 +973,16 @@ def refresh_comics_cache(force=False, async_refresh=False):
 
 def get_available_comics():
     """获取可阅读的漫画列表（包括未完成的和已删除任务但文件仍存在的）"""
+    deletion_version = comic_deletion_version()
+    with comics_cache_lock:
+        deleted_since_refresh = comics_cache.get('deletion_version', 0) != deletion_version
+        if deleted_since_refresh:
+            comics_cache['data'] = None
+            comics_cache['timestamp'] = 0
+    if deleted_since_refresh:
+        with comic_scan_cache_lock:
+            comic_directory_scan_cache.clear()
+            comic_root_listing_cache.clear()
     current_time = time.time()
 
     with comics_cache_lock:
@@ -1093,15 +1146,31 @@ def is_valid_local_chapter_file(filename, extensions=('.pdf', '.cbz')):
     )
 
 
+def chapter_filenames_in(comic_path):
+    """章节文件名。WebDAV 漫画读完整索引，不能只数已经下载到缓存里的文件。"""
+    from mangadock.services.webdav import indexed_chapter_filenames
+    indexed = indexed_chapter_filenames(comic_path)
+    if indexed is not None:
+        return [filename for filename in indexed if is_valid_local_chapter_file(filename)]
+
+    from mangadock.services.webdav import is_cache_path
+    if is_cache_path(comic_path):
+        return []
+
+    filenames = []
+    with os.scandir(comic_path) as chapter_entries:
+        for entry in chapter_entries:
+            if entry.is_file() and is_valid_local_chapter_file(entry.name):
+                filenames.append(entry.name)
+    return filenames
+
+
 def list_local_chapters(comic_name):
     comic_path = get_comic_directory(comic_name)
     if not comic_path or not os.path.exists(comic_path):
         return []
 
-    chapter_files = [
-        filename for filename in os.listdir(comic_path)
-        if is_valid_local_chapter_file(filename)
-    ]
+    chapter_files = chapter_filenames_in(comic_path)
     chapter_files.sort(key=chapter_sort_key)
 
     chapters = []

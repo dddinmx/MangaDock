@@ -1206,8 +1206,8 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   justify-content: center;
   gap: 0.6rem;
   min-width: 0;
-  min-height: 3.7rem;
-  padding: 0.55rem 0.7rem;
+  min-height: 2.85rem;
+  padding: 0.35rem 0.7rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 0.6rem;
   background: rgba(255, 255, 255, 0.12);
@@ -1220,7 +1220,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 
 .md-detail-action:hover,
 .md-detail-group-picker[open] > .md-detail-action { background: rgba(255, 255, 255, 0.2); }
-.md-detail-action > .fa { flex: 0 0 auto; font-size: 0.9rem; opacity: 0.86; }
+.md-detail-icon { flex: 0 0 auto; width: 0.9rem; height: 0.9rem; opacity: 0.86; }
 .md-detail-action-copy { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.25; }
 .md-detail-action-copy small { color: rgba(255, 255, 255, 0.68); font-size: 0.65rem; font-weight: 500; }
 .md-detail-action-copy strong { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.82rem; font-weight: 700; }
@@ -1228,7 +1228,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 .md-detail-group-picker[open] { z-index: 25; }
 .md-detail-group-picker > summary { height: 100%; cursor: pointer; list-style: none; }
 .md-detail-group-picker > summary::-webkit-details-marker { display: none; }
-.md-detail-group-chevron { margin-left: auto; font-size: 0.75rem !important; transition: transform 0.18s ease; }
+.md-detail-group-chevron { margin-left: auto; width: 0.75rem; height: 0.75rem; transition: transform 0.18s ease; }
 .md-detail-group-picker[open] .md-detail-group-chevron { transform: rotate(180deg); }
 .md-detail-group-options {
   position: absolute;
@@ -1528,7 +1528,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   width: 100%;
   margin: 0 auto;
   padding: 0.85rem 1.25rem !important;
-  border-radius: 0.7rem !important;
+  border-radius: 999px !important;
   box-shadow: 0 10px 26px rgba(var(--md-brand-rgb), 0.22);
 }
 

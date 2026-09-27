@@ -63,6 +63,8 @@ class AniListComicLink(db.Model):
     media_title = db.Column(db.String(255), nullable=False)
     first_chapter = db.Column(db.Integer, nullable=False, default=1)
     synced_progress = db.Column(db.Integer, nullable=False, default=0)
+    completed_progress = db.Column(db.Integer, nullable=False, default=0)
+    last_sync_at = db.Column(db.DateTime)
 
     __table_args__ = (
         UniqueConstraint('user_id', 'comic_name', name='uq_anilist_comic_link'),
@@ -301,6 +303,8 @@ def initialize_database():
         ensure_sqlite_column(ReadingProgress.__table__.name, 'user_id', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'anchor_paragraph', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'anchor_offset', 'INTEGER')
+        ensure_sqlite_column(AniListComicLink.__table__.name, 'completed_progress', 'INTEGER NOT NULL DEFAULT 0')
+        ensure_sqlite_column(AniListComicLink.__table__.name, 'last_sync_at', 'DATETIME')
         ensure_sqlite_column(ReadingTime.__table__.name, 'user_id', 'INTEGER')
         ensure_sqlite_column(ReadingTime.__table__.name, 'duration_seconds', 'INTEGER DEFAULT 0')
         ensure_sqlite_column(ComicIdentity.__table__.name, 'description', 'TEXT')

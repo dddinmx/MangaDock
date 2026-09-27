@@ -6,8 +6,8 @@ from flask import flash, jsonify, redirect, render_template, request, url_for
 from mangadock.auth import get_current_user, login_required, require_csrf_for_session_auth
 from mangadock.core import app
 from mangadock.extensions import csrf, db
-from mangadock.models import AniListAccount, AniListComicLink
-from mangadock.services.anilist import CLIENT_ID, chapter_number, connect, link_manga, search_manga, sync_completed_chapter
+from mangadock.models import AniListAccount, AniListComicLink, ReadingProgress
+from mangadock.services.anilist import CLIENT_ID, chapter_number, connect, link_manga, search_manga, sync_completed_chapter, reconcile_progress
 from mangadock.services.library import get_comic_directory, list_local_chapters
 from mangadock.services.reading import user_can_access_progress_key
 
@@ -87,7 +87,13 @@ def anilist_save_match(comic_name):
         if media_id <= 0 or first_chapter < 1 or first_chapter > 100000:
             raise ValueError('无效的漫画或章节号')
         link_manga(user_id, comic_name, media_id, first_chapter)
-        flash('AniList 作品关联已保存；之后读完章节才会同步')
+        flash('AniList 作品关联已保存，已启用双向同步')
+        try:
+            reconcile_progress(user_id, comic_name)
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('AniList initial reconciliation failed')
+            flash('首次进度对齐暂时失败，后台会自动重试')
     except (TypeError, ValueError):
         flash('请选择有效的漫画条目和首章章节号')
     except Exception:
@@ -136,4 +142,28 @@ def anilist_complete():
     except Exception:
         db.session.rollback()
         app.logger.exception('AniList chapter sync failed')
+        return jsonify({'error': 'AniList 同步失败，请稍后重试'}), 502
+
+
+@app.route('/anilist/sync', methods=['POST'])
+@login_required
+@csrf.exempt
+def anilist_sync():
+    csrf_error = require_csrf_for_session_auth(api_response=True)
+    if csrf_error:
+        return csrf_error
+    data = request.get_json(silent=True) or {}
+    comic_name = data.get('comic_name')
+    user = get_current_user()
+    user_id = user.id
+    if not user_can_access_progress_key(comic_name, user):
+        return jsonify({'error': '无权访问该漫画'}), 403
+    try:
+        reconcile_progress(user_id, comic_name)
+        progress = ReadingProgress.query.filter_by(user_id=user_id, comic_name=comic_name).order_by(
+            ReadingProgress.last_read_at.desc(), ReadingProgress.id.desc()).first()
+        return jsonify({'success': True, 'chapter_index': progress.last_chapter if progress else None})
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('AniList reader reconciliation failed')
         return jsonify({'error': 'AniList 同步失败，请稍后重试'}), 502

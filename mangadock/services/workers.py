@@ -343,6 +343,13 @@ def run_task_worker(worker_index):
                             update_task(task_id, status='error', log=f"执行异常：{e}")
                     except Exception:
                         pass
+                finally:
+                    try:
+                        with app.app_context():
+                            DownloadTask.query.filter_by(id=task_id).update({'worker_pid': None})
+                            db.session.commit()
+                    except Exception as exc:
+                        print(f'任务 {task_id} 释放 worker 标记失败：{exc}')
                 continue
 
             time.sleep(WORKER_POLL_INTERVAL_SECONDS)
@@ -364,6 +371,7 @@ def run_command_worker():
     recover_background_queue_state()
 
     last_schedule_check = 0.0
+    last_anilist_check = 0.0
     try:
         while True:
             command_id = claim_next_background_command()
@@ -372,6 +380,13 @@ def run_command_worker():
                 continue
 
             now_ts = time.time()
+            if now_ts - last_anilist_check >= 3:
+                last_anilist_check = now_ts
+                try:
+                    from mangadock.services.anilist import sync_next_link
+                    sync_next_link()
+                except Exception as exc:
+                    print(f"⚠️ AniList 自动对齐失败：{exc}")
             if now_ts - last_schedule_check >= WORKER_SCHEDULE_HEARTBEAT_SECONDS:
                 last_schedule_check = now_ts
                 try:

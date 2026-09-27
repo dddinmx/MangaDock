@@ -25,6 +25,10 @@ from mangadock.services.library import (
     normalize_scan_path,
     refresh_comics_cache,
 )
+from mangadock.services.webdav import WebDavError, disconnect as disconnect_webdav
+from mangadock.services.webdav import save_settings as save_webdav_settings
+from mangadock.services.webdav import settings_view as webdav_settings_view
+from mangadock.services.webdav import sync_library as sync_webdav_library
 from mangadock.settings import COMIC_ROOT, china_tz
 
 
@@ -39,7 +43,50 @@ def settings():
         scan_paths=scan_paths,
         adult_content_enabled=is_adult_content_enabled(),
         anilist_account=db.session.get(AniListAccount, current_user.id),
+        webdav=webdav_settings_view() if current_user and current_user.is_admin else None,
     )
+
+
+@app.route('/settings/webdav', methods=['POST'])
+@login_required
+@admin_required
+def save_webdav():
+    try:
+        save_webdav_settings(
+            request.form.get('url'),
+            request.form.get('username'),
+            request.form.get('password') or '',
+            request.form.get('root'),
+            request.form.get('cache_gb'),
+            keep_password=not (request.form.get('password') or '').strip(),
+        )
+    except WebDavError as exc:
+        flash(str(exc))
+        return redirect(url_for('settings'))
+    flash('WebDAV 已保存，并确认根目录可以读取')
+    return redirect(url_for('settings'))
+
+
+@app.route('/settings/webdav/sync', methods=['POST'])
+@login_required
+@admin_required
+def sync_webdav():
+    try:
+        flash(sync_webdav_library())
+    except WebDavError as exc:
+        flash(str(exc))
+    return redirect(url_for('settings'))
+
+
+@app.route('/settings/webdav/disconnect', methods=['POST'])
+@login_required
+@admin_required
+def disconnect_webdav_route():
+    disconnect_webdav()
+    invalidate_comics_cache()
+    refresh_comics_cache(force=True)
+    flash('已断开 WebDAV。已缓存的章节还在，云端文件未改动')
+    return redirect(url_for('settings'))
 
 
 @app.route('/settings/adult-content', methods=['POST'])

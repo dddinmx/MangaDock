@@ -60,6 +60,17 @@ from mangadock.utils.media import repair_pdf_for_reading
 from mangadock.blueprints.web.common import safe_print
 
 
+def reconcile_anilist_if_linked(user_id, comic_name):
+    from mangadock.services.anilist import reconcile_progress
+    if not AniListComicLink.query.filter_by(user_id=user_id, comic_name=comic_name).first():
+        return
+    try:
+        reconcile_progress(user_id, comic_name)
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('AniList automatic reconciliation failed')
+
+
 @app.route('/comic/<task_id>')
 @login_required
 def comic_detail(task_id):
@@ -128,6 +139,8 @@ def comic_detail(task_id):
         flash('当前账号未被授权访问该分组漫画')
         return redirect(url_for('comics_list'))
 
+    reconcile_anilist_if_linked(current_user_id, task.comic_name)
+    progress = get_reading_progress(task.comic_name, current_user_id)
     hidden_comic_names, hidden_group_names = get_admin_hidden_targets(current_user)
     is_current_comic_directly_hidden = task.comic_name in hidden_comic_names
     is_current_group_hidden = current_group in hidden_group_names
@@ -169,7 +182,31 @@ def comic_detail(task_id):
         is_current_group_hidden=is_current_group_hidden,
         hidden_group_names=hidden_group_names,
         library_return_url=library_return_url,
+        deletion_path=get_comic_directory(task.comic_name),
     )
+
+
+@app.route('/comic/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_comic_route():
+    from mangadock.services.comic_delete import delete_local_comic
+    comic_name = request.form.get('comic_name', '')
+    try:
+        delete_local_comic(comic_name, request.form.get('directory', ''))
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for('comic_detail', task_id=comic_name))
+    except Exception as exc:
+        app.logger.exception('删除漫画失败: %s', comic_name)
+        flash('删除未完成，部分文件可能已删除。请检查目录权限或磁盘状态后重试。')
+        return redirect(url_for('comics_list'))
+    from mangadock.services.webdav import is_cache_path
+    if is_cache_path(request.form.get('directory', '')):
+        flash('已从本地缓存移除「' + comic_name + '」。云端文件未删除，下次同步会重新出现')
+    else:
+        flash('已删除漫画「' + comic_name + '」及本地源文件')
+    return redirect(url_for('comics_list'))
 
 
 @app.route('/comic/<task_id>/cover', methods=['POST'])
@@ -248,6 +285,7 @@ def comic_reader(task_id):
 
     # 获取阅读进度
     current_user_id = session.get('user_id')
+    reconcile_anilist_if_linked(current_user_id, task.comic_name)
     progress = get_reading_progress(task.comic_name, current_user_id)
     # 检查是否有指定的起始章节
     start_chapter = request.args.get('start_chapter', None)
@@ -272,6 +310,7 @@ def comic_reader(task_id):
         start_chapter=start_chapter,
         start_page=start_page,
         library_return_url=library_return_url,
+        deletion_path=get_comic_directory(task.comic_name),
         anilist_enabled=bool(
             db.session.get(AniListAccount, current_user_id) and
             AniListComicLink.query.filter_by(user_id=current_user_id, comic_name=task.comic_name).first()
@@ -391,11 +430,13 @@ def serve_comic_file(filename):
     if not can_user_access_group(current_group, current_user):
         return jsonify({'error': '当前账号未被授权访问该分组漫画'}), 403
 
-    file_path = resolved_file['file_path']
-    if file_path.lower().endswith('.pdf'):
-        readable_pdf = repair_pdf_for_reading(file_path)
-        return send_from_directory(os.path.dirname(readable_pdf), os.path.basename(readable_pdf))
-    return send_from_directory(resolved_file['comic_dir'], resolved_file['relative_filename'])
+    from mangadock.services.webdav import chapter_access, chapter_file_response
+    with chapter_access(resolved_file['file_path']) as file_path:
+        if not file_path:
+            return jsonify({'error': '文件不存在'}), 404
+        readable = repair_pdf_for_reading(file_path) if file_path.lower().endswith('.pdf') else file_path
+        handle = open(readable, 'rb')
+    return chapter_file_response(handle, os.path.basename(file_path), mimetypes.guess_type(file_path)[0] or 'application/octet-stream')
 
 
 @lru_cache(maxsize=64)
@@ -428,23 +469,36 @@ def comic_pages(filename):
     if not can_user_access_group(current_group, get_current_user()):
         return jsonify({'error': '当前账号未被授权访问该分组漫画'}), 403
 
+    from mangadock.services.webdav import chapter_access
     try:
-        images, dimensions = cbz_page_manifest(
-            resolved_file['file_path'], api_page_source_version(resolved_file['file_path']))
-        page = request.args.get('page')
-        if page is None:
-            return jsonify({'pages': len(images), 'dimensions': dimensions})
-        if not page.isdecimal() or int(page) >= len(images):
-            return jsonify({'error': '页面不存在'}), 404
-        image_name = images[int(page)]
-        with zipfile.ZipFile(resolved_file['file_path']) as archive:
-            image_data = archive.read(image_name)
+        with chapter_access(resolved_file['file_path']) as file_path:
+            if not file_path:
+                return jsonify({'error': '章节不存在'}), 404
+            images, dimensions, image_name, image_data = _read_cbz_page(file_path)
+    except LookupError:
+        return jsonify({'error': '页面不存在'}), 404
     except (OSError, zipfile.BadZipFile, RuntimeError):
+        from mangadock.services.webdav import discard_cached_chapter
+        discard_cached_chapter(resolved_file['file_path'])
         return jsonify({'error': '章节读取失败'}), 500
 
+    if image_data is None:
+        return jsonify({'pages': len(images), 'dimensions': dimensions})
     response = Response(image_data, mimetype=mimetypes.guess_type(image_name)[0] or 'application/octet-stream')
     response.headers['Cache-Control'] = 'private, no-store'
     return response
+
+
+def _read_cbz_page(file_path):
+    images, dimensions = cbz_page_manifest(file_path, api_page_source_version(file_path))
+    page = request.args.get('page')
+    if page is None:
+        return images, dimensions, None, None
+    if not page.isdecimal() or int(page) >= len(images):
+        raise LookupError('页面不存在')
+    image_name = images[int(page)]
+    with zipfile.ZipFile(file_path) as archive:
+        return images, dimensions, image_name, archive.read(image_name)
 
 @app.route('/api/chapters/<task_id>')
 @login_required
