@@ -55,6 +55,8 @@ from mangadock.services.reading import (
     user_can_access_progress_key,
 )
 from mangadock.services.tasks import get_task
+from mangadock.services.webdav import is_cache_path
+from mangadock.services.webdav_metadata import metadata_view
 from mangadock.utils import safe_int
 from mangadock.utils.media import repair_pdf_for_reading
 from mangadock.blueprints.web.common import safe_print
@@ -169,6 +171,8 @@ def comic_detail(task_id):
         anilist_link=anilist_link,
         reading_time=reading_time,
         comic_description=comic_description,
+        is_webdav_comic=is_cache_path(get_comic_directory(task.comic_name)),
+        anilist_metadata=metadata_view(task.comic_name),
         current_group=current_group,
         groups=groups,
         group_counts=group_counts,

@@ -214,19 +214,30 @@ def disconnect():
             pass
 
 
-def sync_library():
+def queue_library_sync():
+    from mangadock.services.updates import queue_background_command
+    with _config_lock():
+        _require_config()
+        return queue_background_command('sync_webdav')
+
+
+def _publish_library_change():
+    _atomic_json(os.path.join(app.instance_path, 'comic-deletion.version'), time.time_ns())
+
+
+def sync_library(progress=None):
     with _open_lock_file(_config_path() + '.sync') as handle:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise WebDavError('WebDAV 正在同步，请等待当前同步完成') from exc
         try:
-            return _sync_library_locked()
+            return _sync_library_locked(progress) if progress else _sync_library_locked()
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _sync_library_locked():
+def _sync_library_locked(progress=None):
     config = _require_config()
     library_url = _library_url(config)
     root_listing = _propfind(config, library_url)
@@ -254,7 +265,14 @@ def _sync_library_locked():
     skipped = 0
     failures = []
     root_children = _direct_children(root_items, library_path)
-    for item in root_children:
+    candidates = [item for item in root_children if item['is_dir'] and is_safe_comic_name(item['name'])]
+    def report(done, current=''):
+        if progress:
+            progress({'done': done, 'total': len(candidates), 'current': current,
+                      'added': added, 'skipped': skipped, 'failed': len(failures)})
+    report(0)
+    for position, item in enumerate(candidates):
+        report(position, item['name'])
         if not item['is_dir']:
             continue
         comic_name = item['name']
@@ -283,13 +301,20 @@ def _sync_library_locked():
             _sync_config(config)
             ensure_directory(comic_dir)
             _write_index(comic_dir, chapters, _source_id(config))
+            kept.add(comic_name)
+            added += 1
+            _publish_library_change()
+            report(position + 1)
             try:
                 _save_cover(config, comic_name, cover)
             except WebDavError as exc:
                 failures.append(comic_name + '：封面读取失败：' + str(exc))
                 app.logger.warning('WebDAV 封面读取失败 %s: %s', comic_name, exc)
-        kept.add(comic_name)
-        added += 1
+        try:
+            from mangadock.services.webdav_metadata import queue_metadata
+            queue_metadata(comic_name)
+        except Exception as exc:
+            app.logger.warning('WebDAV 资料补全排队失败 %s: %s', comic_name, exc)
 
     with _config_lock():
         _sync_config(config)
@@ -300,7 +325,9 @@ def _sync_library_locked():
                 if entry.is_dir() and entry.name not in kept and is_safe_comic_name(entry.name):
                     _prune_comic_cache(entry.path)
 
-    message = f'WebDAV 同步完成：写入 {added} 部，跳过本地已有 {skipped} 部'
+    _publish_library_change()
+    report(len(candidates))
+    message = f'WebDAV 同步完成：写入 {added} 部，跳过本地已有 {skipped} 部；封面与简介继续在后台补全'
     if not pruned:
         message += '；目录列表不完整或为空，未清理已有缓存'
     if failures:
@@ -1036,6 +1063,8 @@ def _prune_comic_cache(comic_dir):
             return False
         try:
             if os.path.isdir(comic_dir):
+                from mangadock.services.webdav_metadata import clear_metadata
+                clear_metadata(comic_dir)
                 shutil.rmtree(comic_dir)
             return True
         finally:
@@ -1103,6 +1132,8 @@ def _invalidate_comic_cache(comic_dir, keep_source=None):
     payload = _read_index_payload(comic_dir)
     if keep_source and payload.get('source') == keep_source:
         return
+    from mangadock.services.webdav_metadata import clear_metadata
+    clear_metadata(comic_dir)
     index_path = os.path.join(comic_dir, INDEX_FILENAME)
     try:
         os.remove(index_path)

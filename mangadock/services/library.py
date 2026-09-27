@@ -281,9 +281,11 @@ def get_comic_description(comic_name):
         return ''
     with app.app_context():
         identity = ComicIdentity.query.filter_by(comic_name=normalized_name).first()
-        if not identity or not identity.description:
-            return ''
-        return normalize_comic_description(identity.description)
+        description = normalize_comic_description(identity.description) if identity else ''
+    if description:
+        return description
+    from mangadock.services.webdav_metadata import metadata_view
+    return normalize_comic_description(metadata_view(normalized_name).get('description'))
 
 
 def get_comic_descriptions(comic_names):
@@ -305,7 +307,13 @@ def get_comic_descriptions(comic_names):
             desc = normalize_comic_description(row.description)
             if desc:
                 result[row.comic_name] = desc
-        return result
+    from mangadock.services.webdav_metadata import metadata_view
+    for name in names:
+        if name not in result:
+            description = normalize_comic_description(metadata_view(name).get('description'))
+            if description:
+                result[name] = description
+    return result
 
 
 def save_comic_description(comic_name, description):

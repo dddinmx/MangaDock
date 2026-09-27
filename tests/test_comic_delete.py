@@ -194,6 +194,20 @@ class ComicDeletionTests(unittest.TestCase):
         self.delete()
         self.assertFalse(self.comic.exists())
 
+    def test_running_metadata_job_blocks_deletion_of_its_comic(self):
+        command = self.models.BackgroundCommand(command_type='webdav_metadata', status='running',
+                    payload=json.dumps({'comic_name': '待删除漫画'}))
+        self.db.session.add(command)
+        self.db.session.commit()
+        try:
+            with self.assertRaisesRegex(ValueError, '封面与简介'):
+                self.delete()
+            self.assertTrue(self.comic.exists())
+        finally:
+            self.db.session.rollback()
+            self.models.BackgroundCommand.query.filter_by(command_type='webdav_metadata').delete()
+            self.db.session.commit()
+
     def test_background_update_check_blocks_deletion(self):
         self.db.session.add(self.models.ComicUpdateCheck(
             comic_name='其他漫画', source_url='https://example.invalid', status='checking'))

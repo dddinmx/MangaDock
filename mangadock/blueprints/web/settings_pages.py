@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """设置页（内容分级 / 扫盘路径）。"""
 import os
+import json
 from datetime import datetime
 
 from flask import (
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -14,7 +16,7 @@ from flask import (
 from mangadock.auth import admin_required, get_current_user, login_required
 from mangadock.core import app
 from mangadock.extensions import db
-from mangadock.models import AniListAccount, ComicScanPath
+from mangadock.models import AniListAccount, ComicScanPath, BackgroundCommand
 from mangadock.services.adult_content import (
     is_adult_content_enabled,
     set_adult_content_enabled,
@@ -28,7 +30,7 @@ from mangadock.services.library import (
 from mangadock.services.webdav import WebDavError, disconnect as disconnect_webdav
 from mangadock.services.webdav import save_settings as save_webdav_settings
 from mangadock.services.webdav import settings_view as webdav_settings_view
-from mangadock.services.webdav import sync_library as sync_webdav_library
+from mangadock.services.webdav import queue_library_sync
 from mangadock.settings import COMIC_ROOT, china_tz
 
 
@@ -72,10 +74,31 @@ def save_webdav():
 @admin_required
 def sync_webdav():
     try:
-        flash(sync_webdav_library())
+        queue_library_sync()
+        flash('WebDAV 同步已加入后台队列，可以离开此页')
     except WebDavError as exc:
         flash(str(exc))
     return redirect(url_for('settings'))
+
+
+@app.route('/settings/webdav/progress')
+@login_required
+@admin_required
+def webdav_sync_progress():
+    command = BackgroundCommand.query.filter_by(command_type='sync_webdav').order_by(
+        BackgroundCommand.id.desc()).first()
+    progress = {}
+    if command:
+        try:
+            progress = json.loads(command.payload or '{}')
+        except ValueError:
+            pass
+    from mangadock.services.library import comic_deletion_version
+    response = jsonify(status=command.status if command else 'idle',
+                       message=command.message if command else '',
+                       progress=progress, version=str(comic_deletion_version()))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @app.route('/settings/webdav/disconnect', methods=['POST'])

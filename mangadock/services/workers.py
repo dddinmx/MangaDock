@@ -3,6 +3,7 @@
 import fcntl
 import os
 import time
+import threading
 from datetime import datetime
 
 from mangadock.core import COMMAND_WORKER_LOCK_PATH, TASK_WORKER_LOCK_PREFIX, app
@@ -361,6 +362,24 @@ def run_task_worker(worker_index):
         lock_handle.close()
 
 
+def run_webdav_metadata_worker():
+    try:
+        from mangadock.services.webdav_metadata import queue_existing_metadata
+        with app.app_context():
+            queue_existing_metadata()
+    except Exception as exc:
+        app.logger.warning('WebDAV 已有漫画资料补全排队失败：%s', exc)
+    while True:
+        try:
+            command_id = claim_next_background_command('webdav_metadata')
+            if command_id:
+                execute_background_command(command_id)
+                continue
+        except Exception as exc:
+            app.logger.warning('WebDAV 资料任务失败：%s', exc)
+        time.sleep(WORKER_POLL_INTERVAL_SECONDS)
+
+
 def run_command_worker():
     lock_handle = acquire_background_worker_lock(COMMAND_WORKER_LOCK_PATH)
     if not lock_handle:
@@ -369,6 +388,7 @@ def run_command_worker():
 
     print("✅ 命令 worker 已启动")
     recover_background_queue_state()
+    threading.Thread(target=run_webdav_metadata_worker, name='webdav-metadata', daemon=True).start()
 
     last_schedule_check = 0.0
     last_anilist_check = 0.0

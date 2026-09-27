@@ -147,13 +147,19 @@ def queue_background_command(command_type, payload=None, dedupe_pending=True):
         )
         db.session.add(command)
         db.session.commit()
+        db.session.refresh(command)
         return command
 
 
-def claim_next_background_command():
+def claim_next_background_command(command_type=None):
     with app.app_context():
         while True:
-            command = BackgroundCommand.query.filter_by(status='pending').order_by(
+            pending = BackgroundCommand.query.filter_by(status='pending')
+            if command_type:
+                pending = pending.filter_by(command_type=command_type)
+            else:
+                pending = pending.filter(BackgroundCommand.command_type != 'webdav_metadata')
+            command = pending.order_by(
                 BackgroundCommand.requested_at.asc(),
                 BackgroundCommand.id.asc()
             ).first()
@@ -201,6 +207,31 @@ def execute_background_command(command_id):
         command_type = command.command_type
 
     try:
+        if command_type == 'webdav_metadata':
+            from mangadock.services.webdav_metadata import enrich_metadata
+            with app.app_context():
+                message = enrich_metadata(payload)
+            finish_background_command(command_id, message=message)
+            return True
+
+        if command_type == 'sync_webdav':
+            def run_sync():
+                from mangadock.services.webdav import sync_library
+                def progress(value):
+                    with app.app_context():
+                        item = db.session.get(BackgroundCommand, command_id)
+                        item.payload = json.dumps(value, ensure_ascii=False)
+                        item.updated_at = datetime.now(china_tz)
+                        db.session.commit()
+                try:
+                    with app.app_context():
+                        message = sync_library(progress=progress)
+                    finish_background_command(command_id, message=message)
+                except Exception as exc:
+                    finish_background_command(command_id, status='error', message=str(exc))
+            threading.Thread(target=run_sync, name='webdav-sync', daemon=True).start()
+            return True
+
         if command_type == 'refresh_update_checks':
             refresh_update_checks(force=bool(payload.get('force', True)))
             finish_background_command(command_id, status='completed', message='更新检查已完成')
@@ -223,6 +254,9 @@ def execute_background_command(command_id):
         finish_background_command(command_id, status='error', message=f'未知后台命令: {command_type}')
         return False
     except Exception as exc:
+        if command_type == 'webdav_metadata':
+            from mangadock.services.webdav_metadata import mark_error
+            mark_error(payload)
         finish_background_command(command_id, status='error', message=str(exc))
         return False
 

@@ -1,23 +1,25 @@
 {% extends 'base.html' %}
-{% block title %}AniList 关联 - {{ comic_name }}{% endblock %}
+{% block title %}AniList {{ '资料' if metadata_mode else '关联' }} - {{ comic_name }}{% endblock %}
 {% block content %}
 <main class="md-anilist-page">
     <a class="md-anilist-back" href="{{ url_for('comic_detail', task_id=comic_name) }}">← 返回漫画</a>
     <header class="md-anilist-heading">
         <span class="md-anilist-eyebrow">ANILIST · 作品关联</span>
-        <h1>关联 AniList</h1>
+        <h1>{{ '补全封面与简介' if metadata_mode else '关联 AniList' }}</h1>
         <p>{{ comic_name }}</p>
     </header>
     {% for message in get_flashed_messages() %}<p class="md-anilist-flash">{{ message }}</p>{% endfor %}
-    {% if not account %}
+    {% if not account and not metadata_mode %}
     <section class="md-anilist-panel">
         <h2>先连接账号</h2>
         <p>连接 AniList 后，即可为这部漫画选择对应的作品。</p>
         <a class="md-btn-primary" href="{{ url_for('settings') }}">前往我的</a>
     </section>
     {% else %}
+    {% if not metadata_mode %}
     <p class="md-anilist-account">已连接 <strong>{{ account.username }}</strong><span>·</span> 本地 {{ chapter_count }} 章</p>
-    {% if link %}
+    {% endif %}
+    {% if link and not metadata_mode %}
     <section class="md-anilist-panel md-anilist-current">
         <div class="md-anilist-section-head"><span class="md-anilist-kicker">当前关联</span><span class="md-anilist-status">已关联</span></div>
         <h2><a href="https://anilist.co/manga/{{ link.media_id }}" target="_blank" rel="noopener noreferrer">{{ link.media_title }}</a></h2>
@@ -28,24 +30,39 @@
         </form>
     </section>
     {% endif %}
+    {% if metadata_mode %}
+    <section class="md-anilist-panel">
+        <p>公开资料无需连接 AniList 账号。选择条目后后台补全封面与简介，不开启进度同步。</p>
+        <p>{{ {'pending': '正在后台补全', 'completed': '资料已补全', 'unmatched': '未找到唯一精确匹配，请搜索并选择作品', 'error': '补全失败，可重试'}.get(metadata.status, '等待补全') }}{% if metadata.title %} · {{ metadata.title }}{% endif %}</p>
+        {% if metadata.media_id %}<a href="https://anilist.co/manga/{{ metadata.media_id }}" target="_blank" rel="noopener noreferrer">资料来源：AniList ↗</a>{% endif %}
+        <form method="post" action="{{ url_for('anilist_save_metadata', comic_name=comic_name) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="md-btn-ghost" type="submit">重试自动补全</button>
+        </form>
+    </section>
+    {% endif %}
     <section class="md-anilist-search-section">
         <span class="md-anilist-kicker">{{ '更换关联作品' if link else '查找作品' }}</span>
         <p class="md-anilist-help">搜索 AniList 中的作品名称，选择对应条目。</p>
         <form method="get" class="md-anilist-search">
+            {% if metadata_mode %}<input type="hidden" name="metadata" value="1">{% endif %}
             <input type="search" name="q" value="{{ query }}" maxlength="100" aria-label="搜索 AniList 漫画" placeholder="搜索作品名称">
             <button type="submit" class="md-btn-primary">搜索</button>
         </form>
     </section>
     {% if results %}<div class="md-anilist-results"><span class="md-anilist-kicker">搜索结果</span>
     {% for media in results %}
-        <form method="post" class="md-anilist-panel md-anilist-result">
+        <form method="post" {% if metadata_mode %}action="{{ url_for('anilist_save_metadata', comic_name=comic_name) }}"{% endif %} class="md-anilist-panel md-anilist-result">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="media_id" value="{{ media.id }}">
             <h2>{{ media.title.userPreferred or media.title.romaji or media.title.native }}</h2>
             <p class="md-anilist-meta">AniList ID {{ media.id }}{% if media.chapters %}<span>·</span> 总 {{ media.chapters }} 章{% endif %}<span>·</span> <a href="https://anilist.co/manga/{{ media.id }}" target="_blank" rel="noopener noreferrer">查看条目 ↗</a></p>
+            {% if metadata_mode and media.coverImage %}<img src="{{ media.coverImage.large or media.coverImage.extraLarge }}" alt="{{ media.title.userPreferred }}" loading="lazy" referrerpolicy="no-referrer" style="width:90px;border-radius:8px">{% endif %}
             <div class="md-anilist-result-actions">
+                {% if metadata_mode %}<button type="submit" class="md-btn-primary">使用此作品的封面与简介</button>{% else %}
                 <label for="first-chapter-{{ media.id }}">本地第一章对应 AniList 第 <input id="first-chapter-{{ media.id }}" type="number" name="first_chapter" min="1" max="{{ media.chapters or 100000 }}" value="{{ link.first_chapter if link and link.media_id == media.id else suggested_first_chapter }}" required> 章</label>
                 <button type="submit" class="md-btn-primary">{{ '更新关联' if link and link.media_id == media.id else '确认关联' }}</button>
+                {% endif %}
             </div>
         </form>
     {% endfor %}</div>
@@ -56,7 +73,7 @@
         <p>试试作品的原文名、英文名或罗马音。</p>
     </div>
     {% endif %}
-    <p class="md-anilist-note">关联后自动双向同步，以双方较高的已读话数为准。读完章节立即同步；打开漫画和阅读期间自动检查，后台约每 5 分钟对齐。AniList 领先时定位到下一话开头，进度相同时保留本地页码。第一章对应数字是章节号，并非当前阅读进度。</p>
+    {% if not metadata_mode %}<p class="md-anilist-note">关联后自动双向同步，以双方较高的已读话数为准。读完章节立即同步；打开漫画和阅读期间自动检查，后台约每 5 分钟对齐。AniList 领先时定位到下一话开头，进度相同时保留本地页码。第一章对应数字是章节号，并非当前阅读进度。</p>{% endif %}
     {% endif %}
 </main>
 {% endblock %}

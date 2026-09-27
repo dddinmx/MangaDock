@@ -198,3 +198,27 @@
     </div>
 </div>
 {% endblock %}
+
+{% block extra_scripts %}
+{{ super() }}
+{% if current_user and current_user.is_admin %}
+<script>
+(() => {
+    const version = {{ library_version|tojson }};
+    async function poll() {
+        try {
+            const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
+            if (!response.ok) return;
+            const data = await response.json();
+            if (version !== undefined && version !== data.version) {
+                location.reload();
+                return;
+            }
+        } catch (_) {}
+        setTimeout(poll, 2000);
+    }
+    poll();
+})();
+</script>
+{% endif %}
+{% endblock %}

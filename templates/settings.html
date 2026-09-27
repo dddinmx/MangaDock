@@ -200,14 +200,14 @@
     </section>
 
     <section class="md-setting-group">
-        <h2 class="md-setting-group__title">WebDAV</h2>
+        <h2 class="md-setting-group__title">WebDAV（测试）</h2>
         <div class="md-setting-list">
             <div class="md-setting-panel">
                 <div class="flex items-center gap-3 mb-2">
                     <span class="md-setting-row__icon"><i class="fa fa-cloud"></i></span>
                     <span class="text-base font-semibold">云端漫画库</span>
                 </div>
-                <p class="text-xs text-ink-400 mb-3">连接 Alist 或其他 WebDAV。只读取已有的 CBZ 和 PDF，不上传、不删除云端文件。打开章节时才下载到本机缓存。</p>
+                <p class="text-xs text-ink-400 mb-3">连接 Alist 或其他 WebDAV。只读取已有的 CBZ 和 PDF，不上传、不删除云端文件。打开章节时才下载到本机缓存。索引后后台通过 AniList 自动补全缺失封面与简介；未匹配的作品可在详情页手动选择。</p>
                 <form method="post" action="{{ url_for('save_webdav') }}" class="flex flex-col gap-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="url" name="url" value="{{ webdav.url }}" placeholder="地址，例如 http://127.0.0.1:5244/dav" class="md-input" required>
@@ -244,6 +244,7 @@
                         <button type="submit" class="md-btn-secondary action-press whitespace-nowrap">断开连接</button>
                     </form>
                 </div>
+                <p id="webdav-sync-progress" role="status" aria-live="polite" class="text-sm text-ink-400 mt-2"></p>
                 <p class="text-xs text-ink-400 mt-2">
                     {% if webdav.last_sync_at %}上次同步 {{ webdav.last_sync_at }}，写入 {{ webdav.comic_count }} 部，跳过本地已有 {{ webdav.skipped_count }} 部。{% else %}尚未同步。{% endif %}
                     {% if webdav.last_error %}最近失败：{{ webdav.last_error }}{% endif %}
@@ -321,4 +322,32 @@
     </section>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ super() }}
+{% if current_user and current_user.is_admin %}
+<script>
+(() => {
+    const label = document.getElementById('webdav-sync-progress');
+    if (!label) return;
+    const button = document.querySelector('form[action="{{ url_for("sync_webdav") }}"] button');
+    async function poll() {
+        try {
+            const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
+            if (!response.ok) return;
+            const data = await response.json(), p = data.progress;
+            const active = ['pending', 'running'].includes(data.status);
+            if (button) button.disabled = active;
+            label.textContent = data.status === 'pending' ? '等待后台同步，可以离开此页' :
+                data.status === 'running' && p.total === undefined ? '正在读取云端书库目录，可以离开此页' :
+                data.status === 'running' ? `正在同步 ${p.done || 0}/${p.total || 0} 部，已索引 ${p.added || 0} 部，跳过 ${p.skipped || 0} 部，失败 ${p.failed || 0} 部${p.current ? ' · ' + p.current : ''}。可以离开此页` :
+                data.message || '';
+        } catch (_) {}
+        setTimeout(poll, 2000);
+    }
+    poll();
+})();
+</script>
+{% endif %}
 {% endblock %}

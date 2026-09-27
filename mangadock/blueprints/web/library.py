@@ -28,6 +28,7 @@ from mangadock.services.groups import (
     set_admin_hidden_item,
 )
 from mangadock.services.library import (
+    comic_deletion_version,
     get_available_comics,
     get_comic_directory,
 )
@@ -39,6 +40,7 @@ from mangadock.services.reading import get_all_reading_progress
 def comics_list():
     """显示漫画库页面"""
     current_user = get_current_user()
+    library_version = str(comic_deletion_version())
     comics = get_available_comics()
     progresses = {}
     current_user_id = session.get('user_id')
@@ -137,6 +139,7 @@ def comics_list():
 
     return render_template(
         'comics.html',
+        library_version=library_version,
         tasks=page_comics,
         recent_comic=recent_comic,
         recent_progress=recent_progress,

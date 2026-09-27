@@ -3,13 +3,14 @@ from urllib.parse import urlencode
 
 from flask import flash, jsonify, redirect, render_template, request, url_for
 
-from mangadock.auth import get_current_user, login_required, require_csrf_for_session_auth
+from mangadock.auth import admin_required, get_current_user, login_required, require_csrf_for_session_auth
 from mangadock.core import app
 from mangadock.extensions import csrf, db
 from mangadock.models import AniListAccount, AniListComicLink, ReadingProgress
 from mangadock.services.anilist import CLIENT_ID, chapter_number, connect, link_manga, search_manga, sync_completed_chapter, reconcile_progress
 from mangadock.services.library import get_comic_directory, list_local_chapters
 from mangadock.services.reading import user_can_access_progress_key
+from mangadock.services.webdav_metadata import _target, metadata_view, queue_metadata, search_metadata
 
 
 @app.route('/anilist/connect', methods=['GET', 'POST'])
@@ -57,18 +58,39 @@ def anilist_match(comic_name):
     account = db.session.get(AniListAccount, user_id)
     link = AniListComicLink.query.filter_by(user_id=user_id, comic_name=comic_name).first()
     query = (request.args.get('q') or comic_name).strip()[:100]
+    metadata_mode = request.args.get('metadata') == '1' and user.is_admin and bool(_target(comic_name))
+    metadata = metadata_view(comic_name) if metadata_mode else {}
     results = []
-    if account and query:
+    if (account or metadata_mode) and query:
         try:
-            results = search_manga(query)
+            results = search_metadata(query) if metadata_mode else search_manga(query)
         except Exception:
             app.logger.exception('AniList manga search failed')
             flash('AniList 搜索暂时失败，请稍后重试')
     chapters = list_local_chapters(comic_name)
     suggested_first_chapter = chapter_number(chapters[0].get('title')) if chapters else None
     return render_template('anilist_match.html', comic_name=comic_name, account=account,
-                           link=link, query=query, results=results,
+                           link=link, query=query, results=results, metadata_mode=metadata_mode, metadata=metadata,
                            chapter_count=len(chapters), suggested_first_chapter=suggested_first_chapter or 1)
+
+
+@app.route('/anilist/metadata/<path:comic_name>', methods=['POST'])
+@login_required
+@admin_required
+def anilist_save_metadata(comic_name):
+    user = get_current_user()
+    if not user_can_access_progress_key(comic_name, user) or not _target(comic_name):
+        return render_template('error.html', message='WebDAV 漫画不存在或无权访问'), 404
+    try:
+        raw_id = request.form.get('media_id', '')
+        media_id = int(raw_id) if raw_id else None
+        if media_id is not None and media_id <= 0:
+            raise ValueError('无效条目')
+        queue_metadata(comic_name, media_id=media_id, force=True)
+        flash('封面与简介已加入后台补全队列，不会开启进度同步')
+    except ValueError:
+        flash('请选择有效的 AniList 条目')
+    return redirect(url_for('anilist_match', comic_name=comic_name, metadata='1'))
 
 
 @app.route('/anilist/match/<path:comic_name>', methods=['POST'])
@@ -87,6 +109,8 @@ def anilist_save_match(comic_name):
         if media_id <= 0 or first_chapter < 1 or first_chapter > 100000:
             raise ValueError('无效的漫画或章节号')
         link_manga(user_id, comic_name, media_id, first_chapter)
+        if user.is_admin:
+            queue_metadata(comic_name, media_id=media_id, force=True)
         flash('AniList 作品关联已保存，已启用双向同步')
         try:
             reconcile_progress(user_id, comic_name)

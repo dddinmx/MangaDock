@@ -123,6 +123,13 @@ def delete_local_comic(comic_name, expected_directory):
                 BackgroundCommand.status == 'running',
             ).first():
                 raise ValueError('后台正在检查或更新漫画，请稍后重试')
+            for command in BackgroundCommand.query.filter_by(command_type='webdav_metadata', status='running').all():
+                try:
+                    related_comic = json.loads(command.payload or '{}').get('comic_name')
+                except (ValueError, AttributeError):
+                    continue
+                if related_comic == comic_name:
+                    raise ValueError('后台正在补全这部漫画的封面与简介，请稍后再删除')
 
             identity = ComicIdentity.query.filter_by(comic_name=comic_name).first()
             cache_path = None
