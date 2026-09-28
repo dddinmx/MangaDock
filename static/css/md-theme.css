@@ -3938,6 +3938,45 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
   }
 
 }
+
+/* 矮桌面窗口：文案和书轨依次排布，内容超出屏幕时允许纵向滚动。 */
+@media (min-width: 1025px) and (hover: hover) and (pointer: fine) and (max-height: 850px) {
+  body.md-home-page {
+    height: auto;
+    overflow-y: auto;
+  }
+
+  .md-hero--figma {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .md-hero--figma .md-hero-inner {
+    position: relative;
+    inset: auto;
+    padding-top: max(7rem, 18vh);
+  }
+
+  .md-hero--figma .md-hero-copy {
+    position: relative;
+    left: auto;
+    top: auto;
+    margin-left: var(--fig-gut);
+    padding-bottom: 2rem;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .md-home-rail {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    margin-top: auto;
+  }
+}
 /* AniList 作品关联 */
 .md-anilist-page { width: min(100%, 760px); margin: 0 auto; padding: 38px 20px 72px; }
 .md-anilist-back { display: inline-block; margin-bottom: 30px; color: var(--md-muted); font-size: 14px; text-decoration: none; }
