@@ -80,9 +80,9 @@ def get_comic_scan_roots(existing_only=False):
             continue
         roots.append(normalized_path)
 
-    from mangadock.services.webdav import cache_root
+    from mangadock.services.webdav import _read_config, cache_root
     webdav_root = cache_root()
-    if webdav_root and webdav_root not in seen_roots:
+    if _read_config().get('url') and webdav_root and webdav_root not in seen_roots:
         if not existing_only or os.path.isdir(webdav_root):
             roots.append(webdav_root)
 

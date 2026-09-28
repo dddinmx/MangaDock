@@ -131,10 +131,15 @@ def control_webdav_sync():
 @login_required
 @admin_required
 def disconnect_webdav_route():
-    disconnect_webdav()
+    try:
+        disconnect_webdav()
+    except Exception:
+        app.logger.exception('WebDAV 断开后清理本地缓存失败')
+        flash('WebDAV 清理未完成，请重试断开连接；阅历统计和网盘文件未改动')
+    else:
+        flash('已断开 WebDAV，并从书架和最近阅读移除云端漫画；阅历统计已保留，云端文件未改动')
     invalidate_comics_cache()
     refresh_comics_cache(force=True)
-    flash('已断开 WebDAV。已缓存的章节还在，云端文件未改动')
     return redirect(url_for('webdav_settings'))
 
 

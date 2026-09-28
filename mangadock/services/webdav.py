@@ -143,8 +143,15 @@ def chapter_file_response(handle, filename, mimetype):
 
 def settings_view():
     config = _read_config()
+    cache = cache_root()
+    cleanup_pending = False
+    if os.path.isdir(cache):
+        with os.scandir(cache) as entries:
+            cleanup_pending = any(entry.is_dir(follow_symlinks=False) and not entry.name.startswith('.')
+                                  for entry in entries)
     return {
         'configured': bool(config.get('url')),
+        'cleanup_pending': cleanup_pending,
         'url': config.get('url') or '',
         'username': config.get('username') or '',
         'password_set': bool(config.get('password')),
@@ -210,12 +217,59 @@ def save_settings(url, username, password, root, cache_gb, keep_password=False):
 
 
 def disconnect():
+    from mangadock.extensions import db
+    from mangadock.models import ComicIdentity, ReadingProgress, ReadingSessionState
+    from mangadock.services.comic_delete import _remove_tree
+    from mangadock.services.home_banner import HOME_BANNER_DIR
+    from mangadock.services.library import get_comic_scan_roots
+
     with _config_lock():
         path = _config_path()
         try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
+            root = cache_root()
+            local_roots = [scan_root for scan_root in get_comic_scan_roots(existing_only=False)
+                           if os.path.realpath(scan_root) != os.path.realpath(root)]
+            local_roots_available = all(os.path.isdir(scan_root) for scan_root in local_roots)
+            entries = ([entry for entry in os.scandir(root)
+                        if entry.is_dir(follow_symlinks=False) and entry.name and not entry.name.startswith('.')]
+                       if os.path.isdir(root) else [])
+            names = [entry.name for entry in entries
+                     if not any(os.path.isdir(os.path.join(scan_root, entry.name)) for scan_root in local_roots)]
+            if names and local_roots_available:
+                ReadingProgress.query.filter(ReadingProgress.comic_name.in_(names)).delete(synchronize_session=False)
+                ReadingSessionState.query.filter(ReadingSessionState.comic_name.in_(names)).delete(synchronize_session=False)
+                db.session.commit()
+            if names:
+                identities = ComicIdentity.query.filter(ComicIdentity.comic_name.in_(names)).all()
+                for identity in identities:
+                    comic_id = identity.comic_id or ''
+                    if comic_id and comic_id not in ('.', '..') and os.path.basename(comic_id) == comic_id:
+                        page_cache = os.path.join(app.instance_path, 'api_page_cache', comic_id)
+                        if os.path.islink(page_cache):
+                            os.remove(page_cache)
+                        elif os.path.isdir(page_cache):
+                            _remove_tree(page_cache)
+            if names and local_roots_available:
+                for name in names:
+                    covers = (os.path.join(COVER_ROOT, name + '.jpg'),
+                              os.path.join(COVER_ROOT, 'hero', name + '.jpg'))
+                    banner_key = hashlib.sha256(name.encode('utf-8')).hexdigest()
+                    banners = glob.glob(os.path.join(HOME_BANNER_DIR, banner_key + '.*'))
+                    banners += glob.glob(os.path.join(HOME_BANNER_DIR, 'upscaled', banner_key + '-*.jpg'))
+                    for image_path in (*covers, *banners):
+                        if os.path.isfile(image_path) or os.path.islink(image_path):
+                            os.remove(image_path)
+            for entry in entries:
+                _prune_comic_cache(entry.path, blocking=True)
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+        except Exception:
+            db.session.rollback()
+            raise
+        finally:
+            _publish_library_change()
 
 
 def queue_library_sync():
@@ -913,7 +967,9 @@ def _source_id(config):
 def _stored_source_visible(payload):
     stored = str((payload or {}).get('source') or '')
     config = _read_config()
-    if not stored or not config.get('url'):
+    if not config.get('url'):
+        return False
+    if not stored:
         return True
     return stored == _source_id(config)
 
@@ -1069,20 +1125,21 @@ def _open_lock_file(identity):
     return open(os.path.join(root, digest + '.lock'), 'a+')
 
 
-def _prune_comic_cache(comic_dir):
+def _prune_comic_cache(comic_dir, blocking=False):
     """Defer directory deletion while any chapter operation is active."""
     if not is_cache_path(comic_dir):
         return False
     with _open_lock_file(comic_dir) as handle:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return False
         try:
             if os.path.isdir(comic_dir):
+                from mangadock.services.comic_delete import _remove_tree
                 from mangadock.services.webdav_metadata import clear_metadata
                 clear_metadata(comic_dir)
-                shutil.rmtree(comic_dir)
+                _remove_tree(comic_dir)
             return True
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

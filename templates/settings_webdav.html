@@ -54,19 +54,23 @@
                     <p id="webdav-cache-help" class="text-xs text-ink-400">可设置 1～200 GB。超出上限时清理较久未使用的本地缓存，不会删除网盘文件。</p>
                     <button type="submit" class="md-btn-primary action-press whitespace-nowrap md:self-start">保存连接</button>
                 </form>
-                {% if webdav.configured %}
+                {% if webdav.configured or webdav.cleanup_pending %}
                 <div class="mt-3 flex flex-col gap-2 md:flex-row">
+                    {% if webdav.configured %}
                     <form method="post" action="{{ url_for('sync_webdav') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="md-btn-ghost action-press whitespace-nowrap">
                             <i class="fa fa-refresh" style="margin-right:0.35rem"></i>同步书库
                         </button>
                     </form>
+                    {% endif %}
                     <form method="post" action="{{ url_for('disconnect_webdav_route') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="md-btn-secondary action-press whitespace-nowrap">断开连接</button>
+                        <button type="submit" class="md-btn-secondary action-press whitespace-nowrap">{{ '断开连接' if webdav.configured else '清理残留缓存' }}</button>
                     </form>
                 </div>
+                <p class="text-xs text-ink-400 mt-2">断开后会从书架和最近阅读移除云端漫画，并清理本地章节缓存；阅历统计和网盘文件会保留。</p>
+                {% if webdav.configured %}
                 <div id="webdav-sync-controls" hidden><form method="post" action="{{ url_for('control_webdav_sync') }}" class="flex gap-2 mt-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" name="action" value="pause" class="md-btn-ghost" id="webdav-sync-pause">暂停</button>
@@ -79,6 +83,7 @@
                     {% if webdav.last_sync_at %}上次同步 {{ webdav.last_sync_at }}，写入 {{ webdav.comic_count }} 部，跳过本地已有 {{ webdav.skipped_count }} 部。{% else %}尚未同步。{% endif %}
                     {% if webdav.last_error %}最近失败：{{ webdav.last_error }}{% endif %}
                 </p>
+                {% endif %}
                 {% endif %}
                 <p class="text-xs text-ink-400 mt-2">本地扫盘里已有的同名漫画会跳过。缓存按 GB 计算，空间不够时删掉最久没读的章节。连续阅读仍用阅读器原有的下一章预取。</p>
             </div>

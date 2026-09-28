@@ -68,6 +68,21 @@ class WebDavBackgroundTests(unittest.TestCase):
                 self.assertEqual(response.headers['Cache-Control'], 'no-store')
                 self.assertIn('version', response.json)
 
+    def test_disconnected_cache_shows_cleanup_button(self):
+        from mangadock.blueprints.web import settings_pages
+        with app.app_context():
+            user_id = User.query.filter_by(username='admin').first().id
+        with patch.object(settings_pages, 'webdav_settings_view', return_value={
+                'configured': False, 'cleanup_pending': True, 'cache_gb': 20,
+                'url': '', 'root': '', 'username': '', 'password_set': False,
+        }):
+            with app.test_client() as client:
+                with client.session_transaction() as session:
+                    session['user_id'] = user_id
+                response = client.get('/settings/webdav')
+                self.assertEqual(response.status_code, 200)
+                self.assertIn('清理残留缓存'.encode(), response.data)
+
     def test_published_index_invalidates_another_process_snapshot(self):
         with tempfile.TemporaryDirectory() as root, patch.object(app, 'instance_path', root):
             old_version = library.comic_deletion_version()

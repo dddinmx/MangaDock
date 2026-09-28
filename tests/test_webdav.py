@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """WebDAV 索引、目录解析和缓存清理。不访问真实服务器。"""
 import json
+import hashlib
 import os
 import tempfile
 import unittest
 import zipfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from mangadock.services.webdav import (
     WebDavError,
@@ -83,11 +84,123 @@ class WebDavListingTests(unittest.TestCase):
                 handle.write('{"chapters":[{"filename":"0002.cbz","path":"/dav/a.cbz"},'
                              '{"filename":"0001.pdf","path":"/dav/b.pdf"},'
                              '{"filename":"note.txt","path":"/dav/note.txt"}]}')
-            self.assertEqual(
-                indexed_chapter_filenames(comic),
-                ['0002.cbz', '0001.pdf', 'note.txt'],
-            )
+            with patch('mangadock.services.webdav._read_config', return_value={'url': 'http://example/dav'}):
+                self.assertEqual(
+                    indexed_chapter_filenames(comic),
+                    ['0002.cbz', '0001.pdf', 'note.txt'],
+                )
             self.assertIsNone(indexed_chapter_filenames(root))
+
+    def test_disconnected_index_does_not_list_chapters(self):
+        from mangadock.services import webdav
+        from mangadock.services import library
+        from mangadock.core import app
+        with tempfile.TemporaryDirectory() as root:
+            comic = os.path.join(root, 'webdav_comics', 'book')
+            os.makedirs(comic)
+            webdav._write_index(comic, [{'filename': '1.cbz', 'path': '/dav/1.cbz'}], 'source')
+            with app.app_context(), patch.object(app, 'instance_path', root), \
+                    patch.object(webdav, '_read_config', return_value={}):
+                self.assertEqual(indexed_chapter_filenames(comic), [])
+                self.assertNotIn(webdav.cache_root(), library.get_comic_scan_roots(existing_only=True))
+
+    def test_disconnect_removes_webdav_books_and_progress(self):
+        from mangadock.core import app
+        from mangadock.extensions import db
+        from mangadock.models import ComicIdentity, ReadingProgress, ReadingSessionState
+        from mangadock.services import home_banner, library, webdav
+        with app.app_context(), tempfile.TemporaryDirectory() as root, patch.object(app, 'instance_path', root):
+            comic = os.path.join(webdav.cache_root(), 'cloud-book')
+            os.makedirs(comic)
+            webdav._write_index(comic, [{'filename': '1.cbz', 'path': '/dav/1.cbz'}], 'source')
+            covers = os.path.join(root, 'covers')
+            os.makedirs(covers)
+            cover = os.path.join(covers, 'cloud-book.jpg')
+            with open(cover, 'wb') as handle:
+                handle.write(b'cover')
+            hero = os.path.join(covers, 'hero', 'cloud-book.jpg')
+            os.makedirs(os.path.dirname(hero))
+            with open(hero, 'wb') as handle:
+                handle.write(b'hero')
+            banners = os.path.join(root, 'banners')
+            os.makedirs(banners)
+            banner = os.path.join(banners, hashlib.sha256(b'cloud-book').hexdigest() + '.jpg')
+            with open(banner, 'wb') as handle:
+                handle.write(b'banner')
+            page_cache = os.path.join(root, 'api_page_cache', 'c_cloudbook')
+            os.makedirs(page_cache)
+            with open(os.path.join(root, 'webdav.json'), 'w') as handle:
+                handle.write('{}')
+            progress_query, session_query, identity_query = MagicMock(), MagicMock(), MagicMock()
+            identity_query.filter.return_value.all.return_value = [MagicMock(comic_id='c_cloudbook')]
+            with patch.object(library, 'get_comic_scan_roots', return_value=[webdav.cache_root()]), \
+                    patch.object(webdav, 'COVER_ROOT', covers), \
+                    patch.object(home_banner, 'HOME_BANNER_DIR', banners), \
+                    patch.object(ReadingProgress, 'query', progress_query), \
+                    patch.object(ReadingSessionState, 'query', session_query), \
+                    patch.object(ComicIdentity, 'query', identity_query), \
+                    patch.object(db.session, 'commit'):
+                webdav.disconnect()
+            self.assertFalse(os.path.exists(comic))
+            self.assertFalse(os.path.exists(cover))
+            self.assertFalse(os.path.exists(hero))
+            self.assertFalse(os.path.exists(banner))
+            self.assertFalse(os.path.exists(page_cache))
+            self.assertFalse(os.path.exists(os.path.join(root, 'webdav.json')))
+            progress_query.filter.return_value.delete.assert_called_once()
+            session_query.filter.return_value.delete.assert_called_once()
+
+    def test_disconnect_failure_keeps_connection_for_retry(self):
+        from mangadock.core import app
+        from mangadock.extensions import db
+        from mangadock.models import ComicIdentity, ReadingProgress, ReadingSessionState
+        from mangadock.services import library, webdav
+        with app.app_context(), tempfile.TemporaryDirectory() as root, patch.object(app, 'instance_path', root):
+            comic = os.path.join(webdav.cache_root(), 'cloud-book')
+            os.makedirs(comic)
+            config = {'url': 'http://example.test/dav', 'root': '', 'username': ''}
+            webdav._write_index(comic, [{'filename': '1.cbz', 'path': '/dav/1.cbz'}], webdav._source_id(config))
+            config_path = os.path.join(root, 'webdav.json')
+            with open(config_path, 'w') as handle:
+                handle.write('{}')
+            with patch.object(library, 'get_comic_scan_roots', return_value=[webdav.cache_root()]), \
+                    patch.object(webdav, 'COVER_ROOT', root), \
+                    patch.object(ReadingProgress, 'query', MagicMock()), \
+                    patch.object(ReadingSessionState, 'query', MagicMock()), \
+                    patch.object(ComicIdentity, 'query', MagicMock()), \
+                    patch.object(db.session, 'commit'), \
+                    patch.object(webdav, '_prune_comic_cache', side_effect=OSError('delete failed')):
+                with self.assertRaises(OSError):
+                    webdav.disconnect()
+            self.assertTrue(os.path.isfile(config_path))
+            self.assertTrue(webdav.settings_view()['cleanup_pending'])
+            with patch.object(library, 'get_comic_scan_roots', return_value=[webdav.cache_root()]), \
+                    patch.object(webdav, 'COVER_ROOT', root), \
+                    patch.object(ReadingProgress, 'query', MagicMock()), \
+                    patch.object(ReadingSessionState, 'query', MagicMock()), \
+                    patch.object(ComicIdentity, 'query', MagicMock()), \
+                    patch.object(db.session, 'commit'):
+                webdav.disconnect()
+            self.assertFalse(os.path.exists(comic))
+            self.assertFalse(os.path.exists(config_path))
+
+    def test_disconnect_preserves_progress_when_local_scan_root_is_offline(self):
+        from mangadock.core import app
+        from mangadock.models import ComicIdentity, ReadingProgress
+        from mangadock.services import library, webdav
+        with app.app_context(), tempfile.TemporaryDirectory() as root, patch.object(app, 'instance_path', root):
+            comic = os.path.join(webdav.cache_root(), 'shared-name')
+            os.makedirs(comic)
+            webdav._write_index(comic, [{'filename': '1.cbz', 'path': '/dav/1.cbz'}], 'source')
+            with open(os.path.join(root, 'webdav.json'), 'w') as handle:
+                handle.write('{}')
+            progress_query = MagicMock()
+            with patch.object(library, 'get_comic_scan_roots', return_value=[webdav.cache_root(), os.path.join(root, 'offline-local')]), \
+                    patch.object(ReadingProgress, 'query', progress_query), \
+                    patch.object(ComicIdentity, 'query', MagicMock()):
+                webdav.disconnect()
+            progress_query.filter.assert_not_called()
+            self.assertFalse(os.path.exists(comic))
 
     def test_eviction_removes_oldest_chapter_and_keeps_index(self):
         with tempfile.TemporaryDirectory() as root:
