@@ -1,4 +1,4 @@
-const STATIC_CACHE_NAME = 'mangadock-static-v10';
+const STATIC_CACHE_NAME = 'mangadock-static-v11';
 const PAGE_CACHE_PREFIX = 'mangadock-pages-';
 
 // 2026-09-20 code review P2：不再缓存任何 HTML 导航响应。
@@ -10,6 +10,8 @@ const PAGE_CACHE_PREFIX = 'mangadock-pages-';
 const PRECACHE_URLS = [
   '/static/favicon.png',
   '/static/logo-192.png',
+  '/static/pwa-icon-192.png',
+  '/static/pwa-icon-512.png',
   '/static/css/app.generated.css',
   '/static/css/font-awesome.min.css',
 ];
