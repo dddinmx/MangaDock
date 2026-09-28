@@ -29,6 +29,10 @@ class ReviewRegressions(unittest.TestCase):
         })
         cls.environment.start()
         sys.path.insert(0, str(root))
+        cls.previous_modules = {name: module for name, module in sys.modules.items()
+                                if name == 'mangadock' or name.startswith('mangadock.') or name == 'config'}
+        for name in cls.previous_modules:
+            sys.modules.pop(name)
         from mangadock import app, db
         from mangadock import auth, models
         from mangadock.services import groups, home_banner, library, updates
@@ -45,6 +49,10 @@ class ReviewRegressions(unittest.TestCase):
         with cls.app.app_context():
             cls.db.session.remove()
             cls.db.engine.dispose()
+        for name in list(sys.modules):
+            if name == 'mangadock' or name.startswith('mangadock.') or name == 'config':
+                sys.modules.pop(name)
+        sys.modules.update(cls.previous_modules)
         sys.path.pop(0)
         cls.environment.stop()
         cls.workspace.cleanup()
@@ -103,12 +111,64 @@ class ReviewRegressions(unittest.TestCase):
             metadata = client.get(url).json
             self.assertEqual(metadata['pages'], 3)
             self.assertEqual(metadata['dimensions'], [[720, 800], [0, 0], [0, 0]])
-            self.assertEqual(client.get(url + '?page=0').data, first_page)
+            first_response = client.get(url + '?page=0')
+            self.assertEqual(first_response.data, first_page)
+            self.assertEqual(first_response.headers['Cache-Control'], 'private, no-cache')
+            etag = first_response.headers['ETag']
+            with patch.object(reader, '_read_cbz_page', side_effect=AssertionError('reopened archive')):
+                cached = client.get(url + '?page=0', headers={'If-None-Match': etag})
+            self.assertEqual(cached.status_code, 304)
+            self.assertEqual(cached.headers['ETag'], etag)
             self.assertEqual(client.get(url + '?page=1').data, b'second-page')
             self.assertEqual(client.get(url + '?page=3').status_code, 404)
             self.groups.set_user_group_permissions(user.id, [])
-            with patch('mangadock.services.webdav.chapter_access', side_effect=AssertionError('downloaded')):
+            with patch('mangadock.services.webdav_cbz.read_remote_cbz', side_effect=AssertionError('downloaded')):
                 self.assertEqual(client.get(url + '?page=0').status_code, 403)
+
+    def test_webdav_cached_page_revalidates_without_reading_ranges(self):
+        from mangadock.blueprints.web import reader
+        from mangadock.services import webdav
+
+        user = self.models.User(username='webdav-cache-test', role='user')
+        user.set_password('test-password')
+        self.db.session.add(user)
+        self.db.session.commit()
+        self.groups.set_user_group_permissions(user.id, ['默认分组'])
+        root = Path(self.workspace.name) / 'webdav-cache-test'
+        comic = root / 'Book'
+        comic.mkdir(parents=True)
+        chapter = comic / '1.cbz'
+        config = {'url': 'http://localhost/dav', 'root': '/book', 'username': 'user', 'password': 'secret'}
+        indexed = {'filename': '1.cbz', 'path': '/book/1.cbz', 'size': 1024, 'etag': '"v1"'}
+        source = webdav._source_id(config)
+        webdav._write_index(str(comic), [indexed], source)
+        client = self.app.test_client()
+        with client.session_transaction() as session:
+            session['user_id'] = user.id
+        url = '/api/comic-pages/Book/1.cbz?page=0'
+        with patch.object(webdav, 'cache_root', return_value=str(root)), \
+             patch.object(webdav, '_read_config', return_value=config), \
+             patch.object(reader, 'resolve_comic_file_request',
+                          return_value={'comic_name': 'Book', 'file_path': str(chapter)}), \
+             patch.object(reader, 'get_comic_group_map', return_value={'Book': '默认分组'}), \
+             patch('mangadock.services.webdav_cbz.read_remote_cbz',
+                   return_value=(['0.jpg'], [], '0.jpg', b'cached-image')) as read:
+            first = client.get(url)
+            self.assertEqual(first.data, b'cached-image')
+            self.assertEqual(first.headers['Cache-Control'], 'private, no-cache')
+            etag = first.headers['ETag']
+            cached = client.get(url, headers={'If-None-Match': etag})
+            self.assertEqual(cached.status_code, 304)
+            read.assert_called_once()
+            chapter.write_bytes(b'old cached chapter')
+            webdav._write_cache_meta(str(chapter), indexed, source)
+            webdav._write_index(str(comic), [{**indexed, 'etag': '"v2"'}], source)
+            changed = client.get(url, headers={'If-None-Match': etag})
+            self.assertEqual(changed.status_code, 200)
+            self.assertNotEqual(changed.headers['ETag'], etag)
+            self.assertEqual(read.call_count, 2)
+            self.groups.set_user_group_permissions(user.id, [])
+            self.assertEqual(client.get(url, headers={'If-None-Match': etag}).status_code, 403)
 
     def test_cached_auth_only_writes_when_failures_exist(self):
         from sqlalchemy import event

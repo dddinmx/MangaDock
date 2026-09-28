@@ -5,6 +5,8 @@ import mimetypes
 import re
 import zipfile
 import io
+import hashlib
+import json
 from functools import lru_cache
 
 from PIL import Image
@@ -467,6 +469,37 @@ def cbz_page_manifest(file_path, source_version):
     return tuple(images), tuple(dimensions)
 
 
+def _cbz_page_etag(file_path, page):
+    if not page or not page.isdecimal():
+        return None
+    if is_cache_path(file_path):
+        from mangadock.services import webdav
+        payload = webdav._read_index_payload(os.path.dirname(file_path))
+        config = webdav._read_config()
+        source = webdav._source_id(config) if config.get('url') else payload['source']
+        if not source or payload['source'] != source:
+            return None
+        chapter = next((item for item in payload['chapters']
+                        if item.get('filename') == os.path.basename(file_path)), None)
+        if not chapter:
+            return None
+        if webdav._cache_matches(file_path, chapter, source):
+            version = webdav.cached_chapter_version(file_path)
+            if version is None:
+                return None
+        else:
+            if not config.get('url') or not config.get('password'):
+                return None
+            validator = chapter.get('etag') or ''
+            if not ((validator and not validator.startswith('W/')) or chapter.get('modified')):
+                return None
+            version = webdav._chapter_identity(chapter, source)
+    else:
+        version = api_page_source_version(file_path)
+    signature = json.dumps([version, page], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(signature.encode('utf-8')).hexdigest()
+
+
 @app.route('/api/comic-pages/<path:filename>')
 @login_required
 def comic_pages(filename):
@@ -478,6 +511,14 @@ def comic_pages(filename):
     current_group = get_comic_group_map().get(resolved_file['comic_name']) or '默认分组'
     if not can_user_access_group(current_group, get_current_user()):
         return jsonify({'error': '当前账号未被授权访问该分组漫画'}), 403
+
+    page = request.args.get('page')
+    etag = _cbz_page_etag(resolved_file['file_path'], page)
+    if etag and request.if_none_match.contains(etag):
+        response = Response(status=304)
+        response.set_etag(etag)
+        response.headers['Cache-Control'] = 'private, no-cache'
+        return response
 
     from mangadock.services.webdav import chapter_access, WebDavError
     from mangadock.services.webdav_cbz import read_remote_cbz, RemoteReadInterrupted
@@ -502,7 +543,9 @@ def comic_pages(filename):
     if image_data is None:
         return jsonify({'pages': len(images), 'dimensions': dimensions})
     response = Response(image_data, mimetype=mimetypes.guess_type(image_name)[0] or 'application/octet-stream')
-    response.headers['Cache-Control'] = 'private, no-store'
+    if etag:
+        response.set_etag(etag)
+    response.headers['Cache-Control'] = 'private, no-cache'
     return response
 
 
