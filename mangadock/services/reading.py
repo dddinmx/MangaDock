@@ -7,11 +7,52 @@ from mangadock.core import app
 from mangadock.extensions import db
 from mangadock.models import ReadingProgress, ReadingSessionState, ReadingTime
 from mangadock.settings import china_tz
+from sqlalchemy import or_, update as sa_update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert  # 并发 upsert 用
 
 MAX_PROGRESS_KEY_LENGTH = 255
 MAX_READING_REPORT_SECONDS = 8 * 60 * 60
 MAX_READING_DELTA_SECONDS = 15 * 60
+MAX_CLIENT_PROGRESS_MS = 9_007_199_254_740_991  # JS Number.MAX_SAFE_INTEGER
+
+
+def _client_progress_ms(value):
+    """解析客户端快照时钟。缺失或无法解析时返回 None，表示沿用到达顺序。"""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if parsed < 0 or parsed > MAX_CLIENT_PROGRESS_MS:
+        return None
+    return parsed
+
+
+def _progress_order():
+    # 同一本书若短暂存在重复行，以客户端快照时钟而不是请求到达时间分先后。
+    return (
+        ReadingProgress.client_progress_ms.desc(),
+        ReadingProgress.last_read_at.desc(),
+        ReadingProgress.id.desc(),
+    )
+
+
+def _progress_snapshot(progress, stale):
+    return {
+        'chapter_index': progress.last_chapter or 0,
+        'page_index': progress.last_page or 0,
+        'scroll_position': progress.scroll_position or 0,
+        'anchor_paragraph': progress.anchor_paragraph,
+        'anchor_offset': progress.anchor_offset,
+        'total_chapters': progress.total_chapters or 0,
+        'total_pages': progress.total_pages or 0,
+        'updated_at': _format_api_datetime(progress.last_read_at),
+        'client_progress_ms': progress.client_progress_ms,
+        'stale': stale,
+    }
 
 
 def user_can_access_progress_key(progress_key, user):
@@ -40,78 +81,101 @@ def _format_api_datetime(value):
     return normalized.isoformat() if normalized else None
 
 
+def note_server_progress_write(progress):
+    """服务端主动改写进度时把时钟推到现在，避免更早的阅读器快照再盖回来。"""
+    now_ms = int(datetime.now(china_tz).timestamp() * 1000)
+    if now_ms > MAX_CLIENT_PROGRESS_MS:
+        now_ms = MAX_CLIENT_PROGRESS_MS
+    if progress.client_progress_ms is None or now_ms > progress.client_progress_ms:
+        progress.client_progress_ms = now_ms
+
+
 def get_reading_progress(comic_name, user_id):
     """获取漫画阅读进度"""
     with app.app_context():
         return ReadingProgress.query.filter_by(
             comic_name=comic_name,
             user_id=user_id
-        ).order_by(
-            ReadingProgress.last_read_at.desc(),
-            ReadingProgress.id.desc()
-        ).first()
+        ).order_by(*_progress_order()).first()
 
 def save_reading_progress(
     comic_name, chapter, page, scroll_position, total_chapters, total_pages, user_id,
-    anchor_paragraph=None, anchor_offset=None
+    anchor_paragraph=None, anchor_offset=None, client_progress_ms=None,
 ):
-    """保存阅读进度 - 修复��数顺序"""
+    """保存阅读进度。
+
+    client_progress_ms 是客户端生成这份快照时的时钟。更小的值视为迟到请求，
+    不覆盖已经记下的进度；用户主动翻回旧章节时，新快照会带上更大的时钟。
+    已经有时钟的进度，也不会被没带时钟的旧请求覆盖。双方都没有时钟时才按到达顺序覆盖。
+    """
     with app.app_context():
         now = datetime.now(china_tz)
+        incoming_ms = _client_progress_ms(client_progress_ms)
         progress_records = ReadingProgress.query.filter_by(
             comic_name=comic_name,
             user_id=user_id
-        ).order_by(
-            ReadingProgress.last_read_at.desc(),
-            ReadingProgress.id.desc()
-        ).all()
+        ).order_by(*_progress_order()).all()
 
         progress = progress_records[0] if progress_records else None
-        if progress:
-            progress.last_chapter = chapter
-            progress.last_page = page
-            progress.scroll_position = scroll_position
-            progress.total_chapters = total_chapters
-            progress.total_pages = total_pages
-            progress.last_read_at = now
-            if anchor_paragraph is not None and anchor_offset is not None:
-                progress.anchor_paragraph = anchor_paragraph
-                progress.anchor_offset = anchor_offset
+        stored_ms = progress.client_progress_ms if progress is not None else None
+        if stored_ms is not None and (incoming_ms is None or incoming_ms < stored_ms):
+            return _progress_snapshot(progress, stale=True)
 
-            for duplicate_progress in progress_records[1:]:
-                db.session.delete(duplicate_progress)
-        else:
-            progress = ReadingProgress(
-                user_id=user_id,
-                comic_name=comic_name,
-                last_chapter=chapter,
-                last_page=page,
-                scroll_position=scroll_position,
-                total_chapters=total_chapters,
-                total_pages=total_pages,
-                anchor_paragraph=anchor_paragraph,
-                anchor_offset=anchor_offset,
-                last_read_at=now
-            )
-            db.session.add(progress)
-        db.session.commit()
-        return {
-            'chapter_index': chapter,
-            'page_index': page,
+        for duplicate_progress in progress_records[1:]:
+            db.session.delete(duplicate_progress)
+
+        values = {
+            'last_chapter': chapter,
+            'last_page': page,
             'scroll_position': scroll_position,
-            'anchor_paragraph': anchor_paragraph,
-            'anchor_offset': anchor_offset,
             'total_chapters': total_chapters,
             'total_pages': total_pages,
-            'updated_at': _format_api_datetime(now),
+            'last_read_at': now,
         }
+        if anchor_paragraph is not None and anchor_offset is not None:
+            values['anchor_paragraph'] = anchor_paragraph
+            values['anchor_offset'] = anchor_offset
+        if incoming_ms is not None:
+            values['client_progress_ms'] = incoming_ms
+
+        if progress is None:
+            progress = ReadingProgress(user_id=user_id, comic_name=comic_name, **values)
+            db.session.add(progress)
+            db.session.commit()
+            return _progress_snapshot(progress, stale=False)
+
+        # 条件更新避免两个在途请求都读到旧时钟后，迟到的那个把新进度盖掉。
+        stmt = sa_update(ReadingProgress).where(ReadingProgress.id == progress.id)
+        if incoming_ms is not None:
+            stmt = stmt.where(or_(
+                ReadingProgress.client_progress_ms.is_(None),
+                ReadingProgress.client_progress_ms <= incoming_ms,
+            ))
+        else:
+            stmt = stmt.where(ReadingProgress.client_progress_ms.is_(None))
+        result = db.session.execute(stmt.values(**values))
+        if result.rowcount == 0:
+            db.session.rollback()
+            current = ReadingProgress.query.filter_by(
+                comic_name=comic_name,
+                user_id=user_id,
+            ).order_by(*_progress_order()).first()
+            if current is not None:
+                return _progress_snapshot(current, stale=True)
+            progress = ReadingProgress(user_id=user_id, comic_name=comic_name, **values)
+            db.session.add(progress)
+            db.session.commit()
+            return _progress_snapshot(progress, stale=False)
+
+        db.session.commit()
+        db.session.refresh(progress)
+        return _progress_snapshot(progress, stale=False)
 
 def get_all_reading_progress(user_id):
     """获取所有阅读进度"""
     with app.app_context():
         progress_rows = ReadingProgress.query.filter_by(user_id=user_id).order_by(
-            ReadingProgress.last_read_at.desc(),
-            ReadingProgress.id.desc()
+            *_progress_order()
         ).all()
 
         latest_progress_by_comic = {}

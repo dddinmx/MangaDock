@@ -103,22 +103,23 @@
     async function poll() {
         try {
             const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
-            if (!response.ok) return;
-            const data = await response.json(), p = data.progress;
-            const active = ['pending', 'running'].includes(data.status);
-            if (button) button.disabled = active;
-            document.getElementById('webdav-sync-controls').hidden = !active;
-            const pause = document.getElementById('webdav-sync-pause');
-            pause.value = p._paused ? 'resume' : 'pause';
-            pause.textContent = p._paused ? '继续' : '暂停';
-            const m = data.metadata;
-            document.getElementById('webdav-metadata-progress').textContent = m.total ? `资料补全：已完成 ${m.completed} 部，未匹配 ${m.unmatched} 部，部分完成 ${m.partial} 部，失败 ${m.error} 部，处理中或排队 ${m.pending} 部` : '';
-            label.textContent = p._cancelled && active ? '正在取消，将在当前请求结束后停止，保留已索引的漫画' :
-                p._paused && active ? '同步已请求暂停，将在当前请求结束后暂停；已索引的漫画可以阅读' :
-                data.status === 'pending' ? '等待后台同步，可以离开此页' :
-                data.status === 'running' && p.total === undefined ? '正在读取云端书库目录，可以离开此页' :
-                data.status === 'running' ? `正在同步 ${p.done || 0}/${p.total || 0} 部，已索引 ${p.added || 0} 部，跳过 ${p.skipped || 0} 部，失败 ${p.failed || 0} 部${p.current ? ' · ' + p.current : ''}。可以离开此页` :
-                data.message || '';
+            if (response.ok) {
+                const data = await response.json(), p = data.progress;
+                const active = ['pending', 'running'].includes(data.status);
+                if (button) button.disabled = active;
+                document.getElementById('webdav-sync-controls').hidden = !active;
+                const pause = document.getElementById('webdav-sync-pause');
+                pause.value = p._paused ? 'resume' : 'pause';
+                pause.textContent = p._paused ? '继续' : '暂停';
+                const m = data.metadata;
+                document.getElementById('webdav-metadata-progress').textContent = m.total ? `资料补全：已完成 ${m.completed} 部，未匹配 ${m.unmatched} 部，部分完成 ${m.partial} 部，失败 ${m.error} 部，处理中或排队 ${m.pending} 部` : '';
+                label.textContent = p._cancelled && active ? '正在取消，将在当前请求结束后停止，保留已索引的漫画' :
+                    p._paused && active ? '同步已请求暂停，将在当前请求结束后暂停；已索引的漫画可以阅读' :
+                    data.status === 'pending' ? '等待后台同步，可以离开此页' :
+                    data.status === 'running' && p.total === undefined ? '正在读取云端书库目录，可以离开此页' :
+                    data.status === 'running' ? `正在同步 ${p.done || 0}/${p.total || 0} 部，已索引 ${p.added || 0} 部，跳过 ${p.skipped || 0} 部，失败 ${p.failed || 0} 部${p.current ? ' · ' + p.current : ''}。可以离开此页` :
+                    data.message || '';
+            }
         } catch (_) {}
         setTimeout(poll, 2000);
     }

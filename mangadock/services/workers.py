@@ -51,14 +51,19 @@ def start_update_task(comic_name, comic_format, url, created_by_user_id=None):
     return task_id
 
 
-def start_novel_task(book_id, title=None):
+def start_novel_task(book_id, title=None, created_by_user_id=None):
     """把番茄小说加入后台队列，返回 (task_id, reused)。
+
+    同一本书已有在途任务时不重复入队。调用者看不到该任务（例如别人创建的）
+    时 task_id 为 None，避免把别人的任务号交出去。
 
     与 ``/novels/fanqie/download`` 走同一条流水线（``fanqie://<book_id>`` 前缀 →
     ``execute_fanqie_task``）。统一下载入口判定出「番茄小说」后调用这里，
     保证两条入口产生的任务形态完全一致（进度页据此显示小说封面与小说书架入口）。
     """
+    from mangadock.models import User
     from mangadock.services.fanqie import fanqie_task_url
+    from mangadock.services.groups import can_user_access_task
     from mangadock.services.novels import get_novel_by_fanqie_id
 
     with app.app_context():
@@ -68,7 +73,10 @@ def start_novel_task(book_id, title=None):
             DownloadTask.status.in_(('pending', 'running')),
         ).order_by(DownloadTask.created_at.asc()).first()
         if active_task:
-            return active_task.id, True
+            creator = db.session.get(User, created_by_user_id) if created_by_user_id else None
+            if can_user_access_task(active_task, creator):
+                return active_task.id, True
+            return None, True
 
         existing_novel = get_novel_by_fanqie_id(book_id)
         task_id = create_task(
@@ -76,6 +84,7 @@ def start_novel_task(book_id, title=None):
             0,
             is_update=bool(existing_novel),
             comic_name=(existing_novel['title'] if existing_novel else title),
+            created_by_user_id=created_by_user_id,
         )
         update_task(task_id, log="番茄小说任务已加入后台队列")
         return task_id, False
@@ -256,11 +265,29 @@ def execute_download_task(task_id):
     return True
 
 
+def _process_is_alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def recover_background_queue_state():
     with app.app_context():
         running_tasks = DownloadTask.query.filter_by(status='running').all()
         for task in running_tasks:
+            # 命令 worker 单独重启时，下载 worker 还活着，不能把它们正在跑的任务退回队列。
+            if _process_is_alive(task.worker_pid):
+                continue
             task.status = 'pending'
+            task.worker_pid = None
             task.end_time = None
             task.log = (task.log or '') + '检测到服务重启，任务已重新加入队列\n'
 
@@ -347,7 +374,9 @@ def run_task_worker(worker_index):
                 finally:
                     try:
                         with app.app_context():
-                            DownloadTask.query.filter_by(id=task_id).update({'worker_pid': None})
+                            DownloadTask.query.filter_by(
+                                id=task_id, worker_pid=os.getpid(),
+                            ).update({'worker_pid': None})
                             db.session.commit()
                     except Exception as exc:
                         print(f'任务 {task_id} 释放 worker 标记失败：{exc}')

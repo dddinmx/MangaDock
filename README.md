@@ -29,7 +29,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:2.11.15`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.15` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.16`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.16` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 
@@ -76,7 +76,7 @@ docker compose up -d
 docker compose logs -f mangadock
 ```
 
-访问 `http://127.0.0.1:5001`。管理员用户名为 `admin`；如果首次启动时未设置 `MANGADOCK_ADMIN_PASSWORD`，系统会在容器日志中输出随机密码。
+访问 `http://127.0.0.1:5001`。管理员用户名为 `admin`；如果首次启动时未设置 `MANGADOCK_ADMIN_PASSWORD`，系统会将随机密码写入持久化的 `/app/instance/initial_admin_password` 文件。登录后请修改密码并删除该文件。
 
 ### 网络与代理
 
@@ -91,6 +91,7 @@ docker compose logs -f mangadock
 ```
 
 - **漫画柜**的图片图床 `*.hamreus.com` 在中国大陆无法直连，必须经代理，否则章节会下载失败。  
+- 只有在应用前面部署了一层可信反向代理时，才设置 `MANGADOCK_TRUST_PROXY=true`，让应用读取代理转发的地址和 HTTPS 请求头。
 
 ### 番茄功能
 

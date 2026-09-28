@@ -8,7 +8,7 @@ from flask import (
     url_for,
 )
 
-from mangadock.auth import admin_required, get_current_user, login_required
+from mangadock.auth import admin_required, get_current_user, invalidate_user_sessions, login_required, new_session_version
 from mangadock.core import app
 from mangadock.extensions import db
 from mangadock.models import (
@@ -26,6 +26,7 @@ from mangadock.services.groups import (
     get_user_group_permissions,
     set_user_group_permissions,
 )
+from mangadock.services.tasks import retire_user_tasks
 
 
 @app.route('/users', methods=['GET', 'POST'])
@@ -57,7 +58,7 @@ def users():
             flash('用户名已存在')
             return redirect(url_for('users'))
 
-        user = User(username=username, role=role)
+        user = User(username=username, role=role, session_version=new_session_version())
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
@@ -142,6 +143,7 @@ def reset_user_password(user_id):
         return redirect(url_for('user_detail', user_id=user.id))
 
     user.set_password(password)
+    invalidate_user_sessions(user)
     db.session.commit()
     flash(f'已重置 {user.username} 的密码')
     return redirect(url_for('user_detail', user_id=user.id))
@@ -189,6 +191,7 @@ def delete_user(user_id):
         flash('不能删除管理员账号')
         return redirect(url_for('user_detail', user_id=user.id))
 
+    retire_user_tasks(user.id)
     db.session.query(ReadingProgress).filter_by(user_id=user.id).delete(synchronize_session=False)
     db.session.query(AniListComicLink).filter_by(user_id=user.id).delete(synchronize_session=False)
     db.session.query(AniListAccount).filter_by(user_id=user.id).delete(synchronize_session=False)

@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from mangadock.services.fanqie_api import FanqieApiError, get_client
-from mangadock.services.tasks import get_task, update_task
+from mangadock.services.tasks import finalize_task_status, get_task, is_task_cancel_requested, update_task
 from mangadock.settings import FANQIE_API_MAX_POLL_SECONDS, FANQIE_API_POLL_INTERVAL, NOVEL_ROOT, china_tz
 from mangadock.utils.media import sanitize_filename
 
@@ -212,26 +212,26 @@ def execute_fanqie_task(task_id: str) -> bool:
         _check_cancelled(task_id, api_job_id)
         os.replace(temporary, destination)
         temporary = None
+        if is_task_cancel_requested(task_id):
+            update_task(task_id, log="任务已取消，临时文件已清理")
+            return False
+        if not finalize_task_status(task_id, "completed", f"已入库，可在小说书架阅读：{destination.name}"):
+            return False
         update_task(
             task_id,
-            status="completed",
             progress_percent=100,
             completed_chapters=int(api_job.get("total_items") or 0),
             total_chapters=int(api_job.get("total_items") or 0),
-            end_time=datetime.now(china_tz),
-            log=f"已入库，可在小说书架阅读：{destination.name}",
         )
         return True
     except FanqieTaskCancelled:
         update_task(task_id, log="任务已取消，临时文件已清理")
         return False
     except Exception as exc:
-        update_task(
-            task_id,
-            status="error",
-            end_time=datetime.now(china_tz),
-            log=f"番茄小说任务失败：{exc}",
-        )
+        if is_task_cancel_requested(task_id):
+            update_task(task_id, log="任务已取消，临时文件已清理")
+            return False
+        finalize_task_status(task_id, "error", f"番茄小说任务失败：{exc}")
         return False
     finally:
         if temporary:

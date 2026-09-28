@@ -383,7 +383,7 @@ class WebDavMetadataTests(unittest.TestCase):
             self.assertIn(b'/settings/scan_paths', response.data)
             self.assertIn(b'name="cache_gb"', client.get('/settings/webdav').data)
             self.assertIn(b'name="scan_path"', client.get('/settings/scan_paths').data)
-            user = SimpleNamespace(id=admin_id, role='user', is_admin=False)
+            user = SimpleNamespace(id=admin_id, role='user', is_admin=False, session_version=1)
             with patch('mangadock.auth.db.session.get', return_value=user):
                 for route in ('/settings/webdav', '/settings/scan_paths'):
                     response = client.get(route)

@@ -304,6 +304,7 @@ def fanqie_novel_download():
         comic_name=existing['title'] if existing else (
             metadata.get('title') or request.form.get('title') or f'番茄小说 {book_id}'
         ),
+        created_by_user_id=session.get('user_id'),
     )
     update_task(task_id, log='番茄小说任务已加入后台队列')
     flash('已加入更新队列' if existing else '已加入下载队列，完成后会自动出现在小说书架')
@@ -369,6 +370,10 @@ def novel_reader(novel_id):
         novel=novel,
         chapter=chapter,
         saved_page=progress.last_page if progress and progress.last_chapter == chapter_index else 0,
+        server_progress_ms=(
+            progress.client_progress_ms
+            if progress and progress.last_chapter == chapter_index else None
+        ),
         saved_anchor_paragraph=progress.anchor_paragraph if progress and progress.last_chapter == chapter_index else None,
         saved_anchor_offset=progress.anchor_offset if progress and progress.last_chapter == chapter_index else None,
         progress_key=novel_progress_key(novel_id),

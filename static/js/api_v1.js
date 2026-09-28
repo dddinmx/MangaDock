@@ -46,6 +46,9 @@
         if (payload.message) {
             return payload.message;
         }
+        if (payload.data && payload.data.message) {
+            return payload.data.message;
+        }
         return fallback || '请求失败';
     }
 

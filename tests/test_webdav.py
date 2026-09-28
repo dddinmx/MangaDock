@@ -706,7 +706,7 @@ class WebDavListingTests(unittest.TestCase):
 
     def test_saving_smaller_limit_triggers_cleanup(self):
         from mangadock.services import webdav
-        current = {'url': 'http://a/dav', 'username': 'alice', 'password': 'dummy', 'root': '/book', 'cache_gb': 20}
+        current = {'url': 'http://127.0.0.1/dav', 'username': 'alice', 'password': 'dummy', 'root': '/book', 'cache_gb': 20}
         with tempfile.TemporaryDirectory() as root, \
                 patch.object(webdav.app, 'instance_path', root), \
                 patch.object(webdav, '_read_config', return_value=current), \

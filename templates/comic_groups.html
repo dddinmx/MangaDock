@@ -24,7 +24,7 @@
 <section class="md-novel-group-panel">
     <div>
         <h2 class="md-section-title !mb-1">分组</h2>
-        <p class="md-page-sub">删除分组不会删除漫画，分组内漫画会回到默认分组。</p>
+        <p class="md-page-sub">删除分组不会删除漫画。这些漫画会暂时只对管理员可见，需要重新分配分组后，普通用户才能继续阅读。</p>
     </div>
     <form method="post" action="{{ url_for('create_comic_group') }}" class="md-novel-group-create">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -39,7 +39,7 @@
                 <strong>{{ group_counts.get(group_name, 0) }}</strong>
             </a>
             {% if group_name != '默认分组' %}
-            <form method="post" action="{{ url_for('remove_comic_group') }}" onsubmit="return confirm('删除这个分组？其中漫画会移回默认分组。')">
+            <form method="post" action="{{ url_for('remove_comic_group') }}" onsubmit="return confirm('删除这个分组？其中漫画会暂时只对管理员可见，需要重新分配后普通用户才能阅读。')">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="group_name" value="{{ group_name }}">
                 <button type="submit" aria-label="删除分组 {{ group_name }}"><i class="fa fa-times"></i></button>

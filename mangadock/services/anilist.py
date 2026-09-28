@@ -183,8 +183,9 @@ def _reconcile_locked(user_id, comic_name, chapters):
     link = AniListComicLink.query.filter_by(user_id=user_id, comic_name=comic_name).first()
     if not link or link.media_id != media_id:
         return False
+    from mangadock.services.reading import _progress_order
     progress = ReadingProgress.query.filter_by(user_id=user_id, comic_name=comic_name).order_by(
-        ReadingProgress.last_read_at.desc(), ReadingProgress.id.desc()).first()
+        *_progress_order()).first()
     cursor_completed = _chapter_progress(chapters, link.first_chapter,
                                         progress.last_chapter - 1) if progress else 0
     target = max(link.completed_progress, link.synced_progress, cursor_completed)
@@ -202,7 +203,7 @@ def _reconcile_locked(user_id, comic_name, chapters):
     merged = max(target, remote_progress)
     db.session.expire_all()
     progress = ReadingProgress.query.filter_by(user_id=user_id, comic_name=comic_name).order_by(
-        ReadingProgress.last_read_at.desc(), ReadingProgress.id.desc()).first()
+        *_progress_order()).first()
     # An imported completed chapter resumes at the next available main chapter.
     numbers = [_chapter_progress(chapters, link.first_chapter, i) for i in range(len(chapters))]
     resume = next((i for i, n in enumerate(numbers) if n > merged), len(chapters) - 1)
@@ -218,6 +219,8 @@ def _reconcile_locked(user_id, comic_name, chapters):
         progress.anchor_paragraph = None
         progress.anchor_offset = None
         progress.last_read_at = datetime.now(china_tz)
+        from mangadock.services.reading import note_server_progress_write
+        note_server_progress_write(progress)
     link.completed_progress = merged
     link.synced_progress = merged
     db.session.commit()

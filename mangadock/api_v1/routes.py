@@ -20,6 +20,8 @@ from mangadock.api_v1.common import (
 from mangadock.auth import (
     api_datetime,
     api_login_required,
+    invalidate_user_sessions,
+    new_session_version,
     authenticate_api_credentials,
     establish_user_session,
     get_api_authenticated_user,
@@ -81,6 +83,7 @@ from mangadock.services.tasks import (
     get_all_tasks,
     get_task,
     normalize_comic_url_identity,
+    retire_user_tasks,
     update_task,
 )
 from mangadock.services.updates import (
@@ -412,16 +415,23 @@ def register_routes(bp):
 
         if fanqie_target and fanqie_target['kind'] == 'novel':
             task_id, reused = start_novel_task(
-                fanqie_target['book_id'], title=fanqie_target['title'],
+                fanqie_target['book_id'],
+                title=fanqie_target['title'],
+                created_by_user_id=requester.id,
             )
-            task = get_task(task_id)
-            return api_ok({
+            task = get_task(task_id) if task_id else None
+            payload = {
                 'task_id': task_id,
                 'media_kind': 'novel',
                 'media_label': fanqie_target['media_label'],
                 'reused': reused,
                 'task': _serialize_task(task) if task else None,
-            }, status=200 if reused else 201)
+            }
+            extra = {}
+            if not task_id:
+                payload['message'] = '这本小说已在下载队列中，完成后会出现在小说书架'
+                extra['message'] = payload['message']
+            return api_ok(payload, status=200 if reused else 201, **extra)
 
         try:
             task_id = start_download_task(
@@ -812,7 +822,7 @@ def register_routes(bp):
         if User.query.filter_by(username=username).first():
             return api_fail('USERNAME_EXISTS', '用户名已存在', 409)
 
-        user = User(username=username, role=role)
+        user = User(username=username, role=role, session_version=new_session_version())
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
@@ -835,6 +845,7 @@ def register_routes(bp):
         if user.role == 'admin':
             return api_fail('FORBIDDEN', '不能删除管理员账号', 403)
 
+        retire_user_tasks(user.id)
         db.session.query(ReadingProgress).filter_by(user_id=user.id).delete(synchronize_session=False)
         db.session.query(AniListComicLink).filter_by(user_id=user.id).delete(synchronize_session=False)
         db.session.query(AniListAccount).filter_by(user_id=user.id).delete(synchronize_session=False)
@@ -896,6 +907,7 @@ def register_routes(bp):
             return api_fail('INVALID_PASSWORD', '新密码长度不能少于6位')
 
         user.set_password(new_password)
+        invalidate_user_sessions(user)
         db.session.commit()
         session.clear()
         return api_ok({

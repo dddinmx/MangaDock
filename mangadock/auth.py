@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import os
+import secrets
 import threading
 import time
 from dataclasses import dataclass
@@ -50,6 +51,35 @@ def make_api_request_user(user):
         can_view_adult=bool(getattr(user, 'can_view_adult', False)),
     )
 
+LEGACY_SESSION_VERSION = 1
+
+
+def new_session_version():
+    """新会话版本。避开 1，1 只留给升级前已经在用的账号。"""
+    return secrets.randbits(30) + 2
+
+
+def invalidate_user_sessions(user):
+    user.session_version = new_session_version()
+
+
+def session_matches_user(user):
+    """Cookie 里的版本必须等于用户当前版本。缺版本号只放行仍是旧版本的账号。"""
+    if not user:
+        return False
+    expected = int(user.session_version or LEGACY_SESSION_VERSION)
+    token = session.get('session_version')
+    if token is None:
+        if expected != LEGACY_SESSION_VERSION:
+            return False
+        session['session_version'] = LEGACY_SESSION_VERSION
+        return True
+    try:
+        return int(token) == expected
+    except (TypeError, ValueError):
+        return False
+
+
 def login_required(f):
     """登录认证装饰器：验证用户是否已登录"""
     @wraps(f)
@@ -58,7 +88,7 @@ def login_required(f):
             # 保存当前访问地址，登录后重定向回来
             return redirect(url_for("login", next=get_login_redirect_target()))
         user = db.session.get(User, session.get('user_id'))
-        if not user:
+        if not user or not session_matches_user(user):
             session.clear()
             flash('登录信息已失效，请重新登录')
             return redirect(url_for("login", next=get_login_redirect_target()))
@@ -80,7 +110,7 @@ def admin_required(f):
         if "user_id" not in session:
             return redirect(url_for("login", next=get_login_redirect_target()))
         user = db.session.get(User, session.get('user_id'))
-        if not user:
+        if not user or not session_matches_user(user):
             session.clear()
             flash('登录信息已失效，请重新登录')
             return redirect(url_for("login", next=get_login_redirect_target()))
@@ -107,7 +137,7 @@ def library_write_required(f):
         if "user_id" not in session:
             return redirect(url_for("login", next=get_login_redirect_target()))
         user = db.session.get(User, session.get('user_id'))
-        if not user:
+        if not user or not session_matches_user(user):
             session.clear()
             flash('登录信息已失效，请重新登录')
             return redirect(url_for("login", next=get_login_redirect_target()))
@@ -130,7 +160,11 @@ def get_current_user():
     user_id = session.get('user_id')
     if not user_id:
         return None
-    return db.session.get(User, user_id)
+    user = db.session.get(User, user_id)
+    if not user or not session_matches_user(user):
+        session.clear()
+        return None
+    return user
 
 
 def asset_url(filename):
@@ -388,6 +422,7 @@ def establish_user_session(user):
     session['user_id'] = user.id
     session['username'] = user.username
     session['user_role'] = user.role
+    session['session_version'] = int(user.session_version or LEGACY_SESSION_VERSION)
 
 
 def record_login_log(username, ip_address, user_agent, success, message):
@@ -613,7 +648,7 @@ def require_csrf_for_session_auth(api_response=True):
 def get_api_authenticated_user():
     if 'user_id' in session:
         user = db.session.get(User, session.get('user_id'))
-        if user:
+        if user and session_matches_user(user):
             session.permanent = True
             session['user_role'] = user.role
             return user, None

@@ -68,9 +68,16 @@ def should_use_secure_session_cookie():
     return _parse_cookie_secure_mode() == 'true'
 
 
+def trust_proxy_headers():
+    """只有显式声明前面有一层反向代理时，才相信 X-Forwarded-*。"""
+    return os.environ.get('MANGADOCK_TRUST_PROXY', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 def request_is_https():
     if request.is_secure:
         return True
+    if not trust_proxy_headers():
+        return False
     forwarded = (request.headers.get('X-Forwarded-Proto') or '').split(',')[0].strip().lower()
     return forwarded == 'https'
 
@@ -105,7 +112,14 @@ app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MANGADOCK_MAX_UPLOAD_MB',
 app.config['TEMPLATES_AUTO_RELOAD'] = False
 app.jinja_env.cache_size = 1000
 app.jinja_env.auto_reload = False
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+_trust_proxy = trust_proxy_headers()
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1 if _trust_proxy else 0,
+    x_proto=1 if _trust_proxy else 0,
+    x_host=1 if _trust_proxy else 0,
+    x_port=1 if _trust_proxy else 0,
+)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'download_tasks.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

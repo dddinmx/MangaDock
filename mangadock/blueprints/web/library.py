@@ -317,7 +317,7 @@ def delete_comic_group_route():
     elif not delete_comic_group(group_name):
         flash('删除分组失败，请重试')
     else:
-        flash(f'已删除分组：{group_name}')
+        flash(f'已删除分组「{group_name}」。其中漫画暂时只有管理员可见，请重新分配分组')
         if redirect_group == group_name:
             redirect_group = '全部'
         save_group_filter(redirect_group)
@@ -399,7 +399,7 @@ def remove_comic_group():
     elif group_name == '默认分组':
         flash('默认分组不能删除')
     elif delete_comic_group(group_name):
-        flash(f'已删除分组「{group_name}」，其中漫画已移回默认分组')
+        flash(f'已删除分组「{group_name}」。其中漫画暂时只有管理员可见，请重新分配分组')
     else:
         flash('分组不存在或删除失败')
     return redirect(url_for('comic_group_manager'))

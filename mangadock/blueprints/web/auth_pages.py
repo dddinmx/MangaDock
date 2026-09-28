@@ -19,6 +19,8 @@ from flask import (
 )
 
 from mangadock.auth import (
+    establish_user_session,
+    invalidate_user_sessions,
     is_safe_next_target,
     login_clear_failures,
     login_failure_keys,
@@ -206,10 +208,7 @@ def login():
                 # 登录成功，清除失败计数
                 login_clear_failures(failure_keys)
                 # 登录成功，保存用户ID到session
-                session.permanent = True
-                session['user_id'] = user.id
-                session['username'] = user.username
-                session['user_role'] = user.role
+                establish_user_session(user)
                 # 记录登录成功日志
                 login_log = LoginLog(
                     username=username,
@@ -318,6 +317,7 @@ def change_password():
             return render_template('change_password.html')
 
         user.set_password(new_password)
+        invalidate_user_sessions(user)
         db.session.commit()
 
         flash('密码修改成功，请使用新密码登录')

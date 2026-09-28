@@ -21,7 +21,7 @@ from mangadock.services.library import (
     save_comic_description,
     save_comic_mapping,
 )
-from mangadock.services.tasks import get_task, update_task
+from mangadock.services.tasks import finalize_task_status, get_task, is_task_cancel_requested, update_task
 from mangadock.settings import (
     COMIC_ROOT,
     COVER_ROOT,
@@ -250,6 +250,7 @@ def execute_fanqie_comic_task(task_id: str) -> bool:
         return False
     api_job_id = None
     archive_path = None
+    comic_lock = None
     try:
         update_task(task_id, status="running", progress_percent=1, log="正在通过番茄资源 API 读取漫画信息")
         client = get_client()
@@ -269,6 +270,16 @@ def execute_fanqie_comic_task(task_id: str) -> bool:
         else:
             comic_dir = Path(COMIC_ROOT) / folder
 
+        from mangadock.services.download import acquire_comic_write_lock
+        comic_lock = acquire_comic_write_lock(folder)
+        if comic_lock is None:
+            update_task(
+                task_id,
+                status="pending",
+                log="另一任务正在处理这本漫画，已退回队列等待",
+            )
+            return False
+
         update_task(task_id, comic_name=folder, url=source["source_url"], log=f"准备下载：《{source['title']}》")
         existing_match_bases = get_local_chapter_match_bases(folder)
         pending = [
@@ -284,13 +295,12 @@ def execute_fanqie_comic_task(task_id: str) -> bool:
         )
         if not pending:
             _persist_comic_metadata(task_id, folder, source)
-            update_task(
-                task_id,
-                status="completed",
-                progress_percent=100,
-                end_time=datetime.now(china_tz),
-                log="当前漫画已是最新版本",
-            )
+            if is_task_cancel_requested(task_id):
+                update_task(task_id, log="任务已取消")
+                return False
+            if not finalize_task_status(task_id, "completed", "当前漫画已是最新版本"):
+                return False
+            update_task(task_id, progress_percent=100)
             return True
 
         output_format = "pdf" if int(task.comic_format or 2) == 1 else "cbz"
@@ -320,9 +330,13 @@ def execute_fanqie_comic_task(task_id: str) -> bool:
                     client.cancel_job(api_job_id)
                 except FanqieApiError:
                     pass
-                update_task(
+                if is_task_cancel_requested(task_id):
+                    update_task(task_id, log="任务已取消")
+                    return False
+                finalize_task_status(
                     task_id,
-                    log=f"番茄 API 任务超过 {FANQIE_API_MAX_POLL_SECONDS // 60} 分钟未完成，已中止",
+                    "error",
+                    f"番茄 API 任务超过 {FANQIE_API_MAX_POLL_SECONDS // 60} 分钟未完成，已中止",
                 )
                 return False
             update_task(
@@ -336,7 +350,10 @@ def execute_fanqie_comic_task(task_id: str) -> bool:
             api_job = client.get_job(api_job_id)
 
         if api_job.get("status") == "cancelled":
-            update_task(task_id, log="任务已取消")
+            if is_task_cancel_requested(task_id):
+                update_task(task_id, log="任务已取消")
+                return False
+            finalize_task_status(task_id, "error", "番茄 API 任务已取消")
             return False
         if api_job.get("status") != "completed":
             raise FanqieApiError(
@@ -357,27 +374,23 @@ def execute_fanqie_comic_task(task_id: str) -> bool:
             task_id,
         )
         _persist_comic_metadata(task_id, folder, source, cover=cover)
-        update_task(
-            task_id,
-            status="completed",
-            completed_chapters=imported,
-            total_chapters=len(pending),
-            progress_percent=100,
-            end_time=datetime.now(china_tz),
-            log="番茄漫画已入库，可直接开始阅读",
-        )
-        return True
-    except Exception as exc:
-        current = get_task(task_id)
-        if current and current.status == "cancelled":
+        if is_task_cancel_requested(task_id):
             update_task(task_id, log="任务已取消")
+            return False
+        if not finalize_task_status(task_id, "completed", "番茄漫画已入库，可直接开始阅读"):
             return False
         update_task(
             task_id,
-            status="error",
-            end_time=datetime.now(china_tz),
-            log=f"番茄漫画任务失败：{exc}",
+            completed_chapters=imported,
+            total_chapters=len(pending),
+            progress_percent=100,
         )
+        return True
+    except Exception as exc:
+        if is_task_cancel_requested(task_id):
+            update_task(task_id, log="任务已取消")
+            return False
+        finalize_task_status(task_id, "error", f"番茄漫画任务失败：{exc}")
         return False
     finally:
         if archive_path:
@@ -385,3 +398,6 @@ def execute_fanqie_comic_task(task_id: str) -> bool:
                 archive_path.unlink(missing_ok=True)
             except OSError:
                 pass
+        if comic_lock is not None:
+            from mangadock.services.download import release_comic_write_lock
+            release_comic_write_lock(comic_lock)

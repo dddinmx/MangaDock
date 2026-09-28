@@ -12,6 +12,7 @@ import ipaddress
 import json
 import os
 import shutil
+import socket
 import tempfile
 import threading
 import time
@@ -889,21 +890,41 @@ def _assert_same_origin(base_url, url):
         raise WebDavError('WebDAV 地址超出已保存的服务器')
 
 
+def _webdav_address_is_blocked(address):
+    return (
+        address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+        or not (address.is_loopback or address.is_private or address.is_global)
+    )
+
+
 def _validate_base_url(url):
     parsed = urlparse((url or '').strip())
     if parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password:
         raise WebDavError('WebDAV 地址需要是 http 或 https，且不要把账号写在地址里')
     host = parsed.hostname
+    if host.lower() == 'metadata.google.internal':
+        raise WebDavError('这个 WebDAV 地址不能使用')
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        if host.lower() == 'metadata.google.internal':
+        try:
+            resolved = socket.getaddrinfo(host, None)
+        except socket.gaierror as exc:
+            raise WebDavError('无法解析这个 WebDAV 地址') from exc
+        addresses = []
+        for info in resolved:
+            try:
+                addresses.append(ipaddress.ip_address(info[4][0]))
+            except ValueError:
+                continue
+        if not addresses or any(_webdav_address_is_blocked(item) for item in addresses):
             raise WebDavError('这个 WebDAV 地址不能使用')
-        return parsed._replace(params='', query='', fragment='').geturl().rstrip('/')
-    if address.is_link_local or address.is_multicast or address.is_reserved or address.is_unspecified:
-        raise WebDavError('这个 WebDAV 地址不能使用')
-    if not (address.is_loopback or address.is_private or address.is_global):
-        raise WebDavError('这个 WebDAV 地址不能使用')
+    else:
+        if _webdav_address_is_blocked(address):
+            raise WebDavError('这个 WebDAV 地址不能使用')
     return parsed._replace(params='', query='', fragment='').geturl().rstrip('/')
 
 

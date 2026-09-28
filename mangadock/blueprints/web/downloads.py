@@ -138,8 +138,16 @@ def download():
 
         if fanqie_target and fanqie_target['kind'] == 'novel':
             task_id, _reused = start_novel_task(
-                fanqie_target['book_id'], title=fanqie_target['title'],
+                fanqie_target['book_id'],
+                title=fanqie_target['title'],
+                created_by_user_id=current_user.id if current_user else None,
             )
+            if not task_id:
+                return render_template(
+                    'download.html',
+                    error='这本小说已在下载队列中，完成后会出现在小说书架',
+                    adult_content_enabled=adult_enabled_for_user,
+                )
             return redirect(url_for('progress', task_id=task_id))
 
         # 启动下载线程并获取任务ID（带创建者 18+ 覆盖授权快照）

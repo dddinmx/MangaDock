@@ -196,8 +196,9 @@ def anilist_sync():
         return jsonify({'error': '无权访问该漫画'}), 403
     try:
         reconcile_progress(user_id, comic_name)
+        from mangadock.services.reading import _progress_order
         progress = ReadingProgress.query.filter_by(user_id=user_id, comic_name=comic_name).order_by(
-            ReadingProgress.last_read_at.desc(), ReadingProgress.id.desc()).first()
+            *_progress_order()).first()
         return jsonify({'success': True, 'chapter_index': progress.last_chapter if progress else None})
     except Exception:
         db.session.rollback()

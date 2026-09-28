@@ -185,11 +185,14 @@
         const initialChapter = {{ chapter|tojson }};
         const totalChapters = {{ chapter.total_chapters }};
         const serverSavedPage = {{ saved_page or 0 }};
+        const serverProgressMs = {{ server_progress_ms|tojson }};
         const browserProgressKey = `mangadock-novel-progress:${progressKey}`;
         function loadBrowserProgress() {
             try {
                 const saved = JSON.parse(localStorage.getItem(browserProgressKey));
                 if (saved?.chapter !== initialChapter.index || !Number.isInteger(saved.page) || saved.page < 0) return null;
+                // 另一台设备更新的进度带着更大的时钟。本机没有更晚的保存时间时，不用旧页码盖回去。
+                if (serverProgressMs && !(saved.savedAt > serverProgressMs)) return null;
                 return saved;
             } catch (error) {
                 return null;
@@ -258,6 +261,12 @@
             ? localStorage.getItem('mangadock-novel-reading-mode')
             : 'horizontal';
         let saveTimer = null;
+        let progressClockMs = 0;
+        function nextProgressMs() {
+            const now = Date.now();
+            progressClockMs = Math.max(progressClockMs + 1, now);
+            return progressClockMs;
+        }
         let paginationTimer = null;
         let resizeTimer = null;
         let measuredViewportWidth = 0;
@@ -528,18 +537,22 @@
             }
             persistBrowserProgress();
             const skipAnchor = options.skipAnchor === true || keepalive;
-            const anchor = skipAnchor ? {paragraphIndex: 0, charOffset: 0} : captureTextAnchor();
+            const payload = {
+                comic_name: progressKey, chapter: chapterIndex, page: pageIndex,
+                scroll_position: 0, total_chapters: totalChapters,
+                total_pages: pageCount, reading_time: getVisibleReadingSeconds(),
+                reading_session_id: sessionId,
+                client_progress_ms: nextProgressMs()
+            };
+            if (!skipAnchor) {
+                const anchor = captureTextAnchor();
+                payload.anchor_paragraph = anchor.paragraphIndex;
+                payload.anchor_offset = anchor.charOffset;
+            }
             return fetch({{ url_for('save_progress')|tojson }}, {
                 method: 'POST', keepalive,
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-                body: JSON.stringify({
-                    comic_name: progressKey, chapter: chapterIndex, page: pageIndex,
-                    scroll_position: 0, total_chapters: totalChapters,
-                    total_pages: pageCount, reading_time: getVisibleReadingSeconds(),
-                    reading_session_id: sessionId,
-                    anchor_paragraph: anchor.paragraphIndex,
-                    anchor_offset: anchor.charOffset
-                })
+                body: JSON.stringify(payload)
             }).catch(() => null);
         }
         function persistBrowserProgress() {
@@ -973,12 +986,16 @@
             view.parkedAs = 0;
             registerCurrentChapterView(true);
         }
-        async function prepareChapterView(index) {
-            if (isMotionBusy() && index !== chapterIndex) return null;
+        function chapterPrepareIsBlocked(allowDuringSwitch) {
+            if (isTouching || flowIsSettling) return true;
+            return isSwitchingChapter && !allowDuringSwitch;
+        }
+        async function prepareChapterView(index, options = {}) {
+            if (chapterPrepareIsBlocked(options.allowDuringSwitch) && index !== chapterIndex) return null;
             const generation = viewGeneration;
             const chapter = await getChapter(index);
             if (generation !== viewGeneration) return null;
-            if (isMotionBusy() && index !== chapterIndex) return null;
+            if (chapterPrepareIsBlocked(options.allowDuringSwitch) && index !== chapterIndex) return null;
             if (index === chapterIndex && flow && layer) {
                 const current = {
                     index,
@@ -1009,7 +1026,7 @@
             } else {
                 view.chapter = chapter;
             }
-            if (isMotionBusy() && index !== chapterIndex) return null;
+            if (chapterPrepareIsBlocked(options.allowDuringSwitch) && index !== chapterIndex) return null;
             const metrics = measureFlowPagination(view.flow);
             if (generation !== viewGeneration) return null;
             view.pageWidth = metrics.pageWidth;
@@ -1019,13 +1036,13 @@
             positionAdjacentChapters();
             return view;
         }
-        function ensureChapterView(index) {
+        function ensureChapterView(index, options = {}) {
             if (index < 0 || index >= totalChapters) return Promise.resolve(null);
             const ready = getReadyChapterView(index);
             if (ready) return Promise.resolve(ready);
             const pending = chapterViewPromises.get(index);
-            if (pending) return pending;
-            const request = prepareChapterView(index)
+            if (pending && !options.allowDuringSwitch) return pending;
+            const request = prepareChapterView(index, options)
                 .catch((error) => {
                     if (chapterViewPromises.get(index) === request) chapterViewPromises.delete(index);
                     throw error;
@@ -1255,6 +1272,7 @@
             setReaderChromeHidden(false);
             restoreGestureNeighbor();
             clearMotionHints();
+            scheduleAdjacentPreload();
         }
         function replaceChapterContent(chapter, targetIndex, targetPage = 0) {
             chapterViews.forEach((view) => {
@@ -1325,7 +1343,7 @@
             let view = getReadyChapterView(targetIndex);
             if (!view) {
                 try {
-                    view = await ensureChapterView(targetIndex);
+                    view = await ensureChapterView(targetIndex, {allowDuringSwitch: true});
                 } catch (error) {
                     abortChapterSwitch(outgoingLayer);
                     return;

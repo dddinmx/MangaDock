@@ -96,7 +96,8 @@ def can_user_access_task(task, user, group_map=None, allowed_groups=None):
     if task.created_by_user_id is not None and task.created_by_user_id != user.id:
         return False
     if str(task.url or '').startswith('fanqie://'):
-        return True
+        # 小说没有漫画分组。无主的历史任务只留给管理员，不能对所有下载用户开放。
+        return task.created_by_user_id == user.id
     group = (group_map if group_map is not None else get_comic_group_map()).get(
         task.comic_name
     ) or task.group or '默认分组'
@@ -284,17 +285,8 @@ def delete_comic_group(group_name):
         if not group:
             return False
 
-        ComicGroupMembership.query.filter_by(group_name=normalized_group_name).update(
-            {
-                'group_name': '默认分组',
-                'updated_at': datetime.now(china_tz)
-            },
-            synchronize_session=False
-        )
-        DownloadTask.query.filter_by(group=normalized_group_name).update(
-            {'group': '默认分组'},
-            synchronize_session=False
-        )
+        # 成员关系保留原分组名。分组行和授权删掉后，这些书不再落入「默认分组」，
+        # 普通用户暂时看不到，直到管理员重新分配。
         UserGroupPermission.query.filter_by(group_name=normalized_group_name).delete(synchronize_session=False)
         AdminHiddenLibraryItem.query.filter_by(
             target_type='group',

@@ -332,8 +332,13 @@
                     format: format,
                 }, { csrfToken });
 
-                if (!result.ok || !result.data || !result.data.task_id) {
+                if (!result.ok || !result.data) {
                     showError(result.message || '创建下载任务失败');
+                    resetButtonState();
+                    return;
+                }
+                if (!result.data.task_id) {
+                    showError(result.data.message || result.message || '这本小说已在下载队列中，完成后会出现在小说书架');
                     resetButtonState();
                     return;
                 }

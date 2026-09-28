@@ -370,6 +370,9 @@
                     resetCancelButtonState();
                 }
 
+                if (data.status !== 'error') {
+                    document.getElementById('error-message').classList.add('hidden');
+                }
                 updateUI(data);
 
                 // 漫画封面可能中途才写入；番茄小说封面则通过书籍 ID 获取。

@@ -931,6 +931,12 @@
         let visibleReadingStartedAt = null;
         let accumulatedReadingMs = 0;
         let reportedReadingSeconds = 0;
+        let progressClockMs = 0;
+        function nextProgressMs() {
+            const now = Date.now();
+            progressClockMs = Math.max(progressClockMs + 1, now);
+            return progressClockMs;
+        }
         
         // DOM元素
         const pageContent = document.getElementById('page-content');
@@ -1029,6 +1035,15 @@
             if (!section?.passedEnd || !section.loadedLastPage || autoSyncedChapters.has(section.index)) return;
             autoSyncedChapters.add(section.index);
             reportCompletedChapter(section.index);
+        }
+
+        function completeCurrentChapterAtEnd() {
+            if (!anilistEnabled || !currentChapterReady || autoSyncedChapters.has(currentChapter)) return;
+            const section = continuousSections.find(item => item.index === currentChapter);
+            const content = section?.element || pageContent;
+            if (content.getBoundingClientRect().bottom > window.innerHeight + 2) return;
+            autoSyncedChapters.add(currentChapter);
+            reportCompletedChapter(currentChapter);
         }
 
         // 以当前章节自己的坐标保存进度，重新打开时无需加载之前的章节。
@@ -1394,7 +1409,7 @@
         // 加载章节列表
         async function loadChapters() {
             try {
-                const response = await fetch(`/api/chapters/${taskId}`);
+                const response = await fetch(`/api/chapters/${encodeURIComponent(taskId)}`);
                 const data = await response.json();
 
                 if (data.error) {
@@ -1898,7 +1913,7 @@
         // 下一章
         function goToNextChapter() {
             if (currentChapter < chapters.length - 1) {
-                if (getProgressPercent() >= 95) reportCompletedChapter(currentChapter);
+                completeCurrentChapterAtEnd();
                 savedScrollPosition = 0; // 切换章节时不恢复滚动位置
                 loadChapter(currentChapter + 1, false);
             }
@@ -2120,11 +2135,7 @@
                 progressUiFrameId = null;
                 syncContinuousReading();
                 syncProgressUi();
-                if (anilistEnabled && currentChapterReady && !isDraggingProgressSlider &&
-                    getProgressPercent() >= 95 && !autoSyncedChapters.has(currentChapter)) {
-                    autoSyncedChapters.add(currentChapter);
-                    reportCompletedChapter(currentChapter);
-                }
+                if (!isDraggingProgressSlider && window.scrollY > 0) completeCurrentChapterAtEnd();
             });
         }
 
@@ -2200,7 +2211,8 @@
                 total_chapters: chapters.length,
                 total_pages: 0,
                 reading_time: readingSeconds,
-                reading_session_id: readingSessionId
+                reading_session_id: readingSessionId,
+                client_progress_ms: nextProgressMs()
             });
         }
 

@@ -44,6 +44,8 @@ class ReadingProgress(db.Model):
     anchor_offset = db.Column(db.Integer)
     total_chapters = db.Column(db.Integer, default=0)
     total_pages = db.Column(db.Integer, default=0)
+    # 客户端生成快照时的毫秒时钟。后到达的更小值不能覆盖更新的进度。
+    client_progress_ms = db.Column(db.BigInteger)
     last_read_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
 
@@ -227,6 +229,8 @@ class User(db.Model):
     # 普通用户权限开关（管理员恒为全开，不走这两个字段判断）
     can_download = db.Column(db.Boolean, nullable=False, default=False)
     can_view_adult = db.Column(db.Boolean, nullable=False, default=False)
+    # 1 是升级前的旧会话。新账号和改密后都会换成更大的随机数，避免复用 id 或旧 Cookie 顶号。
+    session_version = db.Column(db.Integer, nullable=False, default=1)
 
     def set_password(self, password):
         # 使用 pbkdf2:sha256 算法，确保在 Docker 精简镜像中也能正常工作
@@ -297,12 +301,14 @@ def initialize_database():
         ensure_sqlite_column(User.__table__.name, 'role', "VARCHAR(20) DEFAULT 'user'")
         ensure_sqlite_column(User.__table__.name, 'can_download', 'BOOLEAN DEFAULT 0')
         ensure_sqlite_column(User.__table__.name, 'can_view_adult', 'BOOLEAN DEFAULT 0')
+        ensure_sqlite_column(User.__table__.name, 'session_version', 'INTEGER NOT NULL DEFAULT 1')
         ensure_sqlite_column(DownloadTask.__table__.name, 'allow_adult', 'BOOLEAN DEFAULT 0')
         ensure_sqlite_column(DownloadTask.__table__.name, 'created_by_user_id', 'INTEGER')
         ensure_sqlite_column(DownloadTask.__table__.name, 'worker_pid', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'user_id', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'anchor_paragraph', 'INTEGER')
         ensure_sqlite_column(ReadingProgress.__table__.name, 'anchor_offset', 'INTEGER')
+        ensure_sqlite_column(ReadingProgress.__table__.name, 'client_progress_ms', 'BIGINT')
         ensure_sqlite_column(AniListComicLink.__table__.name, 'completed_progress', 'INTEGER NOT NULL DEFAULT 0')
         ensure_sqlite_column(AniListComicLink.__table__.name, 'last_sync_at', 'DATETIME')
         ensure_sqlite_column(ReadingTime.__table__.name, 'user_id', 'INTEGER')
@@ -323,7 +329,12 @@ def initialize_database():
             initial_admin_password = os.environ.get('MANGADOCK_ADMIN_PASSWORD', '').strip()
             if not initial_admin_password:
                 initial_admin_password = secrets.token_urlsafe(18)
-                print(f"已生成初始管理员密码：admin / {initial_admin_password}")
+                os.makedirs(app.instance_path, exist_ok=True)
+                password_path = os.path.join(app.instance_path, 'initial_admin_password')
+                with open(password_path, 'w', encoding='utf-8') as handle:
+                    handle.write(initial_admin_password + '\n')
+                os.chmod(password_path, 0o600)
+                print(f"已生成初始管理员密码，写入 {password_path}。登录后请立即修改并删除该文件。")
             admin_user.set_password(initial_admin_password)
             db.session.add(admin_user)
             db.session.commit()

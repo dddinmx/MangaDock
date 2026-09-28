@@ -37,6 +37,7 @@ from mangadock.models import AniListAccount, AniListComicLink
 from mangadock.services.download import refresh_comic_description
 from mangadock.services.groups import (
     can_user_access_group,
+    can_user_access_task,
     filter_grouped_comics_for_user,
     get_admin_hidden_targets,
     get_comic_group_map,
@@ -85,6 +86,8 @@ def comic_detail(task_id):
     # 尝试通过任务ID获取任务
     task = get_task(task_id)
     if task:
+        if not can_user_access_task(task, current_user):
+            return render_template('error.html', message="漫画不存在"), 404
         comic_name = task.comic_name
         comic_format = task.comic_format
     else:
@@ -250,6 +253,8 @@ def comic_reader(task_id):
     # 尝试通过任务ID获取任务
     task = get_task(task_id)
     if task:
+        if not can_user_access_task(task, current_user):
+            return render_template('error.html', message="漫画不存在"), 404
         comic_name = task.comic_name
         comic_format = task.comic_format
     else:
@@ -349,6 +354,7 @@ def save_progress():
         anchor_offset = data.get('anchor_offset')
         reading_time = data.get('reading_time', 0)
         reading_session_id = (data.get('reading_session_id') or '').strip()[:128]
+        client_progress_ms = data.get('client_progress_ms')
 
         if not comic_name:
             return jsonify({'status': 'error', 'message': '漫画名称不能为空'}), 400
@@ -374,9 +380,11 @@ def save_progress():
             anchor_paragraph = bounded_int(anchor_paragraph)
         if anchor_offset is not None:
             anchor_offset = bounded_int(anchor_offset)
+        # 先转成整数再比较。字符串 "1" 若直接和数字比较会在进度已经提交后抛错，接口却返回失败。
+        reading_time = bounded_int(reading_time)
         save_reading_progress(
             comic_name, chapter, page, scroll_position, total_chapters, total_pages,
-            current_user_id, anchor_paragraph, anchor_offset
+            current_user_id, anchor_paragraph, anchor_offset, client_progress_ms,
         )
 
         # 记录阅读时间（按会话累计秒数去重，避免页面隐藏/切换时重复记时）
@@ -588,6 +596,8 @@ def get_chapters(task_id):
     # 尝试通过任务ID获取任务
     task = get_task(task_id)
     if task:
+        if not can_user_access_task(task, current_user):
+            return jsonify({'error': '漫画文件不存在'}), 404
         comic_name = task.comic_name
     else:
         # 将task_id作为漫画名称处理

@@ -125,7 +125,12 @@ def create_task(url, comic_format, is_update=False, comic_name=None, allow_adult
             if prefetched_title:
                 resolved_comic_name = prefetched_title
 
-        if created_by_user_id is not None and resolved_comic_name != '未知漫画':
+        # 番茄小说不进漫画分组，不能用漫画分组权限挡住小说任务。
+        if (
+            created_by_user_id is not None
+            and resolved_comic_name != '未知漫画'
+            and not str(task_url or '').startswith('fanqie://')
+        ):
             from mangadock.services.groups import can_creator_download_comic
             if not can_creator_download_comic(resolved_comic_name, created_by_user_id):
                 raise PermissionError('当前账号无权下载该漫画')
@@ -158,6 +163,8 @@ def update_task(task_id, **kwargs):
                 if key == 'log':
                     task.log = (task.log or '') + value + '\n'
                 else:
+                    if key == 'status' and task.status == 'cancelled' and value != 'cancelled':
+                        continue
                     previous_value = getattr(task, key, None)
                     setattr(task, key, value)
                     if key == 'status' and value == 'completed':
@@ -228,6 +235,16 @@ def get_all_tasks():
     """获取所有任务"""
     with app.app_context():
         return DownloadTask.query.order_by(DownloadTask.created_at.desc()).all()
+
+
+def retire_user_tasks(user_id):
+    """Cancel active work and reserve old task ownership against SQLite ID reuse."""
+    for task in DownloadTask.query.filter_by(created_by_user_id=user_id).all():
+        task.created_by_user_id = -user_id
+        if task.status in ('pending', 'running'):
+            task.status = 'cancelled'
+            task.end_time = datetime.now(china_tz)
+            task.log = (task.log or '') + '创建者账号已删除，任务已取消\n'
 
 
 def delete_task(task_id):
