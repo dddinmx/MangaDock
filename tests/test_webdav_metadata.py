@@ -58,11 +58,14 @@ class WebDavMetadataTests(unittest.TestCase):
         self.assertIsNone(metadata.exact_match('Book', [self.media, {**self.media, 'id': 456}]))
 
     def test_auto_enrichment_saves_jpeg_and_plain_description_without_progress_link(self):
+        from mangadock.utils import cover_enhance
         with app.app_context():
             before = AniListComicLink.query.count()
         with patch.object(metadata, 'search_metadata', return_value=[self.media]), \
-                patch.object(metadata, 'safe_http_get', return_value=self.image_response()):
+                patch.object(metadata, 'safe_http_get', return_value=self.image_response()), \
+                patch.object(cover_enhance, 'request_hero_cover') as upscale:
             metadata.enrich_metadata(self.payload)
+            upscale.assert_called_once_with('Book')
         value = metadata.metadata_view('Book')
         self.assertEqual(value['media_id'], 123)
         self.assertNotIn('bad()', value['description'])
@@ -73,6 +76,15 @@ class WebDavMetadataTests(unittest.TestCase):
         self.assertEqual(library.get_comic_descriptions(['Book'])['Book'], value['description'])
         with app.app_context():
             self.assertEqual(AniListComicLink.query.count(), before)
+
+    def test_upscale_queue_failure_keeps_saved_metadata(self):
+        from mangadock.utils import cover_enhance
+        with patch.object(metadata, 'search_metadata', return_value=[self.media]), \
+                patch.object(metadata, 'safe_http_get', return_value=self.image_response()), \
+                patch.object(cover_enhance, 'request_hero_cover', side_effect=RuntimeError('queue failed')):
+            metadata.enrich_metadata(self.payload)
+        self.assertEqual(metadata.metadata_view('Book')['status'], 'completed')
+        self.assertTrue(Path(metadata.COVER_ROOT, 'Book.jpg').is_file())
 
     def test_existing_cover_and_description_are_preserved(self):
         os.makedirs(metadata.COVER_ROOT)

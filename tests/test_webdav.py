@@ -2,11 +2,14 @@
 """WebDAV 索引、目录解析和缓存清理。不访问真实服务器。"""
 import json
 import hashlib
+import io
 import os
 import tempfile
+import threading
 import unittest
 import zipfile
 from unittest.mock import MagicMock, patch
+from PIL import Image
 
 from mangadock.services.webdav import (
     WebDavError,
@@ -564,6 +567,64 @@ class WebDavListingTests(unittest.TestCase):
                     webdav._save_cover(config, 'book', {'path': '/dav/book/cover.jpg', 'size': 0})
             self.assertTrue(response.closed)
             self.assertFalse(os.path.exists(os.path.join(root, 'book.jpg')))
+
+    def test_saved_webdav_cover_queues_upscale(self):
+        from mangadock.services import webdav
+        from mangadock.utils import cover_enhance
+
+        content = io.BytesIO()
+        Image.new('RGB', (20, 30), 'blue').save(content, 'PNG')
+        response = MagicMock(status_code=200)
+        response.iter_content.return_value = [content.getvalue()]
+        config = {'url': 'http://a/dav'}
+        with tempfile.TemporaryDirectory() as root, \
+                patch.object(webdav, 'COVER_ROOT', root), \
+                patch.object(webdav, '_request', return_value=response), \
+                patch.object(cover_enhance, 'request_hero_cover') as upscale:
+            webdav._save_cover(config, 'book', {'path': '/dav/book/cover.jpg', 'size': 0})
+            with Image.open(os.path.join(root, 'book.jpg')) as cover:
+                self.assertEqual(cover.format, 'JPEG')
+            upscale.assert_called_once_with('book')
+
+    def test_webdav_cover_queue_failure_does_not_fail_save(self):
+        from mangadock.services import webdav
+        from mangadock.utils import cover_enhance
+
+        response = MagicMock(status_code=200)
+        response.iter_content.return_value = [b'image']
+        with tempfile.TemporaryDirectory() as root, \
+                patch.object(webdav, 'COVER_ROOT', root), \
+                patch.object(webdav, '_request', return_value=response), \
+                patch.object(webdav, 'normalize_cover_bytes', return_value=True), \
+                patch.object(cover_enhance, 'request_hero_cover', side_effect=RuntimeError('queue failed')):
+            webdav._save_cover({'url': 'http://a/dav'}, 'book', {'path': '/dav/book/cover.jpg', 'size': 0})
+
+    def test_cover_upscale_queue_keeps_requests_beyond_four(self):
+        from mangadock.utils import cover_enhance
+
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        names = []
+
+        def process(name):
+            names.append(name)
+            if name == 'queue-test-0':
+                started.set()
+                release.wait(5)
+            if len(names) == 6:
+                finished.set()
+
+        with patch.object(cover_enhance, 'hero_cover_ready', return_value=False), \
+                patch.object(cover_enhance, 'ensure_hero_cover', side_effect=process):
+            try:
+                for index in range(6):
+                    self.assertTrue(cover_enhance.request_hero_cover(f'queue-test-{index}'))
+                self.assertTrue(started.wait(5))
+            finally:
+                release.set()
+            self.assertTrue(finished.wait(5))
+        self.assertEqual(names, [f'queue-test-{index}' for index in range(6)])
 
     def test_pdf_repair_is_versioned_and_eviction_removes_derivatives(self):
         from mangadock.utils import media

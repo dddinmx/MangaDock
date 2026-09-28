@@ -795,7 +795,12 @@ def _save_cover(config, comic_name, cover):
     finally:
         response.close()
     if content:
-        normalize_cover_bytes(content, destination)
+        if normalize_cover_bytes(content, destination):
+            try:
+                from mangadock.utils.cover_enhance import request_hero_cover
+                request_hero_cover(comic_name)
+            except Exception as exc:
+                app.logger.warning('WebDAV 封面超分排队失败 %s: %s', comic_name, exc)
 
 
 def _request(config, method, url, data=None, headers=None, stream=False, session=None, timeout=(15, 300)):

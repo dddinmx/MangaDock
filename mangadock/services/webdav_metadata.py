@@ -346,6 +346,11 @@ def enrich_metadata(payload):
                         if os.path.exists(handle.name):
                             os.remove(handle.name)
                     current.update(cover_digest=_cover_digest(cover_path), cover_provider=cover_provider, cover_url=cover_url)
+                    try:
+                        from mangadock.utils.cover_enhance import request_hero_cover
+                        request_hero_cover(comic_name)
+                    except Exception as exc:
+                        app.logger.warning('WebDAV 封面超分排队失败 %s: %s', comic_name, exc)
             has_cover = os.path.isfile(cover_path)
             has_description = bool(description or existing_description)
             if has_cover and has_description:

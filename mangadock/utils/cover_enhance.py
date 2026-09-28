@@ -26,7 +26,7 @@
 缓存何时生成
 ------------
 - 入库时：封面落盘后调 :func:`refresh_hero_cover`（三个 provider + 上传封面都接了）。
-- 漏网的旧封面：主页渲染时 :func:`request_hero_cover` 起一个后台线程补生成，
+- 漏网的旧封面：主页渲染时 :func:`request_hero_cover` 提交后台队列补生成，
   本次先用原图返回——**绝不在请求线程里做超分**。
 - 批量补：``tools/refresh_hero_covers.py``。
 
@@ -43,6 +43,7 @@
 ``MANGADOCK_COVER_SR_TIMEOUT``    单个封面超分超时（秒），默认 180
 """
 import atexit
+from collections import deque
 import hashlib
 import os
 import shutil
@@ -72,17 +73,15 @@ _lock = threading.Lock()
 # 正在后台补生成的漫画名，避免同一张封面被并发排队
 _pending = set()
 _pending_lock = threading.Lock()
+_queued = deque()
+_queue_worker_running = False
 
 # 运行中的 SR 子进程 PID（仅在 _run_sr_engine 拿到 PID 引用处登记），用于进程退出时
 # 兜底 SIGTERM，避免 gunicorn worker 被重启杀死后 SR 子进程变孤儿、继续占 CPU/内存。
 _sr_pids = set()
 _sr_pids_lock = threading.Lock()
 
-# 后台补生成并发上限：每个 hero 线程会跑 AI 引擎（CPU 密集、十几秒），不加限流会在
-# 模板渲染期（首页几十张未就绪封面）瞬间起几十个线程抢算力，整体反而更慢且可能 OOM。
-# 用信号量把同时运行的 SR 后台线程压到 4 个；拿不到许可就丢弃本次——反正 hero 未就绪
-# 本来就会返回源图，下次请求再补即可。
-_SR_BACKGROUND_SEMAPHORE = threading.Semaphore(4)
+# ensure_hero_cover 本身串行；一个后台线程按提交顺序处理，避免批量入库时丢任务。
 
 
 def _track_sr_process(pid):
@@ -633,37 +632,44 @@ def refresh_hero_cover(comic_name):
 
 
 def request_hero_cover(comic_name):
-    """请求后台补生成（不阻塞请求线程）。已在排队/已可用则直接返回。
-
-    并发上限由模块级 ``_SR_BACKGROUND_SEMAPHORE``（4）控制：拿不到许可就丢弃本次，
-    反正 hero 未就绪本来就会返回源图，下次请求再补——避免在模板渲染期瞬间起几十个
-    SR 线程抢算力、整体更慢甚至 OOM。
-    """
+    """请求后台补生成（不阻塞请求线程）。已在排队/已可用则直接返回。"""
+    global _queue_worker_running
     if not comic_name or hero_cover_ready(comic_name):
-        return False
-
-    # 非阻塞抢后台并发许可：满 4 个在跑就直接放弃本次补生成。
-    if not _SR_BACKGROUND_SEMAPHORE.acquire(blocking=False):
         return False
 
     with _pending_lock:
         if comic_name in _pending:
-            # 已在排队：归还许可，避免信号量被空占。
-            _SR_BACKGROUND_SEMAPHORE.release()
             return False
         _pending.add(comic_name)
+        _queued.append(comic_name)
+        if _queue_worker_running:
+            return True
+        _queue_worker_running = True
 
-    def _worker():
+        def _worker():
+            global _queue_worker_running
+            while True:
+                with _pending_lock:
+                    if not _queued:
+                        _queue_worker_running = False
+                        return
+                    name = _queued.popleft()
+                try:
+                    ensure_hero_cover(name)
+                except Exception as exc:
+                    print(f'封面超分后台任务失败: {name} -> {exc}')
+                finally:
+                    with _pending_lock:
+                        _pending.discard(name)
+
         try:
-            ensure_hero_cover(comic_name)
+            threading.Thread(target=_worker, name='cover-hero-worker', daemon=True).start()
         except Exception as exc:
-            print(f'封面超分后台任务失败: {comic_name} -> {exc}')
-        finally:
-            with _pending_lock:
-                _pending.discard(comic_name)
-            _SR_BACKGROUND_SEMAPHORE.release()
-
-    threading.Thread(target=_worker, name=f'cover-hero-{comic_name[:16]}', daemon=True).start()
+            _queued.pop()
+            _pending.discard(comic_name)
+            _queue_worker_running = False
+            print(f'封面超分后台线程启动失败: {comic_name} -> {exc}')
+            return False
     return True
 
 

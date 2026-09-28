@@ -1022,7 +1022,7 @@
         function createChapterSection(index) {
             const element = document.createElement('section');
             element.dataset.chapter = String(index);
-            return { index, element, ready: false, loadedLastPage: false, passedEnd: false };
+            return { index, element, ready: false, hasLoadedPage: false, loadedLastPage: false, passedEnd: false };
         }
 
         function completePassedChapter(section) {
@@ -1067,9 +1067,11 @@
                 }
             }
             const tail = continuousSections[continuousSections.length - 1];
-            // 只提前追加一章，短章节也不会无限下载整本漫画。
+            // CBZ 首张图片就绪后追加下一章；页面队列仍优先加载当前章附近的图片。
+            // PDF 保持靠近章末时追加，避免后台同时渲染两份完整 PDF。
             if (tail.ready && tail.index <= currentChapter && tail.index < chapters.length - 1 &&
-                tail.element.getBoundingClientRect().bottom < window.innerHeight * 3) {
+                (chapters[tail.index].format === 'cbz' ? tail.hasLoadedPage :
+                    tail.element.getBoundingClientRect().bottom < window.innerHeight * 3)) {
                 appendNextChapter();
             }
         }
@@ -1585,7 +1587,10 @@
             const distance = (page) => {
                 const rect = page.getBoundingClientRect();
                 if (rect.bottom <= 0) return 1 - rect.bottom;
-                if (rect.top >= window.innerHeight) return rect.top - window.innerHeight + 1;
+                if (rect.top >= window.innerHeight) {
+                    const actual = rect.top - window.innerHeight + 1;
+                    return page.dataset.prefetchNext === 'true' ? Math.min(actual, window.innerHeight * 2) : actual;
+                }
                 return 0;
             };
             while (cbzImagesLoading < 6 && cbzImageQueue.size) {
@@ -1717,8 +1722,12 @@
                         }
                         img.style.visibility = 'visible';
                         container.style.background = 'transparent';
+                        const section = continuousSections.find(item => item.element === target);
+                        if (section && !section.hasLoadedPage) {
+                            section.hasLoadedPage = true;
+                            queueProgressUiSync();
+                        }
                         if (pageIndex === pageCount - 1) {
-                            const section = continuousSections.find(item => item.element === target);
                             if (section) {
                                 section.loadedLastPage = true;
                                 completePassedChapter(section);
@@ -1836,6 +1845,7 @@
             const fragment = document.createDocumentFragment();
             imageFiles.forEach((pageIndex) => {
                 const container = buildCbzPageContainer(cacheEntry, pageIndex, imageFiles.length, chapterLoadToken, target);
+                if (background && pageIndex < 2) container.dataset.prefetchNext = 'true';
                 fragment.appendChild(container);
             });
             target.appendChild(fragment);
