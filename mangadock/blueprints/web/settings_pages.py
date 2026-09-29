@@ -2,7 +2,9 @@
 """设置页（内容分级 / 扫盘路径）。"""
 import os
 import json
+import re
 from datetime import datetime
+from urllib.parse import unquote, urlparse
 import requests
 
 from flask import (
@@ -54,15 +56,7 @@ def settings():
 @login_required
 def latest_release():
     try:
-        response = requests.get(
-            'https://api.github.com/repos/dddinmx/MangaDock/releases/latest',
-            headers={'Accept': 'application/vnd.github+json'},
-            timeout=5,
-        )
-        response.raise_for_status()
-        tag = response.json()['tag_name']
-        if not isinstance(tag, str) or not tag:
-            raise ValueError('GitHub Release 缺少版本号')
+        tag = _latest_release_tag()
     except (requests.RequestException, ValueError, KeyError):
         app.logger.warning('GitHub Release 查询失败', exc_info=True)
         result = jsonify(error='暂时无法查询 GitHub 版本，请稍后重试')
@@ -71,6 +65,36 @@ def latest_release():
         result = jsonify(latest_version=tag)
     result.headers['Cache-Control'] = 'no-store'
     return result
+
+
+def _latest_release_tag():
+    # The public redirect is not subject to GitHub's shared-IP API rate limit.
+    try:
+        response = requests.head(
+            'https://github.com/dddinmx/MangaDock/releases/latest',
+            allow_redirects=True,
+            timeout=5,
+        )
+        response.raise_for_status()
+        parsed = urlparse(response.url)
+        prefix = '/dddinmx/MangaDock/releases/tag/'
+        if parsed.scheme != 'https' or parsed.netloc.lower() != 'github.com' or not parsed.path.startswith(prefix):
+            raise ValueError('GitHub Release 跳转地址无效')
+        tag = unquote(parsed.path[len(prefix):])
+        if re.fullmatch(r'v?\d+(?:\.\d+)*', tag):
+            return tag
+        raise ValueError('GitHub Release 版本号格式无效')
+    except (requests.RequestException, ValueError):
+        response = requests.get(
+            'https://api.github.com/repos/dddinmx/MangaDock/releases/latest',
+            headers={'Accept': 'application/vnd.github+json'},
+            timeout=5,
+        )
+        response.raise_for_status()
+        tag = response.json()['tag_name']
+        if not isinstance(tag, str) or not re.fullmatch(r'v?\d+(?:\.\d+)*', tag):
+            raise ValueError('GitHub Release 缺少有效版本号')
+        return tag
 
 
 @app.route('/settings/webdav', methods=['GET'])

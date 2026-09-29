@@ -1315,7 +1315,8 @@
                     scrollTicking = true;
 
                     window.requestAnimationFrame(() => {
-                        const currentScrollY = Math.max(window.scrollY, 0);
+                        const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+                        const currentScrollY = Math.min(Math.max(window.scrollY, 0), maxScrollY);
                         const delta = currentScrollY - lastScrollY;
 
                         if (window.innerWidth > 768 || currentScrollY <= 8) {
@@ -1331,8 +1332,15 @@
 
                             if (direction > 0 && scrollDistance >= 10) {
                                 mobileTabbar.classList.add('is-scroll-hidden');
-                            } else if (direction < 0 && scrollDistance >= 6) {
-                                mobileTabbar.classList.remove('is-scroll-hidden');
+                            } else if (direction < 0) {
+                                // iOS 底部橡皮筋回弹会产生少量向上滚动，不算主动翻页。
+                                const nearIosBottom = document.documentElement.classList.contains('platform-ios')
+                                    && maxScrollY - currentScrollY < 28;
+                                if (nearIosBottom) {
+                                    scrollDistance = 0;
+                                } else if (scrollDistance >= 6) {
+                                    mobileTabbar.classList.remove('is-scroll-hidden');
+                                }
                             }
                         }
 

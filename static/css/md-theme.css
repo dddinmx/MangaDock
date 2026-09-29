@@ -708,13 +708,22 @@ html.theme-dark body {
   --book-depth: 14px;
   --book-radius: 3px 10px 10px 3px;
   position: relative;
-  aspect-ratio: 3 / 4;
+  width: 100%;
   margin: 0 auto;
   max-width: 100%;
   transform-style: preserve-3d;
   transform: rotateY(-8deg) rotateX(4deg);
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), filter 0.35s ease;
   filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.55));
+}
+
+/* iOS 15 Safari：aspect-ratio 在子元素全是 absolute 时高度会变成 0，封面整格空白。
+   padding-top 百分比相对自身宽度，3:4 书脊比例不依赖 aspect-ratio。 */
+.md-book::before {
+  content: "";
+  display: block;
+  width: 100%;
+  padding-top: 133.333%;
 }
 
 .md-cover-card:hover .md-book {
@@ -724,6 +733,10 @@ html.theme-dark body {
 
 .md-book__cover {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 3;
   overflow: hidden;
@@ -868,10 +881,26 @@ html.theme-dark body {
   text-align: center;
 }
 
-@media (max-width: 639px) {
+@media (max-width: 767.98px) {
   .md-book {
     --book-depth: 10px;
-    transform: rotateY(-5deg) rotateX(3deg);
+    transform: none;
+    transform-style: flat;
+    filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.45));
+  }
+
+  .md-cover-card:hover .md-book {
+    transform: none;
+  }
+
+  .md-book__spine,
+  .md-book__pages,
+  .md-book::after {
+    display: none;
+  }
+
+  .md-book__cover {
+    border-radius: 10px;
   }
 }
 

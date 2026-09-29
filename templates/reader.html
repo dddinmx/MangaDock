@@ -2,12 +2,22 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
     <title>{{ task.comic_name }} - 阅读</title>
     <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
     <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
+    {# iOS 15.0–15.3 没有 structuredClone，pdf.js 假 worker 通道会直接抛错。 #}
+    <script>
+        if (typeof structuredClone !== 'function') {
+            window.structuredClone = function (value) {
+                if (value instanceof ArrayBuffer) return value.slice(0);
+                if (ArrayBuffer.isView(value)) return new value.constructor(value);
+                return JSON.parse(JSON.stringify(value));
+            };
+        }
+    </script>
     {# PDF 库延迟加载，避免阻塞首屏解析。 #}
     <script defer src="{{ asset_url('js/vendor/pdf.min.js') }}"></script>
     
@@ -30,8 +40,8 @@
             min-height: 100vh;
             background-color: #0b0b0f;
             position: relative;
-            padding-top: 56px; /* 为顶部标题栏留空间 */
-            padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); /* 为底部工具栏及安全区留空间 */
+            padding-top: calc(65px + env(safe-area-inset-top, 0px)); /* 为顶部标题栏及安全区留空间 */
+            padding-bottom: calc(120px + max(8px, env(safe-area-inset-bottom, 0px))); /* 为底部工具栏及安全区留空间 */
         }
         
         /* 漫画图片样式 */
@@ -86,8 +96,21 @@
             background: #141414 !important;
         }
 
+        /* iOS 15 Safari：父级靠 aspect-ratio、子图 absolute 时高度为 0，整章空白。
+           用流式占位块撑开高度，padding-top% 相对本页宽度。 */
+        .cbz-page-sizer {
+            display: block;
+            width: 100%;
+            pointer-events: none;
+            visibility: hidden;
+        }
+
         .cbz-page .comic-page {
             position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
             inset: 0;
             width: 100%;
             height: 100%;
@@ -140,11 +163,9 @@
             top: 0;
             left: 0;
             right: 0;
-            background: rgba(7, 7, 10, 0.92);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+            background: #0c0c12;
             border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-            padding: 12px 16px;
+            padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -189,14 +210,17 @@
             border: 0;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 0;
-            padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+            padding: 14px 20px max(8px, env(safe-area-inset-bottom, 0px));
             z-index: 100;
-            display: flex;
-            gap: 8px 10px;
-            justify-content: center;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px 12px;
             box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.35);
             transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            flex-wrap: wrap;
+        }
+
+        .floating-controls.with-anilist {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
         }
 
         .floating-controls::before {
@@ -211,7 +235,7 @@
         /* 阅读进度条 */
         .reading-progress-host {
             width: 100%;
-            flex: 0 0 100%;
+            grid-column: 1 / -1;
         }
 
         .reading-progress {
@@ -234,9 +258,10 @@
 
         .reading-progress-layout {
             display: grid;
-            grid-template-columns: 28px minmax(24px, max-content) minmax(0, 1fr) minmax(24px, max-content) 28px;
+            grid-template-columns: 32px minmax(24px, max-content) minmax(0, 1fr) minmax(24px, max-content) 32px;
             align-items: center;
             gap: 8px;
+            min-height: 36px;
         }
 
         .progress-nav-btn {
@@ -244,8 +269,8 @@
             border: none;
             background: transparent;
             color: rgba(255, 255, 255, 0.74);
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -294,7 +319,7 @@
 
         .reading-progress-slider {
             width: 100%;
-            height: 5px;
+            height: 6px;
             border-radius: 999px;
             outline: none;
             -webkit-appearance: none;
@@ -344,11 +369,11 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 0;
-            min-width: 50px;
-            min-height: 28px;
+            gap: 4px;
+            min-width: 0;
+            width: 100%;
+            min-height: 50px;
             justify-content: center;
-            flex: 0 0 auto;
             max-width: none;
             box-shadow: none;
         }
@@ -368,7 +393,10 @@
         }
 
         .control-btn span {
-            display: none;
+            display: block;
+            color: rgba(255, 255, 255, 0.62);
+            font-size: 11px;
+            line-height: 1.2;
         }
         
         .control-btn:active {
@@ -396,7 +424,7 @@
             position: fixed;
             left: 18px;
             right: 18px;
-            bottom: calc(102px + env(safe-area-inset-bottom, 0px));
+            bottom: calc(118px + max(8px, env(safe-area-inset-bottom, 0px)));
             padding: 14px 16px;
             background: rgba(0, 0, 0, 0.96);
             border-top: 1px solid rgba(107, 114, 128, 0.45);
@@ -418,7 +446,7 @@
             position: fixed;
             left: 18px;
             right: 18px;
-            bottom: calc(102px + env(safe-area-inset-bottom, 0px));
+            bottom: calc(118px + max(8px, env(safe-area-inset-bottom, 0px)));
             padding: 14px 16px;
             background: rgba(0, 0, 0, 0.96);
             border-top: 1px solid rgba(107, 114, 128, 0.45);
@@ -517,7 +545,7 @@
             position: fixed;
             left: 16px;
             right: 16px;
-            bottom: calc(98px + env(safe-area-inset-bottom, 0px));
+            bottom: calc(118px + max(8px, env(safe-area-inset-bottom, 0px)));
             transform: none;
             background: #19191f;
             border: 1px solid rgba(255, 255, 255, 0.14);
@@ -630,7 +658,7 @@
             color: #f4f4f6;
         }
         
-        /* 返回按钮 */
+        /* 返回按钮：按下立刻缩小+涟漪，跳转前保持转圈，避免弱网时以为没点上 */
         .back-btn {
             background-color: transparent;
             color: white;
@@ -641,13 +669,93 @@
             justify-content: center;
             align-items: center;
             cursor: pointer;
-            transition: all 0.2s ease;
+            position: relative;
             border-radius: 50%;
+            text-decoration: none;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
         }
-        
-        .back-btn:active {
-            background-color: rgba(255,255,255,0.1);
-            transform: scale(0.95);
+
+        .back-btn-ripple {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .back-btn-ripple::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 68%);
+            transform: scale(0);
+            opacity: 0;
+        }
+
+        .back-btn.is-pressed .back-btn-ripple::after {
+            animation: reader-back-ripple 0.42s ease-out;
+        }
+
+        .back-btn-icon,
+        .back-btn-spinner {
+            position: relative;
+            z-index: 1;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .back-btn-spinner {
+            display: none;
+        }
+
+        .back-btn:active,
+        .back-btn.is-pressed {
+            background-color: rgba(255,255,255,0.22);
+            transform: scale(0.88);
+        }
+
+        .back-btn.is-leaving {
+            background-color: rgba(255,255,255,0.16);
+            transform: scale(1);
+            pointer-events: none;
+            animation: reader-back-pulse 1.1s ease-in-out infinite;
+        }
+
+        .back-btn.is-leaving .back-btn-icon {
+            display: none;
+        }
+
+        .back-btn.is-leaving .back-btn-spinner {
+            display: inline-block;
+        }
+
+        @keyframes reader-back-ripple {
+            0% { transform: scale(0.15); opacity: 0.95; }
+            100% { transform: scale(1.75); opacity: 0; }
+        }
+
+        @keyframes reader-back-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.28); }
+            50% { box-shadow: 0 0 0 7px rgba(255,255,255,0.06); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .back-btn,
+            .back-btn:active,
+            .back-btn.is-pressed,
+            .back-btn.is-leaving {
+                transition: background-color 0.16s ease;
+                transform: none;
+                animation: none;
+            }
+
+            .back-btn-ripple::after {
+                animation: none !important;
+                opacity: 0;
+            }
         }
         
         /* 屏幕点击区域 */
@@ -656,7 +764,7 @@
             top: 56px;
             left: 0;
             right: 0;
-            bottom: 72px;
+            bottom: 96px;
             z-index: 50;
             background: transparent;
         }
@@ -675,6 +783,7 @@
             }
 
             .floating-controls {
+                display: flex;
                 top: auto;
                 right: auto;
                 bottom: 18px;
@@ -685,8 +794,9 @@
                 -webkit-backdrop-filter: blur(12px);
                 border: 1px solid rgba(107, 114, 128, 0.5);
                 border-radius: 24px;
-                padding: 10px 14px 12px;
+                padding: 14px 16px 16px;
                 width: min(680px, calc(100vw - 48px));
+                justify-content: center;
                 flex-wrap: wrap;
                 max-width: none;
                 box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
@@ -705,13 +815,14 @@
             }
 
             .control-btn {
+                width: auto;
                 flex-direction: column;
                 background: transparent;
                 border: none;
                 border-radius: 0;
                 padding: 0;
                 min-width: 50px;
-                min-height: 28px;
+                min-height: 36px;
                 flex: 0 0 auto;
                 gap: 0;
                 box-shadow: none;
@@ -751,7 +862,7 @@
                 left: 50%;
                 right: auto;
                 transform: translateX(-50%);
-                bottom: 112px;
+                bottom: 128px;
                 min-width: 0;
                 width: min(680px, calc(100vw - 48px));
                 background: rgba(0, 0, 0, 0.96);
@@ -767,7 +878,7 @@
                 left: 50%;
                 right: auto;
                 transform: translateX(-50%);
-                bottom: 112px;
+                bottom: 128px;
                 min-width: 0;
                 width: min(680px, calc(100vw - 48px));
                 background: rgba(0, 0, 0, 0.96);
@@ -782,7 +893,7 @@
                 top: auto;
                 left: 50%;
                 right: auto;
-                bottom: 112px;
+                bottom: 128px;
                 transform: translateX(-50%);
                 border-radius: 16px;
                 padding: 16px;
@@ -865,8 +976,10 @@
     <!-- 移动端顶部标题栏 -->
     <div class="mobile-header" id="mobile-header">
         <div class="mobile-header-left">
-            <a href="{{ url_for('comic_detail', task_id=task.id, return_to=library_return_url) }}" class="back-btn">
-                <i class="fa fa-arrow-left"></i>
+            <a href="{{ url_for('comic_detail', task_id=task.id, return_to=library_return_url) }}" class="back-btn" aria-label="返回漫画详情">
+                <span class="back-btn-ripple" aria-hidden="true"></span>
+                <i class="fa fa-arrow-left back-btn-icon"></i>
+                <i class="fa fa-spinner fa-spin back-btn-spinner" aria-hidden="true"></i>
             </a>
             <div>
                 <div class="mobile-header-title">{{ task.comic_name }}</div>
@@ -876,8 +989,10 @@
     </div>
     
     <!-- 桌面端返回按钮 -->
-    <a href="{{ url_for('comic_detail', task_id=task.id, return_to=library_return_url) }}" class="back-btn" style="display: none;" id="desktop-back-btn">
-        <i class="fa fa-arrow-left"></i>
+    <a href="{{ url_for('comic_detail', task_id=task.id, return_to=library_return_url) }}" class="back-btn" style="display: none;" id="desktop-back-btn" aria-label="返回漫画详情">
+        <span class="back-btn-ripple" aria-hidden="true"></span>
+        <i class="fa fa-arrow-left back-btn-icon"></i>
+        <i class="fa fa-spinner fa-spin back-btn-spinner" aria-hidden="true"></i>
     </a>
 
     <div class="reading-progress" id="reading-progress">
@@ -910,7 +1025,7 @@
     </div>
 
     <!-- 底部工具栏 -->
-    <div class="floating-controls" id="floating-controls">
+    <div class="floating-controls{% if anilist_enabled %} with-anilist{% endif %}" id="floating-controls">
         <div class="reading-progress-host" id="reading-progress-mobile-slot"></div>
         <button id="chapter-selector-btn" class="control-btn" aria-label="章节列表" aria-controls="chapter-selector" aria-expanded="false">
             <i class="fa fa-list-ol" aria-hidden="true"></i>
@@ -1010,6 +1125,8 @@
         let accumulatedReadingMs = 0;
         let reportedReadingSeconds = 0;
         let progressClockMs = 0;
+        let readerBackLeaving = false;
+        let readerBackPressTimer = null;
         function nextProgressMs() {
             const now = Date.now();
             progressClockMs = Math.max(progressClockMs + 1, now);
@@ -1344,20 +1461,74 @@
             });
         }
         
-        // 绑定所有事件
-        function bindAllEvents() {
-            // 为返回按钮添加阅读时间保存事件
-            const backButtons = document.querySelectorAll('.back-btn');
-            backButtons.forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault(); // 先阻止默认跳转
-                    const targetUrl = btn.getAttribute('href');
+        function readerBackButtons() {
+            return document.querySelectorAll('.back-btn');
+        }
 
-                    flushVisibleReadingTime();
-                    submitProgressSnapshot({ keepalive: true, includeReadingTime: true });
+        function clearReaderBackPress(btn) {
+            if (readerBackLeaving) return;
+            btn.classList.remove('is-pressed');
+        }
+
+        function pressReaderBackButton(btn) {
+            if (readerBackLeaving) return;
+            btn.classList.add('is-pressed');
+            if (readerBackPressTimer !== null) {
+                window.clearTimeout(readerBackPressTimer);
+            }
+            readerBackPressTimer = window.setTimeout(() => {
+                readerBackPressTimer = null;
+                clearReaderBackPress(btn);
+            }, 420);
+        }
+
+        function resetReaderBackButtons() {
+            readerBackLeaving = false;
+            if (readerBackPressTimer !== null) {
+                window.clearTimeout(readerBackPressTimer);
+                readerBackPressTimer = null;
+            }
+            readerBackButtons().forEach((btn) => {
+                btn.classList.remove('is-pressed', 'is-leaving');
+                btn.removeAttribute('aria-busy');
+            });
+        }
+
+        function leaveReaderViaBackButton(btn) {
+            if (readerBackLeaving) return false;
+            readerBackLeaving = true;
+            if (readerBackPressTimer !== null) {
+                window.clearTimeout(readerBackPressTimer);
+                readerBackPressTimer = null;
+            }
+            readerBackButtons().forEach((el) => {
+                el.classList.add('is-leaving');
+                el.classList.remove('is-pressed');
+                el.setAttribute('aria-busy', 'true');
+            });
+            flushVisibleReadingTime();
+            submitProgressSnapshot({ keepalive: true, includeReadingTime: true });
+            const targetUrl = btn.getAttribute('href');
+            window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
                     window.location.href = targetUrl;
                 });
             });
+            return true;
+        }
+
+        // 绑定所有事件
+        function bindAllEvents() {
+            readerBackButtons().forEach((btn) => {
+                btn.addEventListener('pointerdown', () => pressReaderBackButton(btn));
+                btn.addEventListener('pointercancel', () => clearReaderBackPress(btn));
+                btn.addEventListener('pointerleave', () => clearReaderBackPress(btn));
+                btn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    leaveReaderViaBackButton(btn);
+                });
+            });
+            window.addEventListener('pageshow', resetReaderBackButtons);
             chapterSelectorBtn.addEventListener('click', toggleChapterSelector);
             document.getElementById('chapter-selector-close').addEventListener('click', hideChapterSelector);
             autoScrollBtn.addEventListener('click', toggleAutoScroll);
@@ -1774,7 +1945,6 @@
             const container = document.createElement('div');
             container.style.overflowAnchor = 'none';
             container.className = `page-container cbz-page margin-${currentMargin}`;
-            container.style.aspectRatio = `${width} / ${height}`;
             const img = document.createElement('img');
             img.className = 'comic-page';
             img.width = width;
@@ -1782,6 +1952,15 @@
             img.alt = `第 ${pageIndex + 1} 页`;
             img.style.visibility = 'hidden';
             container.appendChild(img);
+            const sizer = document.createElement('div');
+            sizer.className = 'cbz-page-sizer';
+            sizer.setAttribute('aria-hidden', 'true');
+            const applyPageRatio = (ratioWidth, ratioHeight) => {
+                const boxWidth = Number(ratioWidth) > 0 ? Number(ratioWidth) : 720;
+                const boxHeight = Number(ratioHeight) > 0 ? Number(ratioHeight) : 1000;
+                sizer.style.paddingTop = `${(boxHeight / boxWidth) * 100}%`;
+            };
+            applyPageRatio(width, height);
             const url = `${cacheEntry.pagesUrl}?page=${pageIndex}`;
             let attempts = 0;
             const status = document.createElement('button');
@@ -1794,6 +1973,7 @@
                 queueCbzImage(container);
             });
             container.appendChild(status);
+            container.appendChild(sizer);
             container.retryIfInterrupted = () => {
                 if (container.dataset.loading === 'true' && img.complete && !img.naturalWidth) img.onerror?.();
             };
@@ -1841,7 +2021,7 @@
                             cacheEntry.dimensions[pageIndex] = [img.naturalWidth, img.naturalHeight];
                             img.width = img.naturalWidth;
                             img.height = img.naturalHeight;
-                            container.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+                            applyPageRatio(img.naturalWidth, img.naturalHeight);
                         }
                         if (anchor && anchor !== container && !isDraggingProgressSlider) {
                             const shift = anchor.getBoundingClientRect().top - anchorTop;

@@ -26,7 +26,7 @@
     .stats-rank-position.is-top-1 { color: #f5c451; }
     .stats-rank-position.is-top-2 { color: #b7c0ce; }
     .stats-rank-position.is-top-3 { color: #d58b67; }
-    .stats-rank-cover { position: relative; width: 3.55rem; aspect-ratio: 3 / 4; overflow: hidden; border-radius: 0.32rem; background: linear-gradient(145deg, #242432, #111118); }
+    .stats-rank-cover { position: relative; width: 3.55rem; height: 4.733rem; flex: 0 0 auto; overflow: hidden; border-radius: 0.32rem; background: linear-gradient(145deg, #242432, #111118); }
     .stats-rank-cover-placeholder, .stats-rank-cover img { position: absolute; inset: 0; width: 100%; height: 100%; }
     .stats-rank-cover-placeholder { display: grid; place-items: center; color: #737387; font-size: 1.15rem; }
     .stats-rank-cover img { object-fit: cover; }
@@ -76,7 +76,7 @@
         .stats-overview-card + .stats-overview-card { padding-left: 0.85rem; }
         .stats-card { padding: 1.4rem 0; }
         .stats-rank-row { grid-template-columns: 1.55rem 3.25rem minmax(0, 1fr); gap: 0.62rem; }
-        .stats-rank-cover { width: 3.25rem; }
+        .stats-rank-cover { width: 3.25rem; height: 4.333rem; }
         .stats-rank-line { gap: 0.45rem; }
         .stats-rank-title { font-size: 0.88rem; }
         .stats-rank-duration { font-size: 0.8rem; }
@@ -116,7 +116,7 @@
                 </div>
                 <div class="stats-rank-cover">
                     <span class="stats-rank-cover-placeholder"><i class="fa fa-book"></i></span>
-                    {% if item.cover_url %}<img src="{{ item.cover_url }}" alt="{{ item.title }}封面" loading="lazy" data-fallback="{{ asset_url('default-comic-cover.jpg') }}">{% endif %}
+                    {% if item.cover_url %}<img src="{{ item.cover_url }}" alt="{{ item.title }}封面" width="78" height="104" data-fallback="{{ asset_url('default-comic-cover.jpg') }}">{% endif %}
                 </div>
                 <div class="stats-rank-main">
                     <div class="stats-rank-line">

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from flask import render_template, request, session, url_for
 
-from mangadock.auth import login_required
+from mangadock.auth import cover_image_url, login_required
 from mangadock.core import app
 from mangadock.extensions import db
 from mangadock.models import User
@@ -61,7 +61,7 @@ def statistics():
             'title': source_name,
             'subtitle': '漫画',
             'media_type': '漫画',
-            'cover_url': url_for('static', filename=f'cover/{source_name}.jpg'),
+            'cover_url': cover_image_url(source_name),
             'total_duration': total_duration,
             'ratio': (total_duration / max_rank_duration * 100) if max_rank_duration else 0,
         }

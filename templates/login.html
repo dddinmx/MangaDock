@@ -246,9 +246,9 @@
         .login-cover-scene {
             position: fixed;
             z-index: -3;
-            top: -25vh;
+            top: -5vh;
             left: -17vw;
-            width: 138vw;
+            width: max(138vw, 250vh);
             height: 140vh;
             transform: rotate(-8deg);
             transform-origin: center;
@@ -256,21 +256,27 @@
         }
         .login-cover-wall {
             display: grid;
-            /* 24 小说 + 24 漫画共 48 格 = 12 列 × 4 行，行高随场景高度拉伸，
-               保证任何视口宽高比下都铺满到底（2026-09-20 底部黑底修复） */
+            /* 48 格 = 12 列 × 4 行；行高由封面宽度决定，保持 3:4 比例。 */
             grid-template-columns: repeat(12, minmax(84px, 1fr));
-            grid-template-rows: repeat(4, 1fr);
+            grid-template-rows: repeat(4, max-content);
             height: 100%;
+            align-content: start;
             gap: clamp(7px, .7vw, 12px);
         }
         .login-cover-tile {
             position: relative;
+            min-width: 0;
             overflow: hidden;
             border: 2px solid rgba(0, 0, 0, .88);
             border-radius: clamp(7px, .7vw, 12px);
             background: linear-gradient(145deg, #252531, #111118);
             box-shadow: 0 14px 30px rgba(0, 0, 0, .5);
             transform: none;
+        }
+        .login-cover-tile::before {
+            content: "";
+            display: block;
+            padding-top: 133.333%;
         }
         .login-cover-tile:nth-child(3n + 2),
         .login-cover-tile:nth-child(3n) { transform: none; }
@@ -281,6 +287,8 @@
             translate: 0 0;
         }
         .login-cover-tile img {
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
             display: block;
@@ -478,9 +486,9 @@
                 background: linear-gradient(180deg, rgba(4, 4, 7, .5), rgba(4, 4, 7, .78) 44%, rgba(4, 4, 7, .94));
             }
             .login-cover-scene {
-                top: -20vh;
+                top: -5vh;
                 left: -60vw;
-                width: 220vw;
+                width: max(130vw, 130vh);
             }
             .login-cover-wall {
                 grid-template-columns: repeat(7, minmax(100px, 1fr));
@@ -570,14 +578,14 @@
         }
         @media (max-width: 900px) {
             .login-cover-scene {
-                top: -15vh;
+                top: -5vh;
                 left: -56vw;
-                width: 210vw;
+                width: max(130vw, 130vh);
                 height: 120vh;
             }
             .login-cover-wall {
                 grid-template-columns: repeat(8, minmax(80px, 1fr));
-                grid-template-rows: repeat(6, 1fr);
+                grid-template-rows: repeat(6, max-content);
                 gap: 9px;
             }
             .login-container {

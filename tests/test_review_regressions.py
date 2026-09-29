@@ -6,7 +6,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class ReviewRegressions(unittest.TestCase):
@@ -81,6 +81,35 @@ class ReviewRegressions(unittest.TestCase):
         self.assertFalse(self.groups.can_user_access_group('默认分组', user))
         admin = self.models.User.query.filter_by(username='admin').first()
         self.assertTrue(self.groups.can_user_access_group('默认分组', admin))
+
+    def test_release_check_uses_public_redirect_without_api_rate_limit(self):
+        from mangadock.blueprints.web import settings_pages
+
+        redirect = Mock(url='https://github.com/dddinmx/MangaDock/releases/tag/v2.11.20')
+        with patch.object(settings_pages.requests, 'head', return_value=redirect), \
+                patch.object(settings_pages.requests, 'get') as api_get:
+            self.assertEqual(settings_pages._latest_release_tag(), 'v2.11.20')
+            api_get.assert_not_called()
+
+    def test_release_check_falls_back_to_api_when_redirect_fails(self):
+        from mangadock.blueprints.web import settings_pages
+        from requests import ConnectionError
+
+        api_response = Mock()
+        api_response.json.return_value = {'tag_name': 'v2.11.20'}
+        with patch.object(settings_pages.requests, 'head', side_effect=ConnectionError()), \
+                patch.object(settings_pages.requests, 'get', return_value=api_response):
+            self.assertEqual(settings_pages._latest_release_tag(), 'v2.11.20')
+
+    def test_release_check_rejects_unexpected_redirect(self):
+        from mangadock.blueprints.web import settings_pages
+
+        redirect = Mock(url='https://example.com/dddinmx/MangaDock/releases/tag/v9.9.9')
+        api_response = Mock()
+        api_response.json.return_value = {'tag_name': 'v2.11.20'}
+        with patch.object(settings_pages.requests, 'head', return_value=redirect), \
+                patch.object(settings_pages.requests, 'get', return_value=api_response):
+            self.assertEqual(settings_pages._latest_release_tag(), 'v2.11.20')
 
     def test_cbz_pages_load_individually_and_check_group_access(self):
         from io import BytesIO
