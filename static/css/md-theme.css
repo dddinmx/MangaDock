@@ -3237,11 +3237,11 @@ body.md-home-page .md-main--flush {
   padding: 0;
 }
 
-/* ── 文案块：顶 19.6% · 左内边距 · 宽 41% ── */
+/* ── 文案块：与右侧封面视觉中心对齐 ── */
 .md-hero--figma .md-hero-copy {
   position: absolute;
   left: var(--fig-gut);
-  top: 22.4%;   /* 把文案块放到「顶栏下方」与「书轨上方」两段留白的中间，不再全堆在上半部 */
+  top: 24.5%;
   width: 42%;
   max-width: 36rem;
   /* 极端矮窗时文案区内部细滚动，好过顶出屏幕把书轨（z-index:20 固定底）压住 */
@@ -3419,6 +3419,7 @@ body.md-home-page .md-main--flush {
   align-items: center;
   gap: 1.15rem;
   padding: 0 var(--fig-rail-pad) 1rem;
+  padding-left: calc(var(--fig-rail-pad) + clamp(1rem, 2.5vw, 2.5rem));
 }
 
 .md-home-rail__nav {
@@ -3954,13 +3955,15 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
   }
 
   .md-hero--figma .md-hero-inner {
-    position: relative;
+    position: static;
     inset: auto;
-    padding-top: max(7rem, 18vh);
+    flex: 1;
+    padding-top: calc(max(7rem, 18vh) + 1.25rem);
   }
 
   .md-hero--figma .md-hero-copy {
     position: relative;
+    z-index: 3;
     left: auto;
     top: auto;
     margin-left: var(--fig-gut);
@@ -3974,7 +3977,6 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
     left: auto;
     right: auto;
     bottom: auto;
-    margin-top: auto;
   }
 }
 /* AniList 作品关联 */

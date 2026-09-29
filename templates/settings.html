@@ -206,5 +206,53 @@
         </div>
     </section>
     {% endif %}
+    <section class="md-setting-group">
+        <h2 class="md-setting-group__title">关于</h2>
+        <div class="md-setting-list">
+            <button type="button" id="release-check" class="md-setting-row" aria-controls="release-result" aria-expanded="false">
+                <span class="md-setting-row__icon"><i class="fa fa-info-circle"></i></span>
+                <span class="md-setting-row__title">当前版本</span>
+                <span class="md-setting-row__value">v{{ release_version }}</span>
+                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+            </button>
+            <div id="release-result" class="md-setting-panel" role="status" aria-live="polite" hidden></div>
+        </div>
+    </section>
 </div>
+<script>
+(() => {
+    const button = document.getElementById('release-check');
+    const result = document.getElementById('release-result');
+    const current = {{ release_version|tojson }};
+    const parts = version => /^v?\d+(?:\.\d+)*$/.test(version) ? version.replace(/^v/, '').split('.').map(Number) : null;
+    button.addEventListener('click', async () => {
+        if (button.disabled) return;
+        button.disabled = true;
+        button.setAttribute('aria-expanded', 'true');
+        result.hidden = false;
+        result.textContent = '正在查询 GitHub…';
+        try {
+            const response = await fetch({{ url_for('latest_release')|tojson }}, {cache: 'no-store'});
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '查询失败，请稍后重试');
+            const latest = parts(data.latest_version);
+            const installed = parts(current);
+            if (!latest || !installed) throw new Error('版本号格式无法比较');
+            const difference = Array.from({length: Math.max(latest.length, installed.length)}, (_, i) => (latest[i] || 0) - (installed[i] || 0)).find(n => n !== 0) || 0;
+            result.textContent = difference > 0 ? `发现新版本 ${data.latest_version}。` : difference < 0 ? `当前版本高于 GitHub 最新发布（${data.latest_version}）。` : `已是最新版本（GitHub：${data.latest_version}）。`;
+            const link = document.createElement('a');
+            link.href = 'https://github.com/dddinmx/MangaDock/releases/latest';
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'md-lib-link';
+            link.textContent = difference > 0 ? '查看更新' : '查看 GitHub Release';
+            result.append(' ', link);
+        } catch (error) {
+            result.textContent = error.message || '查询失败，请稍后重试';
+        } finally {
+            button.disabled = false;
+        }
+    });
+})();
+</script>
 {% endblock %}

@@ -3,6 +3,7 @@
 import os
 import json
 from datetime import datetime
+import requests
 
 from flask import (
     flash,
@@ -33,7 +34,7 @@ from mangadock.services.webdav import settings_view as webdav_settings_view
 from mangadock.services.webdav import queue_library_sync
 from mangadock.services.updates import update_webdav_sync_state
 from mangadock.services.webdav_metadata import metadata_progress
-from mangadock.settings import COMIC_ROOT, china_tz
+from mangadock.settings import COMIC_ROOT, RELEASE_VERSION, china_tz
 
 
 @app.route('/settings')
@@ -43,9 +44,33 @@ def settings():
     return render_template(
         'settings.html',
         current_user=current_user,
+        release_version=RELEASE_VERSION,
         adult_content_enabled=is_adult_content_enabled(),
         anilist_account=db.session.get(AniListAccount, current_user.id),
     )
+
+
+@app.route('/settings/latest-release')
+@login_required
+def latest_release():
+    try:
+        response = requests.get(
+            'https://api.github.com/repos/dddinmx/MangaDock/releases/latest',
+            headers={'Accept': 'application/vnd.github+json'},
+            timeout=5,
+        )
+        response.raise_for_status()
+        tag = response.json()['tag_name']
+        if not isinstance(tag, str) or not tag:
+            raise ValueError('GitHub Release 缺少版本号')
+    except (requests.RequestException, ValueError, KeyError):
+        app.logger.warning('GitHub Release 查询失败', exc_info=True)
+        result = jsonify(error='暂时无法查询 GitHub 版本，请稍后重试')
+        result.status_code = 502
+    else:
+        result = jsonify(latest_version=tag)
+    result.headers['Cache-Control'] = 'no-store'
+    return result
 
 
 @app.route('/settings/webdav', methods=['GET'])
