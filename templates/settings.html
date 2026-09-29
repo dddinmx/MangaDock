@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_md_icon.html' import icon as md_icon %}
 
 {% block title %}MangaDock - 我的{% endblock %}
 
@@ -6,18 +7,16 @@
 
 {% block extra_head %}{% include '_md_ios_ui.html' %}
 <style>
-    @font-face {
-        font-family: 'MangaDockKai';
-        src: url("{{ asset_url('fonts/LXGWWenKai-Regular.ttf') }}") format('truetype');
-        font-display: swap;
-    }
-    .settings-brand-title {
-        font-family: 'MangaDockKai', 'Kaiti SC', 'STKaiti', 'KaiTi', serif;
-    }
-
     /* ==================== 「我的」页专属 ==================== */
     /* 页面骨架 / 分组 / 列表行 / 分组胶囊 / 提示条等共用样式在 _md_ios_ui.html，
        这里只放本页独有的部分。 */
+
+    .md-setting-page-title { margin: 0 0 1.3rem; color: var(--md-text); font-size: 2rem; font-weight: 800; line-height: 1.2; text-align: left; }
+    .md-setting-profile { display: flex; align-items: center; gap: 0.75rem; min-width: 0; margin-bottom: 1.35rem; padding: 0.75rem 0.9rem; border: 1px solid var(--md-border); border-radius: 1rem; background: var(--md-bg-elevated); }
+    .md-setting-profile__avatar { display: grid; flex: 0 0 3rem; width: 3rem; height: 3rem; place-items: center; border-radius: 50%; background: linear-gradient(145deg, var(--md-brand-soft), var(--md-brand)); color: #fff; font-size: 1.3rem; font-weight: 750; line-height: 1; box-shadow: 0 5px 14px rgba(var(--md-brand-rgb), 0.2); }
+    .md-setting-profile__text { min-width: 0; }
+    .md-setting-profile__name { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--md-text); font-size: 1.08rem; font-weight: 750; line-height: 1.25; }
+    .md-setting-profile__role { margin: 0.2rem 0 0; color: var(--md-muted); font-size: 0.75rem; }
 
     /* 强调色：行内色点 */
     .md-setting-colors { display: inline-flex; align-items: center; gap: 0.5rem; }
@@ -49,16 +48,20 @@
     <section class="space-y-2 mb-4" id="settings-flash">
         {% for message in flash_messages %}
         <div class="md-ios-alert is-success">
-            <i class="fa fa-check-circle md-ios-alert__icon"></i>
+            {{ md_icon('check-circle', 'md-ios-alert__icon') }}
             <span>{{ message }}</span>
         </div>
         {% endfor %}
     </section>
     {% endif %}
 
-    <header class="md-setting-header">
-        <h1 class="md-setting-header__title settings-brand-title">漫棧</h1>
-        <p class="md-setting-header__sub">账号、工具与书库管理</p>
+    <h1 class="md-setting-page-title">Setting</h1>
+    <header class="md-setting-profile">
+        <div class="md-setting-profile__avatar" aria-hidden="true">{{ current_user.username[:1]|upper }}</div>
+        <div class="md-setting-profile__text">
+            <h2 class="md-setting-profile__name">{{ current_user.username }}</h2>
+            <p class="md-setting-profile__role">{{ '管理员账户' if current_user.is_admin else '普通账户' }}</p>
+        </div>
     </header>
 
     <section class="md-setting-group">
@@ -66,25 +69,25 @@
         <div class="md-setting-list">
             {% if can_manage_library %}
             <a href="{{ url_for('download') }}" class="md-setting-row" data-app-loader="true" title="从支持的站点整本下载漫画或番茄小说到本地书库">
-                <span class="md-setting-row__icon"><i class="fa fa-download"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('download') }}</span>
                 <span class="md-setting-row__title">整本下载</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
             <a href="{{ url_for('update') }}" class="md-setting-row" data-app-loader="true" title="扫描已收藏漫画是否有新章节可补">
-                <span class="md-setting-row__icon"><i class="fa fa-refresh"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('refresh') }}</span>
                 <span class="md-setting-row__title">检查更新</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
             <a href="{{ url_for('tasks') }}" class="md-setting-row" data-app-loader="true" title="查看下载与更新任务历史与当前状态">
-                <span class="md-setting-row__icon"><i class="fa fa-list-ol"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('list') }}</span>
                 <span class="md-setting-row__title">任务列表</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
             {% endif %}
             <a href="{{ url_for('statistics', mode=current_library_mode) }}" class="md-setting-row" data-app-loader="true" title="累计时长、章节进度等概览">
-                <span class="md-setting-row__icon"><i class="fa fa-line-chart"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('chart') }}</span>
                 <span class="md-setting-row__title">阅读统计</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
         </div>
     </section>
@@ -93,13 +96,13 @@
         <h2 class="md-setting-group__title">外观</h2>
         <div class="md-setting-list">
             <button type="button" data-theme-toggle class="md-setting-row">
-                <span class="md-setting-row__icon"><i data-theme-toggle-icon class="fa fa-moon-o"></i></span>
+                <span class="md-setting-row__icon"><svg class="md-ui-icon" aria-hidden="true" focusable="false"><use data-theme-toggle-icon href="#md-icon-moon"></use></svg></span>
                 <span class="md-setting-row__title">外观主题</span>
                 <span class="md-setting-row__value" data-theme-toggle-state>浅色模式</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </button>
             <div class="md-setting-row md-setting-row--static">
-                <span class="md-setting-row__icon"><i class="fa fa-paint-brush"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('palette') }}</span>
                 <span class="md-setting-row__title">强调色</span>
                 <span class="md-setting-colors" role="radiogroup" aria-label="强调色">
                     <button type="button" class="md-setting-color" data-accent-option="pink-blue" style="--accent-color:#60a5fa" role="radio" aria-label="粉蓝"></button>
@@ -110,7 +113,7 @@
                 </span>
             </div>
             <div class="md-setting-row md-setting-row--static">
-                <span class="md-setting-row__icon"><i class="fa fa-th-large"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('grid') }}</span>
                 <span class="md-setting-row__title">书架列数</span>
                 <span class="md-setting-segments" role="radiogroup" aria-label="手机书架列数">
                     <button type="button" class="md-setting-segment" data-shelf-columns="auto" role="radio" aria-checked="false">自动</button>
@@ -119,7 +122,7 @@
                 </span>
             </div>
             <div class="md-setting-row md-setting-row--static">
-                <span class="md-setting-row__icon"><i class="fa fa-navicon"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('menu') }}</span>
                 <span class="md-setting-row__title">底部 Dock 栏</span>
                 <span class="md-setting-segments" role="radiogroup" aria-label="移动版底部 Dock 栏">
                     <button type="button" class="md-setting-segment" data-dock-option="off" role="radio" aria-checked="false">关闭</button>
@@ -135,7 +138,7 @@
         <div class="md-setting-list">
             {% if anilist_account %}
             <div class="md-setting-row md-setting-row--static">
-                <span class="md-setting-row__icon"><i class="fa fa-book"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('book') }}</span>
                 <span class="md-setting-row__title">AniList：{{ anilist_account.username }}</span>
                 <a href="{{ url_for('anilist_connect') }}" class="md-btn-secondary">重新授权</a>
                 <form method="post" action="{{ url_for('anilist_disconnect') }}">
@@ -145,29 +148,29 @@
             </div>
             {% else %}
             <a href="{{ url_for('anilist_connect') }}" class="md-setting-row">
-                <span class="md-setting-row__icon"><i class="fa fa-book"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('book') }}</span>
                 <span class="md-setting-row__title">连接 AniList</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
             {% endif %}
             <a href="{{ url_for('change_password') }}" class="md-setting-row" data-app-loader="true" title="更新当前账号密码。成功后需重新登录">
-                <span class="md-setting-row__icon"><i class="fa fa-lock"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('lock') }}</span>
                 <span class="md-setting-row__title">修改密码</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
             {% if is_admin_user %}
             <a href="{{ url_for('users') }}" class="md-setting-row" data-app-loader="true" title="创建普通用户或管理员，查看角色分配">
-                <span class="md-setting-row__icon"><i class="fa fa-users"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('users') }}</span>
                 <span class="md-setting-row__title">用户管理</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
             {% endif %}
             <form method="post" action="{{ url_for('logout') }}" data-api-v1="logout" data-api-redirect="{{ url_for('login') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="md-setting-row is-danger">
-                    <span class="md-setting-row__icon"><i class="fa fa-sign-out"></i></span>
+                    <span class="md-setting-row__icon">{{ md_icon('log-out') }}</span>
                     <span class="md-setting-row__title">退出登录</span>
-                    <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                    {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
                 </button>
             </form>
         </div>
@@ -181,7 +184,7 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="enabled" value="{{ '0' if adult_content_enabled else '1' }}">
                 <button type="submit" class="md-setting-row" aria-pressed="{{ 'true' if adult_content_enabled else 'false' }}">
-                    <span class="md-setting-row__icon"><i class="fa fa-eye"></i></span>
+                    <span class="md-setting-row__icon">{{ md_icon('eye') }}</span>
                     <span class="md-setting-row__title">18+ 内容来源</span>
                     <span class="settings-switch{% if adult_content_enabled %} is-on{% endif %}" aria-hidden="true"></span>
                 </button>
@@ -194,14 +197,14 @@
         <h2 class="md-setting-group__title">书库来源</h2>
         <div class="md-setting-list">
             <a href="{{ url_for('webdav_settings') }}" class="md-setting-row" data-app-loader="true">
-                <span class="md-setting-row__icon"><i class="fa fa-cloud"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('cloud') }}</span>
                 <span class="md-setting-row__title">WebDAV 连接</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
             <a href="{{ url_for('scan_settings') }}" class="md-setting-row" data-app-loader="true">
-                <span class="md-setting-row__icon"><i class="fa fa-folder-open"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('folder') }}</span>
                 <span class="md-setting-row__title">本地扫盘</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
         </div>
     </section>
@@ -210,10 +213,10 @@
         <h2 class="md-setting-group__title">关于</h2>
         <div class="md-setting-list">
             <button type="button" id="release-check" class="md-setting-row" aria-controls="release-result" aria-expanded="false">
-                <span class="md-setting-row__icon"><i class="fa fa-info-circle"></i></span>
+                <span class="md-setting-row__icon">{{ md_icon('info') }}</span>
                 <span class="md-setting-row__title">当前版本</span>
                 <span class="md-setting-row__value">v{{ release_version }}</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
+                {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </button>
             <div id="release-result" class="md-setting-panel" role="status" aria-live="polite" hidden></div>
         </div>

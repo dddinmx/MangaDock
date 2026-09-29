@@ -15,7 +15,7 @@ API_ROOT = 'https://api.mangaupdates.com/v1'
 
 def _request(method, path, **kwargs):
     identity = os.path.join(app.instance_path, 'mangaupdates-metadata-rate')
-    with webdav._open_lock_file(identity) as lock:
+    with webdav.open_lock_file(identity) as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         stamp = identity + '.json'
         try:

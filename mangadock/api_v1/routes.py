@@ -45,21 +45,14 @@ from mangadock.models import (
 )
 from mangadock.services.adult_content import (
     is_adult_content_enabled,
-    is_adult_content_enabled_for,
     set_adult_content_enabled,
 )
-from mangadock.services.download import (
-    is_adult_content_blocked,
-    is_supported_comic_url,
-    normalize_target_input,
-)
-from mangadock.services.fanqie import classify_fanqie_target
-from mangadock.services.fanqie_api import FanqieApiError
+from mangadock.services.enqueue import enqueue_user_download
 from mangadock.services.groups import (
-    assign_comic_group,
+    assign_existing_comic_to_group,
     can_user_access_group,
-    delete_comic_group,
-    ensure_comic_group,
+    create_named_comic_group,
+    delete_named_comic_group,
     get_accessible_group_names,
     get_all_comic_groups,
     get_comic_group_map,
@@ -82,7 +75,6 @@ from mangadock.services.tasks import (
     delete_task,
     get_all_tasks,
     get_task,
-    normalize_comic_url_identity,
     retire_user_tasks,
     update_task,
 )
@@ -94,9 +86,8 @@ from mangadock.services.updates import (
     queue_background_command,
     set_comic_update_mode,
 )
-from mangadock.services.workers import start_download_task, start_novel_task, start_update_task
+from mangadock.services.workers import start_update_task
 from mangadock.settings import (
-    ADULT_CONTENT_DISABLED_MESSAGE,
     APP_VERSION,
     COMIC_ROOT,
     COMIC_UPDATE_MODE_AUTO,
@@ -344,109 +335,45 @@ def register_routes(bp):
         requester = get_api_request_user()
         if not (requester and (requester.is_admin or getattr(requester, 'can_download', False))):
             return api_fail('FORBIDDEN', '当前账号没有下载权限', 403)
-        requester_can_adult = is_adult_content_enabled_for(requester)
 
         data = request_json()
         if data is None:
             return api_fail('INVALID_JSON', '请求体必须是 JSON 对象')
 
-        comic_url = normalize_target_input(data.get('url') or data.get('comic_url') or '')
         try:
             comic_format = parse_comic_format(data.get('format'), default=2)
         except ValueError as exc:
             return api_fail('INVALID_FORMAT', str(exc))
 
-        if not is_supported_comic_url(comic_url):
-            return api_fail(
-                'UNSUPPORTED_URL',
-                '请输入有效的漫画或小说链接/ID（支持包子漫画、漫画柜、嬉皮漫畫、'
-                '番茄图片漫画、番茄小说'
-                + ('、MXS' if requester_can_adult else '')
-                + '）',
-            )
-
-        normalized_url = normalize_comic_url_identity(comic_url)
-        mapped_names = [
-            comic_name
-            for comic_name, mapped_url in load_comic_mapping().items()
-            if normalize_comic_url_identity(mapped_url) == normalized_url
-        ]
-        comic_group_map = get_comic_group_map()
-        if any(
-            not can_user_access_group(
-                normalize_group_name(comic_group_map.get(comic_name)) or '默认分组',
-                requester,
-            )
-            for comic_name in mapped_names
-        ):
+        result = enqueue_user_download(
+            requester,
+            data.get('url') or data.get('comic_url') or '',
+            comic_format,
+        )
+        if result.code == 'FORBIDDEN':
             return api_fail('NOT_FOUND', '未找到该漫画', 404)
-
-        if is_adult_content_blocked(comic_url, allow_adult=requester_can_adult):
-            return api_fail('ADULT_CONTENT_DISABLED', ADULT_CONTENT_DISABLED_MESSAGE, 403)
-
-        # 番茄小说与图片漫画共用 fanqienovel.com 域名，本地无法从 URL 分辨：
-        # 提交时先问中转 API 要类型，小说分流到 EPUB 小说流水线（入小说书架），
-        # 漫画仍走原有图片漫画管线。
-        try:
-            fanqie_target = classify_fanqie_target(comic_url)
-        except FanqieApiError as exc:
-            return api_fail('FANQIE_TARGET_INVALID', str(exc) or '番茄作品解析失败')
-        except ValueError as exc:
-            return api_fail('UNSUPPORTED_URL', str(exc))
-
-        if fanqie_target and fanqie_target['kind'] == 'comic':
-            fanqie_identity = normalize_comic_url_identity(
-                f"fanqie-comic://{fanqie_target['book_id']}"
-            )
-            fanqie_mapped_names = [
-                comic_name
-                for comic_name, mapped_url in load_comic_mapping().items()
-                if normalize_comic_url_identity(mapped_url) == fanqie_identity
-            ]
-            fanqie_group_map = get_comic_group_map()
-            if any(
-                not can_user_access_group(
-                    normalize_group_name(fanqie_group_map.get(comic_name)) or '默认分组',
-                    requester,
-                )
-                for comic_name in fanqie_mapped_names
-            ):
-                return api_fail('NOT_FOUND', '未找到该漫画', 404)
-
-        if fanqie_target and fanqie_target['kind'] == 'novel':
-            task_id, reused = start_novel_task(
-                fanqie_target['book_id'],
-                title=fanqie_target['title'],
-                created_by_user_id=requester.id,
-            )
-            task = get_task(task_id) if task_id else None
+        if not result.ok:
+            return api_fail(result.code, result.message, result.http_status)
+        if result.media_kind == 'novel':
+            task = get_task(result.task_id) if result.task_id else None
             payload = {
-                'task_id': task_id,
+                'task_id': result.task_id,
                 'media_kind': 'novel',
-                'media_label': fanqie_target['media_label'],
-                'reused': reused,
+                'media_label': (result.fanqie_target or {}).get('media_label'),
+                'reused': result.reused,
                 'task': _serialize_task(task) if task else None,
             }
             extra = {}
-            if not task_id:
-                payload['message'] = '这本小说已在下载队列中，完成后会出现在小说书架'
-                extra['message'] = payload['message']
-            return api_ok(payload, status=200 if reused else 201, **extra)
-
-        try:
-            task_id = start_download_task(
-                comic_url, comic_format,
-                allow_adult=bool(getattr(requester, 'can_view_adult', False)),
-                created_by_user_id=requester.id,
-            )
-        except PermissionError:
-            return api_fail('NOT_FOUND', '未找到该漫画', 404)
-        task = get_task(task_id)
+            if result.code == 'NOVEL_IN_PROGRESS':
+                payload['message'] = result.message
+                extra['message'] = result.message
+            return api_ok(payload, status=result.http_status, **extra)
+        task = get_task(result.task_id)
         return api_ok({
-            'task_id': task_id,
+            'task_id': result.task_id,
             'media_kind': 'comic',
             'task': _serialize_task(task) if task else None,
-        }, status=201)
+        }, status=result.http_status)
 
     # ------------------------------------------------------------------ updates
     @bp.get('/updates')
@@ -548,34 +475,26 @@ def register_routes(bp):
         data = request_json()
         if data is None:
             return api_fail('INVALID_JSON', '请求体必须是 JSON 对象')
-        group_name = normalize_group_name(data.get('name') or data.get('group_name'))
-        if not group_name:
-            return api_fail('INVALID_NAME', '分组名称不能为空')
-        if group_name == '全部':
-            return api_fail('INVALID_NAME', '“全部”是系统筛选项，不能作为分组名称')
-
-        existing = set(get_all_comic_groups())
-        created = ensure_comic_group(group_name)
-        if not created:
-            return api_fail('INVALID_NAME', '分组名称无效')
-        already = created in existing
+        result = create_named_comic_group(data.get('name') or data.get('group_name'))
+        if not result.ok:
+            return api_fail('INVALID_NAME', result.message)
         return api_ok({
-            'name': created,
-            'created': not already,
-            'message': '分组已存在' if already else f'已创建分组：{created}',
-        }, status=200 if already else 201)
+            'name': result.name,
+            'created': result.created,
+            'message': result.message,
+        }, status=200 if not result.created else 201)
 
     @bp.delete('/groups/<path:group_name>')
     @require_write_auth(admin=True)
     def remove_group(group_name):
-        normalized = normalize_group_name(group_name)
-        if not normalized:
-            return api_fail('INVALID_NAME', '请选择要删除的分组')
-        if normalized == '默认分组':
-            return api_fail('FORBIDDEN', '默认分组不能删除', 403)
-        if not delete_comic_group(normalized):
-            return api_fail('DELETE_FAILED', '删除分组失败，请重试')
-        return api_ok({'name': normalized, 'deleted': True})
+        result = delete_named_comic_group(group_name)
+        if result.code == 'EMPTY':
+            return api_fail('INVALID_NAME', result.message)
+        if result.code == 'DELETE_FORBIDDEN':
+            return api_fail('FORBIDDEN', result.message, 403)
+        if not result.ok:
+            return api_fail('DELETE_FAILED', result.message)
+        return api_ok({'name': result.name, 'deleted': True})
 
     @bp.post('/groups/assign')
     @require_write_auth(admin=True)
@@ -584,16 +503,17 @@ def register_routes(bp):
         if data is None:
             return api_fail('INVALID_JSON', '请求体必须是 JSON 对象')
         comic_name = (data.get('comic_name') or '').strip()
-        group_name = normalize_group_name(data.get('group_name') or data.get('group'))
-        if not comic_name or not get_comic_directory(comic_name):
-            return api_fail('NOT_FOUND', '漫画不存在，无法设置分组', 404)
-        if not group_name:
-            return api_fail('INVALID_NAME', '请选择一个分组')
-        if not assign_comic_group(comic_name, group_name):
-            return api_fail('ASSIGN_FAILED', '设置分组失败，请重试')
+        group_name = data.get('group_name') or data.get('group')
+        result = assign_existing_comic_to_group(comic_name, group_name)
+        if result.code == 'NOT_FOUND':
+            return api_fail('NOT_FOUND', result.message, 404)
+        if result.code == 'NO_GROUP':
+            return api_fail('INVALID_NAME', result.message)
+        if not result.ok:
+            return api_fail('ASSIGN_FAILED', result.message)
         return api_ok({
             'comic_name': comic_name,
-            'group_name': group_name,
+            'group_name': result.name,
         })
 
     # ------------------------------------------------------------------ library hidden / cover

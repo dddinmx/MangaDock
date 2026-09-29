@@ -15,6 +15,40 @@
         });
     }
 
+    function resetDetailSubmitButtons() {
+        document.querySelectorAll('.comic-detail form button.is-loading').forEach(button => {
+            button.classList.remove('is-loading');
+            button.removeAttribute('aria-busy');
+        });
+    }
+
+    function bindComicSynopsisToggle() {
+        const description = document.getElementById('comic-detail-description');
+        const toggle = document.querySelector('[data-comic-synopsis-toggle]');
+        if (!description || !toggle) return;
+
+        const syncOverflow = () => {
+            if (!description.classList.contains('is-expanded')) {
+                toggle.hidden = description.scrollHeight <= description.clientHeight + 1;
+            }
+        };
+
+        toggle.addEventListener('click', () => {
+            const expanded = description.classList.toggle('is-expanded');
+            toggle.setAttribute('aria-expanded', String(expanded));
+            toggle.textContent = expanded ? '收起简介' : '展开简介';
+            if (!expanded) window.requestAnimationFrame(syncOverflow);
+        });
+
+        window.requestAnimationFrame(syncOverflow);
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncOverflow);
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            window.clearTimeout(resizeTimer);
+            resizeTimer = window.setTimeout(syncOverflow, 120);
+        }, { passive: true });
+    }
+
     function bindReaderEntryButtons() {
         const readerEntryButtons = document.querySelectorAll('[data-reader-entry]');
 
@@ -131,7 +165,29 @@
 
     document.addEventListener('DOMContentLoaded', function() {
         resetReaderEntryButtons();
+        resetDetailSubmitButtons();
         bindReaderEntryButtons();
+        bindComicSynopsisToggle();
+        document.querySelectorAll('.comic-detail form:not([data-api-v1])').forEach(form => {
+            form.addEventListener('submit', event => {
+                if (event.defaultPrevented) {
+                    return;
+                }
+                if (event.submitter) {
+                    event.submitter.classList.add('is-loading');
+                    event.submitter.setAttribute('aria-busy', 'true');
+                }
+                const loader = document.getElementById('app-shell-loader');
+                const status = document.getElementById('app-shell-loader-status');
+                if (status) {
+                    status.textContent = '正在提交操作…';
+                }
+                document.body.classList.remove('app-ready');
+                if (loader) {
+                    loader.classList.add('is-visible');
+                }
+            });
+        });
         document.addEventListener('click', function(event) {
             const groupPicker = document.querySelector('.md-detail-group-picker');
             if (groupPicker && !groupPicker.contains(event.target)) {
@@ -153,6 +209,7 @@
 
     window.addEventListener('pageshow', function() {
         resetReaderEntryButtons();
+        resetDetailSubmitButtons();
     });
 </script>
 <style>
@@ -212,8 +269,9 @@
     <div class="md-detail-hero-shade"></div>
 
     <div class="md-detail-topbar">
-        <a href="{{ library_return_url|default('') }}" class="md-detail-icon-btn action-press" data-app-loader="true" aria-label="返回首页">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 12H4m8-8-8 8 8 8"/></svg>
+        <a href="{{ library_return_url|default('') }}" class="md-detail-icon-btn md-detail-back action-press" data-app-loader="true" data-loading-label="正在返回首页…" aria-label="返回首页">
+            <svg class="md-detail-back-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 12H4m8-8-8 8 8 8"/></svg>
+            <span class="md-detail-back-loading" aria-hidden="true"><i class="fa fa-spinner fa-spin"></i>返回中…</span>
         </a>
         {% if can_manage_library %}
         <div class="md-detail-overflow">
@@ -270,7 +328,7 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="comic_name" value="{{ task.comic_name }}">
                     <input type="hidden" name="directory" value="{{ deletion_path }}">
-                    <button type="submit" class="md-detail-menu-item action-press" style="color: #f87171">
+                    <button type="submit" class="md-detail-menu-item md-detail-menu-item--danger action-press">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>
                         <span>删除漫画及源文件</span>
                     </button>
@@ -375,7 +433,9 @@
                 {% if comic_description %}
                 <div class="md-detail-synopsis">
                     <div class="md-detail-synopsis-label">简介</div>
-                    <p class="md-detail-synopsis-text">{{ comic_description }}</p>
+                    <p class="md-detail-synopsis-text" id="comic-detail-description">{{ comic_description }}</p>
+                    <button type="button" class="md-detail-synopsis-toggle" data-comic-synopsis-toggle
+                            aria-expanded="false" aria-controls="comic-detail-description" hidden>展开简介</button>
                     {% if comic_description == anilist_metadata.description %}
                     {% if anilist_metadata.description_url %}<a href="{{ anilist_metadata.description_url }}" target="_blank" rel="noopener noreferrer" class="text-xs text-ink-400">简介来源：{{ 'MangaUpdates' if anilist_metadata.description_provider == 'mangaupdates' else 'AniList' }} ↗</a>
                     {% elif anilist_metadata.media_id %}<a href="https://anilist.co/manga/{{ anilist_metadata.media_id }}" target="_blank" rel="noopener noreferrer" class="text-xs text-ink-400">简介来源：AniList ↗</a>{% endif %}
@@ -412,20 +472,19 @@
                 <div class="md-detail-desktop-cta">
                     {% if progress %}
                     <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
-                       class="md-btn-primary reader-entry-btn action-press"
+                       class="md-btn-primary reader-entry-btn action-press md-detail-desktop-read-btn"
                        data-reader-entry="true">
                         <span class="btn-label">继续阅读 {{ chapters[progress.last_chapter].title if progress.last_chapter >= 0 and progress.last_chapter < chapters|length else '第 %s 章' % (progress.last_chapter + 1) }}</span>
                         <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
                     </a>
                     {% else %}
                     <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
-                       class="md-btn-primary reader-entry-btn action-press"
+                       class="md-btn-primary reader-entry-btn action-press md-detail-desktop-read-btn"
                        data-reader-entry="true">
                         <span class="btn-label">开始阅读</span>
                         <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
                     </a>
                     {% endif %}
-                    <a href="{{ library_return_url|default('') }}" class="md-btn-ghost action-press" data-app-loader="true">返回首页</a>
                 </div>
             </div>
         </header>
@@ -452,13 +511,12 @@
             <div id="chapter-list" class="md-chapter-list">
                 {% for chapter in chapters %}
                 <a href="{{ url_for('comic_reader', task_id=task.comic_name, start_chapter=loop.index0, return_to=library_return_url|default('')) }}"
-                   class="chapter-item md-chapter-item"
-                   data-chapter="{{ chapter.number }}">
+                   class="chapter-item md-chapter-item{% if progress and loop.index0 <= progress.last_chapter %} is-in-reading-progress{% endif %}"
+                   data-chapter="{{ chapter.number }}" data-loading-label="正在打开章节…">
                     <div class="min-w-0 flex-1">
                         <div class="chapter-title md-chapter-title">{{ chapter.title }}</div>
                         <div class="md-chapter-meta">
                             <span class="chapter-size">{{ chapter.filename }}</span>
-                            <span class="chapter-date uppercase">{{ chapter.format }}</span>
                         </div>
                     </div>
                     <i class="fa fa-angle-right md-chapter-chevron"></i>

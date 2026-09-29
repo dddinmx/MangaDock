@@ -38,7 +38,7 @@
             <div class="md-hero-copy">
                 <h1 class="md-hero-title">{{ spotlight.comic_name }}</h1>
                 <div class="md-hero-meta">
-                    <span class="md-hero-meta__badge">
+                    <span class="md-hero-meta__badge md-hero-meta__badge--format">
                         {% if spotlight.comic_format == 1 %}PDF{% elif spotlight.comic_format == 2 %}CBZ{% else %}本地{% endif %}
                     </span>
                     {% if is_adult_comic(spotlight) %}
@@ -54,7 +54,7 @@
                     </span>
                     {% endif %}
                 </div>
-                <p class="md-hero-desc">
+                <p class="md-hero-desc" id="hero-comic-description">
                     {% if spotlight.description %}
                         {{ spotlight.description }}
                     {% elif spotlight.has_progress %}
@@ -65,9 +65,16 @@
                         本地书库精选。一键开始阅读，进度会自动保存在当前账号下。
                     {% endif %}
                 </p>
+                <button type="button"
+                        class="md-hero-desc-toggle"
+                        data-hero-description-toggle
+                        aria-expanded="false"
+                        aria-controls="hero-comic-description"
+                        hidden>展开简介</button>
                 <div class="md-hero-actions">
-                    <a href="{{ url_for('comic_detail', task_id=spotlight.comic_name) }}" class="md-btn-ghost action-press" data-app-loader="true">
-                        详情
+                    <a href="{{ url_for('comic_detail', task_id=spotlight.comic_name) }}" class="md-btn-ghost action-press md-home-detail-link" data-app-loader="true" data-loading-label="正在打开漫画详情…">
+                        <span class="md-home-detail-idle">详情</span>
+                        <span class="md-home-detail-pending" aria-hidden="true">打开中…</span>
                     </a>
                     <a href="{{ url_for('comic_reader', task_id=spotlight.comic_name) }}" class="md-btn-primary action-press">
                         <span class="md-play" aria-hidden="true"></span>{% if spotlight.has_progress %}继续阅读{% else %}开始阅读{% endif %}
@@ -142,6 +149,29 @@
 
 {% block extra_scripts %}
 <script>
+// 首页简介默认显示五行；超出时在桌面和移动端均可展开。
+(function () {
+    const description = document.getElementById('hero-comic-description');
+    const toggle = document.querySelector('[data-hero-description-toggle]');
+    if (!description || !toggle) return;
+
+    const syncOverflow = function () {
+        toggle.hidden = !description.classList.contains('is-expanded')
+            && description.scrollHeight <= description.clientHeight + 1;
+    };
+
+    toggle.addEventListener('click', function () {
+        const expanded = description.classList.toggle('is-expanded');
+        toggle.setAttribute('aria-expanded', String(expanded));
+        toggle.textContent = expanded ? '收起简介' : '展开简介';
+        if (!expanded) requestAnimationFrame(syncOverflow);
+    });
+
+    requestAnimationFrame(syncOverflow);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncOverflow);
+    window.addEventListener('resize', syncOverflow, { passive: true });
+})();
+
 // 横幅无法自然铺满主视觉时，桌面自动使用原来的超分封面布局。
 (function () {
     var hero = document.querySelector('.md-hero--has-banner');

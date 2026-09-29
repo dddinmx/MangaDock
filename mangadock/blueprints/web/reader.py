@@ -65,6 +65,18 @@ from mangadock.utils import safe_int
 from mangadock.utils.media import repair_pdf_for_reading
 from mangadock.blueprints.web.common import safe_print
 
+MAX_CBZ_PAGE_BYTES = 64 * 1024 * 1024
+
+
+def _read_bounded_cbz_image(archive, image_name):
+    if archive.getinfo(image_name).file_size > MAX_CBZ_PAGE_BYTES:
+        raise RuntimeError('单页图片超过 64MB')
+    with archive.open(image_name) as image_file:
+        image_data = image_file.read(MAX_CBZ_PAGE_BYTES + 1)
+    if len(image_data) > MAX_CBZ_PAGE_BYTES:
+        raise RuntimeError('单页图片超过 64MB')
+    return image_data
+
 
 def reconcile_anilist_if_linked(user_id, comic_name):
     from mangadock.services.anilist import reconcile_progress
@@ -567,9 +579,7 @@ def _read_cbz_page(file_path):
             if not page.isdecimal() or int(page) >= len(images):
                 raise LookupError('页面不存在')
             image_name = images[int(page)]
-            if archive.getinfo(image_name).file_size > 64 * 1024 * 1024:
-                raise RuntimeError('单页图片超过 64MB')
-            image_data = archive.read(image_name)
+            image_data = _read_bounded_cbz_image(archive, image_name)
             try:
                 with Image.open(io.BytesIO(image_data)) as image:
                     file_path.dimensions[image_name] = list(image.size)
@@ -585,7 +595,7 @@ def _read_cbz_page(file_path):
         raise LookupError('页面不存在')
     image_name = images[int(page)]
     with zipfile.ZipFile(file_path) as archive:
-        return images, dimensions, image_name, archive.read(image_name)
+        return images, dimensions, image_name, _read_bounded_cbz_image(archive, image_name)
 
 @app.route('/api/chapters/<task_id>')
 @login_required

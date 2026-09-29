@@ -6,25 +6,27 @@
 {% block extra_head %}
 <style>
     .stats-page { width: min(100%, 54rem); margin: 0 auto; color: var(--md-text); }
-    .stats-page-head { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.15rem; }
+    .stats-page-head { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
     .stats-page-title { margin: 0; color: #fff; font-size: clamp(1.75rem, 5vw, 2.35rem); font-weight: 850; letter-spacing: -0.04em; }
     .stats-year { color: var(--md-muted); font-size: 0.92rem; font-weight: 650; }
-    .stats-overview { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(8rem, 1fr); gap: 0.8rem; margin-bottom: 0.9rem; }
-    .stats-overview-card, .stats-card { border: 1px solid var(--md-border); background: rgba(18, 18, 25, 0.88); box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2); }
-    .stats-overview-card { min-width: 0; padding: 1.1rem 1.15rem; border-radius: 1.15rem; }
+    .stats-overview { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(8rem, 1fr); gap: 1.25rem; padding: 0 0 1.65rem; border-bottom: 1px solid var(--md-border); }
+    .stats-overview-card { min-width: 0; padding: 0.2rem 0; }
+    .stats-overview-card + .stats-overview-card { padding-left: 1.25rem; border-left: 1px solid var(--md-border); }
     .stats-overview-label { margin-bottom: 0.32rem; color: var(--md-muted); font-size: 0.75rem; font-weight: 650; }
     .stats-overview-value { overflow: hidden; color: #fff; font-size: clamp(1.25rem, 4vw, 1.8rem); font-weight: 850; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-    .stats-card { margin-bottom: 0.9rem; padding: 1.15rem; border-radius: 1.35rem; }
-    .stats-card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+    .stats-card { padding: 1.65rem 0; }
+    .stats-card + .stats-card { border-top: 1px solid var(--md-border); }
+    .stats-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
     .stats-card-title { margin: 0; color: #fff; font-size: 1.05rem; font-weight: 800; }
-    .stats-card-note { color: var(--md-muted); font-size: 0.72rem; white-space: nowrap; }
-    .stats-rank-list { display: grid; gap: 0.18rem; }
+    .stats-card-note { color: var(--md-muted); font-size: 0.72rem; text-align: right; }
+    .stats-rank-list { display: grid; }
     .stats-rank-row { display: grid; grid-template-columns: 2rem 3.55rem minmax(0, 1fr); gap: 0.78rem; align-items: center; padding: 0.72rem 0; }
+    .stats-rank-row + .stats-rank-row { border-top: 1px solid var(--md-border); }
     .stats-rank-position { color: #858595; font-size: 1rem; font-weight: 800; text-align: center; }
     .stats-rank-position.is-top-1 { color: #f5c451; }
     .stats-rank-position.is-top-2 { color: #b7c0ce; }
     .stats-rank-position.is-top-3 { color: #d58b67; }
-    .stats-rank-cover { position: relative; width: 3.55rem; aspect-ratio: 3 / 4; overflow: hidden; border: 1px solid rgba(255,255,255,0.09); border-radius: 0.58rem; background: linear-gradient(145deg, #242432, #111118); }
+    .stats-rank-cover { position: relative; width: 3.55rem; aspect-ratio: 3 / 4; overflow: hidden; border-radius: 0.32rem; background: linear-gradient(145deg, #242432, #111118); }
     .stats-rank-cover-placeholder, .stats-rank-cover img { position: absolute; inset: 0; width: 100%; height: 100%; }
     .stats-rank-cover-placeholder { display: grid; place-items: center; color: #737387; font-size: 1.15rem; }
     .stats-rank-cover img { object-fit: cover; }
@@ -34,7 +36,7 @@
     .stats-rank-duration { flex: 0 0 auto; color: #fff; font-size: 0.9rem; font-weight: 800; white-space: nowrap; }
     .stats-rank-meta { display: flex; gap: 0.42rem; align-items: center; min-width: 0; margin-top: 0.28rem; color: var(--md-muted); font-size: 0.73rem; }
     .stats-rank-meta span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .stats-rank-kind { flex: 0 0 auto; padding: 0.12rem 0.35rem; border-radius: 999px; background: rgba(var(--md-brand-rgb), 0.13); color: var(--md-brand-soft); font-size: 0.62rem; font-weight: 700; }
+    .stats-rank-kind { flex: 0 0 auto; color: var(--md-brand-soft); font-size: 0.68rem; font-weight: 700; }
     .stats-rank-track { height: 0.28rem; margin-top: 0.55rem; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,0.09); }
     .stats-rank-fill { height: 100%; min-width: 0.28rem; border-radius: inherit; background: linear-gradient(90deg, var(--md-brand), var(--md-brand-soft)); }
     .stats-empty { padding: 2.6rem 1rem; color: var(--md-muted); text-align: center; }
@@ -45,32 +47,34 @@
     .stats-month-label { color: var(--md-muted); font-size: 0.64rem; text-align: center; }
     .heatmap-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 0.25rem; }
     .heatmap-layout { display: grid; grid-template-columns: 1.5rem 1fr; gap: 0.4rem; width: max-content; }
-    .heatmap-months { display: grid; grid-template-columns: repeat(53, 0.68rem); gap: 0.22rem; width: max-content; margin: 0 0 0.45rem 1.9rem; }
+    .heatmap-months { display: grid; grid-template-columns: repeat(var(--heatmap-week-count), 0.68rem); gap: 0.22rem; width: max-content; margin: 0 0 0.45rem 1.9rem; }
     .heatmap-month-label, .heatmap-weekday { color: var(--md-muted); font-size: 0.58rem; line-height: 0.68rem; }
+    .heatmap-month-label { white-space: nowrap; }
     .heatmap-weekdays, .heatmap-week { display: grid; grid-template-rows: repeat(7, 0.68rem); gap: 0.22rem; }
-    .heatmap-grid { display: grid; grid-template-columns: repeat(53, 0.68rem); gap: 0.22rem; width: max-content; }
+    .heatmap-grid { display: grid; grid-template-columns: repeat(var(--heatmap-week-count), 0.68rem); gap: 0.22rem; width: max-content; }
     .heatmap-cell { width: 0.68rem; height: 0.68rem; border-radius: 0.18rem; background: #2c2c37; }
-    .heatmap-cell.is-outside-year { opacity: 0.25; }
-    .heatmap-cell.level-1 { background: #4c1d2c; }
-    .heatmap-cell.level-2 { background: #9f1239; }
-    .heatmap-cell.level-3 { background: var(--md-brand); }
-    .heatmap-cell.level-4 { background: var(--md-brand-soft); }
+    .heatmap-cell.is-outside-range { opacity: 0.25; }
+    .heatmap-cell.level-1 { background: color-mix(in srgb, var(--md-brand) 25%, #2c2c37); }
+    .heatmap-cell.level-2 { background: color-mix(in srgb, var(--md-brand) 48%, #2c2c37); }
+    .heatmap-cell.level-3 { background: color-mix(in srgb, var(--md-brand) 73%, #2c2c37); }
+    .heatmap-cell.level-4 { background: var(--md-brand); }
     .heatmap-legend { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-top: 0.8rem; color: var(--md-muted); font-size: 0.7rem; }
     .heatmap-legend-scale { display: flex; align-items: center; gap: 0.28rem; }
     html:not(.theme-dark) .stats-page-title, html:not(.theme-dark) .stats-overview-value, html:not(.theme-dark) .stats-card-title, html:not(.theme-dark) .stats-rank-title, html:not(.theme-dark) .stats-rank-duration { color: #111827; }
-    html:not(.theme-dark) .stats-overview-card, html:not(.theme-dark) .stats-card { border-color: rgba(226,232,240,0.95); background: rgba(255,255,255,0.94); box-shadow: 0 14px 35px rgba(15,23,42,0.07); }
+    html:not(.theme-dark) .stats-overview, html:not(.theme-dark) .stats-overview-card + .stats-overview-card, html:not(.theme-dark) .stats-card + .stats-card, html:not(.theme-dark) .stats-rank-row + .stats-rank-row { border-color: rgba(100,116,139,0.22); }
     html:not(.theme-dark) .stats-rank-track { background: #e5e7eb; }
     html:not(.theme-dark) .stats-month-bar-area { border-color: #e5e7eb; }
     html:not(.theme-dark) .heatmap-cell { background: #e5e7eb; }
-    html:not(.theme-dark) .heatmap-cell.level-1 { background: #fecdd3; }
-    html:not(.theme-dark) .heatmap-cell.level-2 { background: #fda4af; }
-    html:not(.theme-dark) .heatmap-cell.level-3 { background: var(--md-brand-soft); }
+    html:not(.theme-dark) .heatmap-cell.level-1 { background: color-mix(in srgb, var(--md-brand) 22%, #e5e7eb); }
+    html:not(.theme-dark) .heatmap-cell.level-2 { background: color-mix(in srgb, var(--md-brand) 45%, #e5e7eb); }
+    html:not(.theme-dark) .heatmap-cell.level-3 { background: color-mix(in srgb, var(--md-brand) 72%, #e5e7eb); }
     html:not(.theme-dark) .heatmap-cell.level-4 { background: var(--md-brand); }
     @media (max-width: 768px) {
         .stats-page { padding: 0 0.1rem; }
-        .stats-page-head { margin-bottom: 1rem; }
-        .stats-overview-card, .stats-card { border-radius: 1.1rem; }
-        .stats-card { padding: 1rem 0.9rem; }
+        .stats-page-head { margin-bottom: 1.25rem; }
+        .stats-overview { gap: 0.6rem; padding-bottom: 1.35rem; }
+        .stats-overview-card + .stats-overview-card { padding-left: 0.85rem; }
+        .stats-card { padding: 1.4rem 0; }
         .stats-rank-row { grid-template-columns: 1.55rem 3.25rem minmax(0, 1fr); gap: 0.62rem; }
         .stats-rank-cover { width: 3.25rem; }
         .stats-rank-line { gap: 0.45rem; }
@@ -84,7 +88,7 @@
 {% block content %}
 <main class="stats-page">
     <header class="stats-page-head">
-        <h1 class="stats-page-title">阅读统计</h1>
+        <h1 class="stats-page-title">Statistics</h1>
         <div class="stats-year">{{ stats_year }} 年</div>
     </header>
 
@@ -148,16 +152,16 @@
 
     <section class="stats-card">
         <div class="stats-card-head"><h2 class="stats-card-title">阅读热力图</h2><span class="stats-card-note">最长单日 {{ display_reading_minutes(max_daily_duration) }}</span></div>
-        <div class="heatmap-scroll">
+        <div class="heatmap-scroll" style="--heatmap-week-count: {{ heatmap_weeks|length }}">
             <div class="heatmap-months">{% for label in heatmap_month_labels %}<div class="heatmap-month-label">{{ label }}</div>{% endfor %}</div>
             <div class="heatmap-layout">
                 <div class="heatmap-weekdays"><div class="heatmap-weekday">一</div><div></div><div class="heatmap-weekday">三</div><div></div><div class="heatmap-weekday">五</div><div></div><div class="heatmap-weekday">日</div></div>
                 <div class="heatmap-grid">
-                    {% for week in heatmap_weeks %}<div class="heatmap-week">{% for cell in week %}<div class="heatmap-cell level-{{ cell.level }} {{ '' if cell.is_current_year else 'is-outside-year' }}" title="{{ cell.date }} · {{ display_reading_minutes(cell.duration) }}"></div>{% endfor %}</div>{% endfor %}
+                    {% for week in heatmap_weeks %}<div class="heatmap-week">{% for cell in week %}<div class="heatmap-cell level-{{ cell.level }} {{ '' if cell.is_in_range else 'is-outside-range' }}" title="{{ cell.date }} · {{ display_reading_minutes(cell.duration) }}"></div>{% endfor %}</div>{% endfor %}
                 </div>
             </div>
         </div>
-        <div class="heatmap-legend"><span>{{ stats_year }} 年每日阅读时长</span><div class="heatmap-legend-scale"><span>少</span><span class="heatmap-cell level-0"></span><span class="heatmap-cell level-1"></span><span class="heatmap-cell level-2"></span><span class="heatmap-cell level-3"></span><span class="heatmap-cell level-4"></span><span>多</span></div></div>
+        <div class="heatmap-legend"><span>{{ stats_year }} 年至 {{ stats_year + 1 }} 年 2 月每日阅读时长</span><div class="heatmap-legend-scale"><span>少</span><span class="heatmap-cell level-0"></span><span class="heatmap-cell level-1"></span><span class="heatmap-cell level-2"></span><span class="heatmap-cell level-3"></span><span class="heatmap-cell level-4"></span><span>多</span></div></div>
     </section>
 </main>
 {% endblock %}

@@ -103,9 +103,10 @@ def statistics():
     max_daily_duration = max(daily_duration_map.values()) if daily_duration_map else 0
 
     year_start = datetime(stats_year, 1, 1).date()
-    year_end = datetime(stats_year, 12, 31).date()
+    # Keep the following January and February in the normal heatmap range.
+    heatmap_end = datetime(stats_year + 1, 3, 1).date() - timedelta(days=1)
     grid_start = year_start - timedelta(days=year_start.weekday())
-    grid_end = year_end + timedelta(days=(6 - year_end.weekday()))
+    grid_end = heatmap_end + timedelta(days=(6 - heatmap_end.weekday()))
     today = datetime.now(china_tz).date()
 
     month_labels = []
@@ -135,7 +136,7 @@ def statistics():
                 else:
                     level = 4
 
-            if current_day.day == 1 and current_day.month <= 12:
+            if year_start <= current_day <= heatmap_end and current_day.day == 1:
                 week_month_label = f"{current_day.month}月"
             elif week_index == 0 and day_offset == 0:
                 week_month_label = '1月'
@@ -145,7 +146,7 @@ def statistics():
                 'day': current_day.day,
                 'duration': duration,
                 'level': level,
-                'is_current_year': current_day.year == stats_year,
+                'is_in_range': year_start <= current_day <= heatmap_end,
                 'is_today': current_day == today
             })
 

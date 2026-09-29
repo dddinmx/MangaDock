@@ -197,8 +197,8 @@ def finish_background_command(command_id, status='completed', message=None):
 
 
 def update_webdav_sync_state(command_id, value=None, action=None):
-    from mangadock.services.webdav import _open_lock_file
-    with _open_lock_file(os.path.join(app.instance_path, f'webdav-sync-{command_id}')) as lock:
+    from mangadock.services.webdav import open_lock_file
+    with open_lock_file(os.path.join(app.instance_path, f'webdav-sync-{command_id}')) as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with app.app_context():
             command = db.session.get(BackgroundCommand, command_id)

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% from '_md_icon.html' import icon as md_icon %}<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -68,8 +68,10 @@
     </script>
     <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
     <link href="{{ asset_url('css/md-theme.css') }}" rel="stylesheet">
-    <link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">
+    {% if request.endpoint != 'settings' %}<link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">{% endif %}
     <style>
+        .md-icon-symbols { position: absolute; width: 0; height: 0; overflow: hidden; }
+        .md-ui-icon { display: inline-block; width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -0.125em; }
         body {
             padding-bottom: 0;
         }
@@ -292,6 +294,13 @@
             font-weight: 800;
             color: rgb(31, 41, 55);
             margin-bottom: 0.9rem;
+        }
+        .app-shell-loader__status {
+            margin-top: 0.85rem;
+            color: #475467;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-align: center;
         }
         .app-shell-loader__bar {
             position: relative;
@@ -568,6 +577,9 @@
         html.theme-dark .app-shell-loader__logo {
             color: #f3f4f6;
         }
+        html.theme-dark .app-shell-loader__status {
+            color: #d1d5db;
+        }
         html.theme-dark .app-shell-loader__bar {
             background: rgba(51, 65, 85, 0.7);
         }
@@ -674,9 +686,9 @@
                 text-decoration: none;
                 transition: gap 0.24s ease, background 0.2s ease, color 0.2s ease;
             }
-            .md-mobile-tabbar__link i {
-                font-size: 1.12rem;
-                line-height: 1;
+            .md-mobile-tabbar__link .md-ui-icon {
+                width: 1.12rem;
+                height: 1.12rem;
                 transition: color 0.2s ease;
             }
             .md-mobile-tabbar__link span {
@@ -696,7 +708,7 @@
                 background: rgba(255, 255, 255, 0.14);
                 box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
             }
-            .md-mobile-tabbar__link.is-active i { color: var(--md-brand-soft); }
+            .md-mobile-tabbar__link.is-active .md-ui-icon { color: var(--md-brand-soft); }
             .md-mobile-tabbar__link.is-active span { max-width: 5rem; opacity: 1; }
             html:not(.theme-dark) .md-mobile-tabbar {
                 border-color: rgba(255, 255, 255, 0.86);
@@ -711,7 +723,7 @@
                 background: rgba(15, 23, 42, 0.07);
                 box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
             }
-            html:not(.theme-dark) .md-mobile-tabbar__link.is-active i { color: var(--md-brand); }
+            html:not(.theme-dark) .md-mobile-tabbar__link.is-active .md-ui-icon { color: var(--md-brand); }
             html:not(.platform-android) body {
                 padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
             }
@@ -900,10 +912,12 @@
 </head>
 {% set hide_mobile_tabbar = request.endpoint in ['comic_detail', 'novel_detail'] %}
 <body class="{% block body_class %}md-body min-h-screen{% endblock %}{% if session.get('user_id') and not hide_mobile_tabbar %} has-mobile-tabbar{% endif %}">
+    {% include '_md_icon_symbols.html' %}
     <div id="app-shell-loader" class="app-shell-loader">
         <div class="app-shell-loader__panel">
             <div class="app-shell-loader__logo">MangaDock</div>
             <div class="app-shell-loader__bar"><span></span></div>
+            <div id="app-shell-loader-status" class="app-shell-loader__status" role="status" aria-live="polite">正在加载页面…</div>
         </div>
     </div>
 
@@ -937,14 +951,14 @@
                 <button type="button" class="md-logo" id="mode-switcher-toggle" aria-expanded="false" aria-haspopup="menu">
                     <img class="md-logo-mark" src="{{ asset_url('logo-192.png') }}" alt="">
                     <span class="md-logo-name">MangaDock</span>
-                    <i class="fa fa-angle-down md-logo-chevron"></i>
+                    {{ md_icon('chevron-down', 'md-logo-chevron') }}
                 </button>
                 <div class="md-mode-dropdown" id="mode-switcher-dropdown" role="menu">
                     <a href="{{ url_for('index') }}" class="md-mode-option{% if is_comic_mode %} is-active{% endif %}" data-library-mode="comic" data-app-loader="true">
-                        <i class="fa fa-picture-o"></i><span><strong>漫画模式</strong><small>漫画库</small></span>{% if is_comic_mode %}<i class="fa fa-check"></i>{% endif %}
+                        {{ md_icon('picture') }}<span><strong>漫画模式</strong><small>漫画库</small></span>{% if is_comic_mode %}{{ md_icon('check') }}{% endif %}
                     </a>
                     <a href="{{ url_for('novel_index') }}" class="md-mode-option{% if is_novel_mode %} is-active{% endif %}" data-library-mode="novel" data-app-loader="true">
-                        <i class="fa fa-book"></i><span><strong>小说模式</strong><small>小说书库</small></span>{% if is_novel_mode %}<i class="fa fa-check"></i>{% endif %}
+                        {{ md_icon('book') }}<span><strong>小说模式</strong><small>小说书库</small></span>{% if is_novel_mode %}{{ md_icon('check') }}{% endif %}
                     </a>
                 </div>
             </div>
@@ -960,7 +974,7 @@
 
             {# 顶栏常驻搜索：结果页 /search，与书架分离 #}
             <form class="md-search" method="get" action="{{ url_for(mode_search_endpoint) }}" role="search">
-                <i class="fa fa-search text-ink-400"></i>
+                {{ md_icon('search', 'text-ink-400') }}
                 <input
                     type="search"
                     name="q"
@@ -974,26 +988,26 @@
             <div class="ml-auto flex items-center gap-2">
                 <div class="md-user-menu" id="user-menu">
                     <button type="button" class="md-user-btn action-press" id="user-menu-toggle" aria-expanded="false" aria-haspopup="true">
-                        <i class="fa fa-user-circle"></i>
+                        {{ md_icon('user') }}
                         <span class="hidden max-w-[7rem] truncate sm:inline">{{ current_user.username if current_user else session.get('username', '') }}</span>
                         {% if is_admin_user %}<span class="md-user-role rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-bold text-brand-soft">Admin</span>{% endif %}
-                        <i class="fa fa-angle-down text-xs opacity-70"></i>
+                        {{ md_icon('chevron-down', 'text-xs opacity-70') }}
                     </button>
                     <div class="md-user-dropdown" id="user-menu-dropdown" role="menu">
                         {% if can_manage_library %}
-                        <a href="{{ url_for('download') }}" data-app-loader="true"><i class="fa fa-download w-4"></i>下载</a>
-                        <a href="{{ url_for('update') }}" data-app-loader="true"><i class="fa fa-refresh w-4"></i>更新</a>
-                        <a href="{{ url_for('tasks') }}" data-app-loader="true"><i class="fa fa-list w-4"></i>任务</a>
+                        <a href="{{ url_for('download') }}" data-app-loader="true">{{ md_icon('download', 'w-4') }}下载</a>
+                        <a href="{{ url_for('update') }}" data-app-loader="true">{{ md_icon('refresh', 'w-4') }}更新</a>
+                        <a href="{{ url_for('tasks') }}" data-app-loader="true">{{ md_icon('list', 'w-4') }}任务</a>
                         {% endif %}
-                        <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true"><i class="fa fa-line-chart w-4"></i>统计</a>
-                        <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true"><i class="fa fa-sliders w-4"></i>设置</a>
+                        <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true">{{ md_icon('chart', 'w-4') }}统计</a>
+                        <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true">{{ md_icon('sliders', 'w-4') }}设置</a>
                         {% if is_admin_user %}
-                        <a href="{{ url_for('users') }}" data-app-loader="true"><i class="fa fa-users w-4"></i>用户管理</a>
+                        <a href="{{ url_for('users') }}" data-app-loader="true">{{ md_icon('users', 'w-4') }}用户管理</a>
                         {% endif %}
-                        <a href="{{ url_for('change_password') }}" data-app-loader="true"><i class="fa fa-key w-4"></i>修改密码</a>
+                        <a href="{{ url_for('change_password') }}" data-app-loader="true">{{ md_icon('key', 'w-4') }}修改密码</a>
                         <form method="post" action="{{ url_for('logout') }}" data-api-v1="logout" data-api-redirect="{{ url_for('login') }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit"><i class="fa fa-sign-out w-4"></i>退出登录</button>
+                            <button type="submit">{{ md_icon('log-out', 'w-4') }}退出登录</button>
                         </form>
                     </div>
                 </div>
@@ -1017,16 +1031,16 @@
     {% if session.get('user_id') and not hide_mobile_tabbar %}
     <nav class="md-mobile-tabbar" aria-label="移动端主导航">
         <a href="{{ url_for(mode_home_endpoint) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == mode_home_endpoint %} is-active{% endif %}">
-            <i class="fa fa-home"></i><span>首页</span>
+            {{ md_icon('home') }}<span>首页</span>
         </a>
         <a href="{{ mode_library_url }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">
-            <i class="fa fa-book"></i><span>{{ mode_library_label }}</span>
+            {{ md_icon('book') }}<span>{{ mode_library_label }}</span>
         </a>
         <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == 'statistics' %} is-active{% endif %}">
-            <i class="fa fa-bar-chart"></i><span>统计</span>
+            {{ md_icon('chart') }}<span>统计</span>
         </a>
         <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint in ['settings', 'webdav_settings', 'scan_settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">
-            <i class="fa fa-user-o"></i><span>我的</span>
+            {{ md_icon('user') }}<span>我的</span>
         </a>
     </nav>
     {% endif %}
@@ -1043,12 +1057,16 @@
             const groupMenuBtn = document.getElementById('group-menu-toggle');
             const groupMenuDropdown = document.getElementById('group-menu-dropdown');
             const appShellLoader = document.getElementById('app-shell-loader');
+            const appShellLoaderStatus = document.getElementById('app-shell-loader-status');
             const installBanner = document.getElementById('install-banner');
             const installBannerText = document.getElementById('install-banner-text');
             const installBannerAction = document.getElementById('install-banner-action');
             const installBannerClose = document.getElementById('install-banner-close');
             const APP_NAVIGATION_ANIMATION_MS = 760;
             let pendingAppNavigation = false;
+            let pendingAppLink = null;
+            let pendingAppNavigationTimer = null;
+            let appNavigationToken = 0;
             const themeColorMeta = document.getElementById('theme-color-meta');
             const themeToggleButtons = document.querySelectorAll('[data-theme-toggle]');
             const accentOptionButtons = document.querySelectorAll('[data-accent-option]');
@@ -1115,7 +1133,7 @@
                     const label = button.querySelector('[data-theme-toggle-label]');
                     const state = button.querySelector('[data-theme-toggle-state]');
                     if (icon) {
-                        icon.className = isDark ? 'fa fa-sun-o' : 'fa fa-moon-o';
+                        icon.setAttribute('href', isDark ? '#md-icon-sun' : '#md-icon-moon');
                     }
                     if (label) {
                         label.textContent = isDark ? '切换到浅色模式' : '切换到暗黑模式';
@@ -1238,15 +1256,32 @@
             }
 
             const resetAppNavigationState = () => {
+                appNavigationToken += 1;
+                if (pendingAppNavigationTimer !== null) {
+                    window.clearTimeout(pendingAppNavigationTimer);
+                    pendingAppNavigationTimer = null;
+                }
                 pendingAppNavigation = false;
+                if (pendingAppLink) {
+                    pendingAppLink.classList.remove('is-loading');
+                    pendingAppLink.removeAttribute('aria-busy');
+                    pendingAppLink = null;
+                }
                 document.body.classList.add('app-ready');
                 if (appShellLoader) {
                     appShellLoader.classList.remove('is-visible');
                 }
             };
 
-            const beginAppNavigation = () => {
+            const beginAppNavigation = (link) => {
+                appNavigationToken += 1;
                 pendingAppNavigation = true;
+                pendingAppLink = link;
+                link.classList.add('is-loading');
+                link.setAttribute('aria-busy', 'true');
+                if (appShellLoaderStatus) {
+                    appShellLoaderStatus.textContent = link.dataset.loadingLabel || '正在加载页面…';
+                }
                 document.body.classList.remove('app-ready');
                 if (appShellLoader) {
                     appShellLoader.classList.add('is-visible');
@@ -1254,9 +1289,14 @@
             };
 
             const navigateAfterLoaderPaint = (targetUrl) => {
+                const navigationToken = appNavigationToken;
                 window.requestAnimationFrame(() => {
+                    if (navigationToken !== appNavigationToken) return;
                     window.requestAnimationFrame(() => {
-                        window.setTimeout(() => {
+                        if (navigationToken !== appNavigationToken) return;
+                        pendingAppNavigationTimer = window.setTimeout(() => {
+                            pendingAppNavigationTimer = null;
+                            if (navigationToken !== appNavigationToken) return;
                             window.location.assign(targetUrl.href);
                         }, APP_NAVIGATION_ANIMATION_MS);
                     });
@@ -1311,29 +1351,19 @@
             });
 
             const markAppReady = () => {
-                resetAppNavigationState();
+                if (!pendingAppNavigation) resetAppNavigationState();
             };
 
             window.requestAnimationFrame(markAppReady);
 
             window.addEventListener('pageshow', (event) => {
-                if (
-                    event.persisted ||
-                    pendingAppNavigation ||
-                    (appShellLoader && appShellLoader.classList.contains('is-visible'))
-                ) {
+                if (event.persisted) {
                     window.requestAnimationFrame(resetAppNavigationState);
                 }
             });
 
             window.addEventListener('popstate', () => {
                 window.requestAnimationFrame(resetAppNavigationState);
-            });
-
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible' && pendingAppNavigation) {
-                    window.requestAnimationFrame(resetAppNavigationState);
-                }
             });
 
             document.querySelectorAll('[data-page-shell]').forEach((shell) => {
@@ -1350,13 +1380,17 @@
                 if (
                     !link ||
                     event.defaultPrevented ||
-                    pendingAppNavigation ||
                     event.button !== 0 ||
                     event.metaKey ||
                     event.ctrlKey ||
                     event.shiftKey ||
                     event.altKey
                 ) {
+                    return;
+                }
+
+                if (pendingAppNavigation) {
+                    event.preventDefault();
                     return;
                 }
 
@@ -1391,7 +1425,7 @@
                 }
 
                 event.preventDefault();
-                beginAppNavigation();
+                beginAppNavigation(link);
                 navigateAfterLoaderPaint(targetUrl);
             });
 

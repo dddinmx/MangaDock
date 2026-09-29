@@ -58,6 +58,13 @@ def cache_root():
     return os.path.abspath(path)
 
 
+def configured_cache_root():
+    """Scan-root contributor: cache directory when a remote library URL is set."""
+    if not _read_config().get('url'):
+        return None
+    return cache_root()
+
+
 def is_cache_path(path):
     if not path:
         return False
@@ -1144,11 +1151,15 @@ def _try_chapter_file_lock(destination):
         yield acquired
 
 
-def _open_lock_file(identity):
+def open_lock_file(identity):
+    """Flock handle under instance/webdav_locks, keyed by the identity path."""
     root = os.path.join(app.instance_path, 'webdav_locks')
     ensure_directory(root)
     digest = hashlib.sha256(os.path.abspath(identity).encode('utf-8')).hexdigest()
     return open(os.path.join(root, digest + '.lock'), 'a+')
+
+
+_open_lock_file = open_lock_file
 
 
 def _prune_comic_cache(comic_dir, blocking=False):

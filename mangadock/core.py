@@ -2,16 +2,14 @@
 """Flask application core: app instance, security headers, runtime dirs."""
 import os
 import secrets
-import time
 from datetime import timedelta
 from urllib.parse import urlparse
 
 import urllib3
-from flask import Flask, abort, flash, redirect, request, send_file, url_for
+from flask import Flask, flash, redirect, request, url_for
 from flask.sessions import SecureCookieSessionInterface
 from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
-from werkzeug.utils import safe_join
 
 from mangadock.extensions import csrf, db
 from mangadock.settings import BASE_DIR, COMIC_ROOT, COVER_ROOT, STATIC_FOLDER, TEMPLATE_FOLDER
@@ -233,71 +231,12 @@ def ensure_runtime_dirs():
 ensure_runtime_dirs()
 
 
-# --- 封面静态路由：SMB 抖动重试（2026-09-20）---
-# NAS 挂载上 stat/open 偶发瞬时失败（表现为同一文件先 404 几秒后 200），
-# Flask 内建静态路由一次失败就 404，前端 onerror 立即换上 cover.png 占位图。
-# 本路由拦截 /static/cover/*，失败时在数秒窗口内重试后再放弃。
-_COVER_RETRY_DELAYS = (0.0, 0.4, 1.0, 2.5)  # 总重试窗口约 4 秒
-
-
 @app.route('/static/cover/<path:filename>')
 def resilient_cover_file(filename):
-    if filename != 'cover.png':
-        from mangadock.auth import (
-            authenticate_api_credentials, get_basic_auth_credentials,
-            get_current_user, is_basic_auth_request,
-        )
-        from mangadock.services.groups import can_user_access_group, get_comic_group_map
+    from mangadock.services.cover_access import authorize_cover_file, send_cover_file
 
-        if is_basic_auth_request():
-            username, password = get_basic_auth_credentials()
-            user = None
-            if username is not None:
-                user, _ = authenticate_api_credentials(
-                    username, password, request.remote_addr or '', request.user_agent.string
-                )
-        else:
-            user = get_current_user()
-        if not user:
-            abort(403)
-        if not user.is_admin and not filename.startswith('novels/'):
-            if filename.startswith('home-banner/'):
-                import hashlib
-                from mangadock.services.library import get_available_comics
-
-                banner_key = os.path.basename(filename).split('-', 1)[0].split('.', 1)[0]
-                comic_name = next((
-                    comic['comic_name'] for comic in get_available_comics()
-                    if hashlib.sha256(comic['comic_name'].strip().encode('utf-8')).hexdigest()
-                    == banner_key
-                ), None)
-                if not comic_name:
-                    abort(403)
-            else:
-                comic_name = os.path.splitext(os.path.basename(filename))[0]
-            group = get_comic_group_map().get(comic_name) or '默认分组'
-            if not can_user_access_group(group, user):
-                abort(403)
-
-    target = safe_join(app.static_folder, 'cover', filename)
-    if target is None:
-        abort(404)
-    for delay in _COVER_RETRY_DELAYS:
-        if delay:
-            time.sleep(delay)
-        try:
-            os.stat(target)
-            response = send_file(target, conditional=True)
-            if filename != 'cover.png':
-                response.headers['Cache-Control'] = 'private, no-cache'
-            return response
-        except FileNotFoundError:
-            # 文件确实不存在：仍走完短重试，规避 SMB 目录负缓存滞后
-            continue
-        except OSError:
-            continue
-    app.logger.warning('cover serve failed after retries: %s', filename)
-    abort(404)
+    authorize_cover_file(filename)
+    return send_cover_file(filename)
 
 
 # Worker lock paths depend on instance_path

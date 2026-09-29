@@ -3,13 +3,11 @@
 {% block title %}阅读历史 - MangaDock{% endblock %}
 
 {% block content %}
-<div class="md-history-page">
+<div class="md-history-page pt-2 md:pt-3">
 <div class="md-history-header mb-8 flex flex-wrap items-end justify-between gap-3">
     <div>
-        <h1 class="md-history-title text-2xl font-bold text-white md:text-3xl">阅读历史</h1>
-        <p class="md-history-sub mt-2 text-sm text-ink-300">按最近阅读时间排序</p>
+        <h1 class="md-page-title md-history-title">History</h1>
     </div>
-    <a href="{{ url_for('comics_list', group='全部') }}" class="md-history-back text-sm text-ink-300 hover:text-white" data-app-loader="true">返回书架</a>
 </div>
 
 {% if items %}

@@ -439,21 +439,22 @@ class ReviewRegressions(unittest.TestCase):
         other.set_password('test-password')
         self.db.session.add_all([creator, other])
         self.db.session.commit()
-        self.groups.set_user_group_permissions(creator.id, ['默认分组'])
+        creator_id, other_id = creator.id, other.id
+        self.groups.set_user_group_permissions(creator_id, ['默认分组'])
 
         with patch('mangadock.services.novels.get_novel_by_fanqie_id', return_value=None):
             task_id, reused = start_novel_task(
-                '12345678', title='私有小说', created_by_user_id=creator.id,
+                '12345678', title='私有小说', created_by_user_id=creator_id,
             )
         self.assertFalse(reused)
         self.db.session.expire_all()
         task = self.db.session.get(self.models.DownloadTask, task_id)
-        self.assertEqual(task.created_by_user_id, creator.id)
+        self.assertEqual(task.created_by_user_id, creator_id)
         self.assertEqual(task.url, 'fanqie://12345678')
 
         other_client = self.app.test_client()
         with other_client.session_transaction() as session:
-            session['user_id'] = other.id
+            session['user_id'] = other_id
         self.assertEqual(other_client.get('/task_status/' + task_id).status_code, 404)
         self.assertEqual(other_client.post('/cancel_task/' + task_id).status_code, 404)
         self.assertNotIn('私有小说'.encode(), other_client.get('/tasks').data)
@@ -462,12 +463,12 @@ class ReviewRegressions(unittest.TestCase):
 
         owner_client = self.app.test_client()
         with owner_client.session_transaction() as session:
-            session['user_id'] = creator.id
+            session['user_id'] = creator_id
         self.assertEqual(owner_client.get('/task_status/' + task_id).status_code, 200)
 
         with patch('mangadock.services.novels.get_novel_by_fanqie_id', return_value=None):
             hidden_id, hidden_reused = start_novel_task(
-                '12345678', title='私有小说', created_by_user_id=other.id,
+                '12345678', title='私有小说', created_by_user_id=other_id,
             )
         self.assertTrue(hidden_reused)
         self.assertIsNone(hidden_id)
@@ -483,13 +484,14 @@ class ReviewRegressions(unittest.TestCase):
         )
         self.db.session.add(unowned)
         self.db.session.commit()
-        self.assertEqual(other_client.get('/task_status/' + unowned.id).status_code, 404)
-        self.assertEqual(other_client.post('/cancel_task/' + unowned.id).status_code, 404)
+        unowned_id = unowned.id
+        self.assertEqual(other_client.get('/task_status/' + unowned_id).status_code, 404)
+        self.assertEqual(other_client.post('/cancel_task/' + unowned_id).status_code, 404)
         admin = self.models.User.query.filter_by(username='admin').first()
         admin_client = self.app.test_client()
         with admin_client.session_transaction() as session:
             session['user_id'] = admin.id
-        self.assertEqual(admin_client.get('/task_status/' + unowned.id).status_code, 200)
+        self.assertEqual(admin_client.get('/task_status/' + unowned_id).status_code, 200)
 
     def test_older_progress_snapshot_does_not_overwrite_a_newer_one(self):
         from mangadock.services.reading import save_reading_progress
@@ -498,26 +500,27 @@ class ReviewRegressions(unittest.TestCase):
         user.set_password('test-password')
         self.db.session.add(user)
         self.db.session.commit()
+        user_id = user.id
         name = 'progress-order'
         self.models.ReadingProgress.query.filter_by(comic_name=name).delete()
         self.db.session.commit()
 
-        newer = save_reading_progress(name, 5, 1, 2, 10, 3, user.id, client_progress_ms=5_000)
+        newer = save_reading_progress(name, 5, 1, 2, 10, 3, user_id, client_progress_ms=5_000)
         self.assertFalse(newer['stale'])
-        older = save_reading_progress(name, 2, 0, 0, 10, 3, user.id, client_progress_ms=4_000)
+        older = save_reading_progress(name, 2, 0, 0, 10, 3, user_id, client_progress_ms=4_000)
         self.assertTrue(older['stale'])
         self.assertEqual(older['chapter_index'], 5)
         self.db.session.expire_all()
-        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user.id).one()
+        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user_id).one()
         self.assertEqual(stored.last_chapter, 5)
         self.assertEqual(stored.last_page, 1)
         self.assertEqual(stored.client_progress_ms, 5_000)
 
-        reread = save_reading_progress(name, 2, 4, 9, 10, 3, user.id, client_progress_ms=6_000)
+        reread = save_reading_progress(name, 2, 4, 9, 10, 3, user_id, client_progress_ms=6_000)
         self.assertFalse(reread['stale'])
         self.assertEqual(reread['chapter_index'], 2)
         self.db.session.expire_all()
-        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user.id).one()
+        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user_id).one()
         self.assertEqual(stored.last_chapter, 2)
         self.assertEqual(stored.last_page, 4)
         self.assertEqual(stored.scroll_position, 9)
@@ -530,24 +533,25 @@ class ReviewRegressions(unittest.TestCase):
         user.set_password('test-password')
         self.db.session.add(user)
         self.db.session.commit()
+        user_id = user.id
         name = 'clockless-progress'
         self.models.ReadingProgress.query.filter_by(comic_name=name).delete()
         self.db.session.commit()
 
-        save_reading_progress(name, 1, 0, 0, 4, 0, user.id)
-        replaced = save_reading_progress(name, 3, 0, 0, 4, 0, user.id)
+        save_reading_progress(name, 1, 0, 0, 4, 0, user_id)
+        replaced = save_reading_progress(name, 3, 0, 0, 4, 0, user_id)
         self.assertFalse(replaced['stale'])
         self.assertEqual(replaced['chapter_index'], 3)
         self.db.session.expire_all()
-        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user.id).one()
+        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user_id).one()
         self.assertIsNone(stored.client_progress_ms)
 
-        save_reading_progress(name, 8, 0, 0, 4, 0, user.id, client_progress_ms=9_000)
-        blocked = save_reading_progress(name, 2, 0, 0, 4, 0, user.id)
+        save_reading_progress(name, 8, 0, 0, 4, 0, user_id, client_progress_ms=9_000)
+        blocked = save_reading_progress(name, 2, 0, 0, 4, 0, user_id)
         self.assertTrue(blocked['stale'])
         self.assertEqual(blocked['chapter_index'], 8)
         self.db.session.expire_all()
-        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user.id).one()
+        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user_id).one()
         self.assertEqual(stored.last_chapter, 8)
         self.assertEqual(stored.client_progress_ms, 9_000)
 
@@ -555,7 +559,7 @@ class ReviewRegressions(unittest.TestCase):
         self.db.session.commit()
         self.assertGreater(stored.client_progress_ms, 9_000)
         undone = save_reading_progress(
-            name, 2, 0, 0, 4, 0, user.id, client_progress_ms=stored.client_progress_ms - 1,
+            name, 2, 0, 0, 4, 0, user_id, client_progress_ms=stored.client_progress_ms - 1,
         )
         self.assertTrue(undone['stale'])
         self.assertEqual(undone['chapter_index'], 8)
@@ -571,11 +575,15 @@ class ReviewRegressions(unittest.TestCase):
         novel = {
             'kind': 'novel', 'book_id': '12345678', 'title': '排队小说', 'media_label': '番茄小说',
         }
+        from mangadock.services.enqueue import EnqueueResult
+        queued = EnqueueResult(
+            True, 'NOVEL_IN_PROGRESS',
+            '这本小说已在下载队列中，完成后会出现在小说书架',
+            media_kind='novel', reused=True,
+            fanqie_target={'media_label': '番茄小说'}, http_status=200,
+        )
         with patch('mangadock.api_v1.common.require_csrf_for_session_auth', return_value=None), \
-             patch('mangadock.api_v1.routes.is_supported_comic_url', return_value=True), \
-             patch('mangadock.api_v1.routes.is_adult_content_blocked', return_value=False), \
-             patch('mangadock.api_v1.routes.classify_fanqie_target', return_value=novel), \
-             patch('mangadock.api_v1.routes.start_novel_task', return_value=(None, True)):
+             patch('mangadock.api_v1.routes.enqueue_user_download', return_value=queued):
             response = client.post('/api/v1/downloads', json={
                 'url': 'https://fanqienovel.com/page/12345678', 'format': 2,
             })
@@ -594,13 +602,14 @@ class ReviewRegressions(unittest.TestCase):
         user.set_password('test-password')
         self.db.session.add(user)
         self.db.session.commit()
+        user_id = user.id
         name = 'string-reading-time'
         self.models.ReadingProgress.query.filter_by(comic_name=name).delete()
         self.models.ReadingTime.query.filter_by(comic_name=name).delete()
         self.db.session.commit()
         client = self.app.test_client()
         with client.session_transaction() as session:
-            session['user_id'] = user.id
+            session['user_id'] = user_id
         with patch('mangadock.blueprints.web.reader.require_csrf_for_session_auth', return_value=None), \
              patch('mangadock.blueprints.web.reader.user_can_access_progress_key', return_value=True):
             saved = client.post('/save_progress', json={
@@ -615,9 +624,9 @@ class ReviewRegressions(unittest.TestCase):
         self.assertEqual(saved.json['status'], 'success')
         self.assertEqual(late.status_code, 200)
         self.db.session.expire_all()
-        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user.id).one()
+        stored = self.models.ReadingProgress.query.filter_by(comic_name=name, user_id=user_id).one()
         self.assertEqual(stored.last_chapter, 2)
-        recorded = self.models.ReadingTime.query.filter_by(comic_name=name, user_id=user.id).all()
+        recorded = self.models.ReadingTime.query.filter_by(comic_name=name, user_id=user_id).all()
         self.assertEqual(sum(row.duration_seconds or 0 for row in recorded), 1)
 
     def test_deleted_group_does_not_fall_back_to_the_default_group(self):
@@ -670,6 +679,7 @@ class ReviewRegressions(unittest.TestCase):
             )
             self.db.session.add(task)
             self.db.session.commit()
+            task_id = task.id
 
             if suffix == 'api':
                 with patch('mangadock.api_v1.common.require_csrf_for_session_auth', return_value=None):
@@ -679,13 +689,13 @@ class ReviewRegressions(unittest.TestCase):
             self.assertIn(response.status_code, (200, 302), f'{suffix}: {response.data[:200]!r}')
             self.db.session.expire_all()
             self.assertIsNone(self.db.session.get(self.models.User, owner_id))
-            retired = self.db.session.get(self.models.DownloadTask, task.id)
+            retired = self.db.session.get(self.models.DownloadTask, task_id)
             self.assertEqual(retired.created_by_user_id, -owner_id)
             self.assertEqual(retired.status, 'cancelled')
             from mangadock.services.tasks import update_task
-            update_task(task.id, status='running')
+            update_task(task_id, status='running')
             self.db.session.expire_all()
-            retired = self.db.session.get(self.models.DownloadTask, task.id)
+            retired = self.db.session.get(self.models.DownloadTask, task_id)
             self.assertEqual(retired.status, 'cancelled')
 
             replacement = self.models.User(username=f'replacement-task-user-{suffix}', role='user', can_download=True)
@@ -749,10 +759,263 @@ class ReviewRegressions(unittest.TestCase):
             self.assertIn('client_progress_ms: nextProgressMs()', (root / name).read_text())
         for name in ('comics.html', 'settings_webdav.html'):
             poll = (root / name).read_text().split('async function poll()', 1)[1]
-            before_next, _after = poll.split('setTimeout(poll, 2000);', 1)
-            self.assertNotIn('if (!response.ok) return', before_next)
-            self.assertIn('if (response.ok)', before_next)
-            self.assertIn('catch (_) {}', before_next)
+            self.assertNotIn('if (!response.ok) return', poll)
+            self.assertIn('if (response.ok)', poll)
+            if name == 'comics.html':
+                self.assertIn('finally {', poll)
+                self.assertIn('schedulePoll(nextDelay);', poll)
+            else:
+                self.assertIn('catch (_) {}', poll)
+                self.assertIn('setTimeout(poll, 2000);', poll)
+
+    def test_adult_gate_uses_provider_registry(self):
+        from mangadock.services import download
+
+        with patch('mangadock.services.providers.is_adult_url', return_value=False):
+            self.assertFalse(download.is_adult_content_blocked('https://baozimh.org/manga/x'))
+        with patch('mangadock.services.providers.is_adult_url', return_value=True), \
+             patch('mangadock.services.adult_content.is_adult_content_enabled', return_value=False), \
+             patch.object(download, 'load_comic_mapping', return_value={}):
+            self.assertTrue(download.is_adult_content_blocked('https://baozimh.org/manga/x'))
+            self.assertFalse(download.is_adult_content_blocked(
+                'https://baozimh.org/manga/x', allow_adult=True,
+            ))
+
+    def test_enqueue_rejects_restricted_group_before_queueing(self):
+        from mangadock.services.enqueue import enqueue_user_download
+        from mangadock.services.groups import assign_comic_group, ensure_comic_group
+        from mangadock.services.library import save_comic_mapping
+
+        ensure_comic_group('restricted-enqueue-group')
+        assign_comic_group('restricted-enqueue', 'restricted-enqueue-group')
+        save_comic_mapping('restricted-enqueue', 'https://baozimh.org/manga/restricted-enqueue')
+        user = self.models.User(username='enqueue-test', role='user', can_download=True)
+        user.set_password('test-password')
+        self.db.session.add(user)
+        self.db.session.commit()
+        self.groups.set_user_group_permissions(user.id, ['默认分组'])
+        result = enqueue_user_download(user, 'https://baozimh.org/manga/restricted-enqueue', 2)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.code, 'FORBIDDEN')
+        self.assertEqual(self.models.DownloadTask.query.count(), 0)
+
+    def test_create_named_comic_group_rejects_reserved_name(self):
+        from mangadock.services.groups import create_named_comic_group
+
+        empty = create_named_comic_group('   ')
+        self.assertFalse(empty.ok)
+        self.assertEqual(empty.code, 'EMPTY')
+        reserved = create_named_comic_group('全部')
+        self.assertFalse(reserved.ok)
+        self.assertEqual(reserved.code, 'RESERVED')
+        created = create_named_comic_group('review-group')
+        self.assertTrue(created.ok)
+        self.assertTrue(created.created)
+        again = create_named_comic_group('review-group')
+        self.assertTrue(again.ok)
+        self.assertFalse(again.created)
+        self.assertEqual(again.code, 'EXISTS')
+
+    def test_configured_cache_root_requires_remote_url(self):
+        from mangadock.services import webdav
+
+        with patch.object(webdav, '_read_config', return_value={}):
+            self.assertIsNone(webdav.configured_cache_root())
+        with patch.object(webdav, '_read_config', return_value={'url': 'http://nas/dav'}), \
+             patch.object(webdav, 'cache_root', return_value='/tmp/webdav-comics'):
+            self.assertEqual(webdav.configured_cache_root(), '/tmp/webdav-comics')
+
+    def _session_client(self, user):
+        client = self.app.test_client()
+        with client.session_transaction() as session:
+            session['user_id'] = user.id
+        return client
+
+    def test_http_download_forbidden_is_403_on_web_and_404_on_api(self):
+        from mangadock.services.groups import assign_comic_group, ensure_comic_group
+        from mangadock.services.library import save_comic_mapping
+
+        ensure_comic_group('http-restricted-group')
+        assign_comic_group('http-restricted', 'http-restricted-group')
+        save_comic_mapping('http-restricted', 'https://baozimh.org/manga/http-restricted')
+        user = self.models.User(username='http-enqueue-acl', role='user', can_download=True)
+        user.set_password('test-password')
+        self.db.session.add(user)
+        self.db.session.commit()
+        self.groups.set_user_group_permissions(user.id, ['默认分组'])
+        url = 'https://baozimh.org/manga/http-restricted'
+        client = self._session_client(user)
+
+        page = client.post('/download', data={'comic_url': url, 'format': '2'})
+        self.assertEqual(page.status_code, 403)
+        self.assertIn('无权访问该漫画'.encode(), page.data)
+        self.assertEqual(self.models.DownloadTask.query.count(), 0)
+
+        with patch('mangadock.api_v1.common.require_csrf_for_session_auth', return_value=None):
+            api = client.post('/api/v1/downloads', json={'url': url, 'format': 2})
+        self.assertEqual(api.status_code, 404)
+        body = api.get_json()
+        self.assertFalse(body['ok'])
+        self.assertEqual(body['error']['code'], 'NOT_FOUND')
+        self.assertEqual(body['error']['message'], '未找到该漫画')
+        self.assertEqual(self.models.DownloadTask.query.count(), 0)
+
+    def test_http_download_adult_url_is_blocked_when_disabled(self):
+        from mangadock.settings import ADULT_CONTENT_DISABLED_MESSAGE
+
+        user = self.models.User(username='http-adult-gate', role='user', can_download=True)
+        user.set_password('test-password')
+        self.db.session.add(user)
+        self.db.session.commit()
+        client = self._session_client(user)
+        url = 'https://mxs12.cc/book/http-adult'
+
+        page = client.post('/download', data={'comic_url': url, 'format': '2'})
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(ADULT_CONTENT_DISABLED_MESSAGE.encode(), page.data)
+
+        with patch('mangadock.api_v1.common.require_csrf_for_session_auth', return_value=None):
+            api = client.post('/api/v1/downloads', json={'url': url, 'format': 2})
+        self.assertEqual(api.status_code, 403)
+        body = api.get_json()
+        self.assertEqual(body['error']['code'], 'ADULT_CONTENT_DISABLED')
+        self.assertEqual(body['error']['message'], ADULT_CONTENT_DISABLED_MESSAGE)
+        self.assertEqual(self.models.DownloadTask.query.count(), 0)
+
+    def test_http_download_queues_supported_comic(self):
+        user = self.models.User(username='http-enqueue-ok', role='user', can_download=True)
+        user.set_password('test-password')
+        self.db.session.add(user)
+        self.db.session.commit()
+        client = self._session_client(user)
+        url = 'https://baozimh.org/manga/http-enqueue-ok'
+
+        with patch('mangadock.services.enqueue.start_download_task', return_value='queued-task-id') as start:
+            page = client.get('/download')
+            self.assertEqual(page.status_code, 200)
+            created = client.post('/download', data={'comic_url': url, 'format': '2'})
+            start.assert_called_once()
+        self.assertEqual(created.status_code, 302)
+        self.assertTrue(created.headers['Location'].endswith('/progress/queued-task-id'))
+
+        with patch('mangadock.api_v1.common.require_csrf_for_session_auth', return_value=None), \
+             patch('mangadock.services.enqueue.start_download_task', return_value='api-task-id'), \
+             patch('mangadock.api_v1.routes.get_task', return_value=None):
+            api = client.post('/api/v1/downloads', json={'url': url, 'format': 2})
+        self.assertEqual(api.status_code, 201)
+        body = api.get_json()
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['data']['task_id'], 'api-task-id')
+        self.assertEqual(body['data']['media_kind'], 'comic')
+
+    def test_http_group_create_assign_delete_on_web_and_api(self):
+        from mangadock.settings import COMIC_ROOT
+
+        admin = self.models.User.query.filter_by(role='admin').one()
+        client = self._session_client(admin)
+        comic_name = 'http-group-comic'
+        os.makedirs(os.path.join(COMIC_ROOT, comic_name), exist_ok=True)
+
+        reserved = client.post('/comic_groups', data={'group_name': '全部'})
+        self.assertEqual(reserved.status_code, 302)
+        with client.session_transaction() as session:
+            flashes = [message for _category, message in session.get('_flashes', [])]
+        self.assertTrue(any('不能作为分组名称' in message for message in flashes))
+
+        created = client.post('/comics/groups/create', data={'group_name': 'http-func-group'})
+        self.assertEqual(created.status_code, 302)
+        self.assertIn('http-func-group', self.groups.get_all_comic_groups())
+
+        assigned = client.post('/comic_groups/assign', data={
+            'comic_name': comic_name, 'group_name': 'http-func-group',
+        })
+        self.assertEqual(assigned.status_code, 302)
+        self.assertEqual(self.groups.get_comic_group_map().get(comic_name), 'http-func-group')
+
+        with patch('mangadock.api_v1.common.require_csrf_for_session_auth', return_value=None):
+            api_exists = client.post('/api/v1/groups', json={'name': 'http-func-group'})
+            api_default = client.delete('/api/v1/groups/默认分组')
+            api_delete = client.delete('/api/v1/groups/http-func-group')
+        self.assertEqual(api_exists.status_code, 200)
+        self.assertFalse(api_exists.get_json()['data']['created'])
+        self.assertEqual(api_default.status_code, 403)
+        self.assertEqual(api_default.get_json()['error']['code'], 'FORBIDDEN')
+        self.assertEqual(api_delete.status_code, 200)
+        self.assertNotIn('http-func-group', self.groups.get_all_comic_groups())
+
+    def test_login_page_renders_after_adult_url_cover_filter(self):
+        response = self.app.test_client().get('/login')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'login', response.data.lower())
+
+    def test_login_cover_requires_opt_in_and_rechecks_group(self):
+        from mangadock.blueprints.web import auth_pages
+
+        cover_name = 'public-cover-test'
+        cover_path = Path(auth_pages.COVER_ROOT) / f'{cover_name}.jpg'
+        cover_path.write_bytes(b'public-cover')
+        client = self.app.test_client()
+        with patch.object(auth_pages, '_pick_comic_covers', return_value=[cover_name]):
+            self.assertEqual(client.get('/login-cover/0.jpg').status_code, 404)
+            with patch.dict(os.environ, {'MANGADOCK_PUBLIC_LOGIN_COVERS': json.dumps([cover_name])}):
+                self.assertIn(cover_name, auth_pages._eligible_comic_cover_names())
+                response = client.get('/login-cover/0.jpg')
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data, b'public-cover')
+                self.assertEqual(response.headers['Cache-Control'], 'no-store')
+                response.close()
+                index_path = Path(auth_pages.BASE_DIR) / 'comic.json'
+                old_index = index_path.read_text(encoding='utf-8')
+                try:
+                    index = json.loads(old_index)
+                    index[cover_name] = 'https://mxs12.cc/book/public-cover-test'
+                    index_path.write_text(json.dumps(index), encoding='utf-8')
+                    self.assertEqual(client.get('/login-cover/0.jpg').status_code, 404)
+                finally:
+                    index_path.write_text(old_index, encoding='utf-8')
+                self.groups.ensure_comic_group('private-cover-test')
+                self.groups.assign_comic_group(cover_name, 'private-cover-test')
+                self.assertNotIn(cover_name, auth_pages._eligible_comic_cover_names())
+                self.assertEqual(client.get('/login-cover/0.jpg').status_code, 404)
+
+    def test_login_page_handles_non_object_comic_index_with_public_covers(self):
+        from mangadock.blueprints.web import auth_pages
+
+        cover_path = Path(auth_pages.COVER_ROOT) / 'public-cover-test.jpg'
+        cover_path.write_bytes(b'public-cover')
+        with patch.dict(os.environ, {'MANGADOCK_PUBLIC_LOGIN_COVERS': '["public-cover-test"]'}), \
+             patch.object(auth_pages.json, 'load', return_value=[]):
+            self.assertEqual(auth_pages._eligible_comic_cover_names(), [])
+            self.assertEqual(self.app.test_client().get('/login').status_code, 200)
+
+    def test_cbz_page_read_is_bounded_for_local_archives(self):
+        import zipfile
+        from mangadock.blueprints.web import reader
+
+        archive_path = Path(self.workspace.name) / 'oversized-page.cbz'
+        with zipfile.ZipFile(archive_path, 'w') as archive:
+            archive.writestr('1.jpg', b'12345')
+        with self.app.test_request_context('/api/comic-pages/test/oversized-page.cbz?page=0'), \
+             patch.object(reader, 'MAX_CBZ_PAGE_BYTES', 4):
+            with self.assertRaisesRegex(RuntimeError, '超过 64MB'):
+                reader._read_cbz_page(str(archive_path))
+
+    def test_epub_entry_and_chapter_reads_are_bounded(self):
+        import zipfile
+        from mangadock.services import novels
+
+        epub_path = Path(self.workspace.name) / 'oversized-chapter.epub'
+        with zipfile.ZipFile(epub_path, 'w') as epub:
+            epub.writestr('chapter.xhtml', b'12345')
+        with zipfile.ZipFile(epub_path) as epub:
+            self.assertEqual(novels._read_epub_entry(epub, 'chapter.xhtml', 5), b'12345')
+            with self.assertRaisesRegex(ValueError, '大小限制'):
+                novels._read_epub_entry(epub, 'chapter.xhtml', 4)
+        metadata = {'spine': [{'href': 'chapter.xhtml'}]}
+        with patch.object(novels, 'get_novel', return_value={'file_path': str(epub_path)}), \
+             patch.object(novels, '_metadata', return_value=metadata), \
+             patch.object(novels, 'MAX_EPUB_CHAPTER_BYTES', 4):
+            self.assertIsNone(novels.get_novel_chapter('oversized-chapter', 0))
 
 
 if __name__ == '__main__':

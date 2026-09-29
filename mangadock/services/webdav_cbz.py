@@ -70,7 +70,7 @@ class RemoteCbz(io.RawIOBase):
         super().close()
 
     def _touch(self):
-        with webdav._open_lock_file(self.meta_path) as handle:
+        with webdav.open_lock_file(self.meta_path) as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
                 with open(self.meta_path, encoding='utf-8') as current:

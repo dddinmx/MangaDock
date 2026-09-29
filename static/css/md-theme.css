@@ -1040,6 +1040,25 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   mask-image: linear-gradient(180deg, transparent 24%, rgba(0, 0, 0, 0.72) 55%, #000 80%);
 }
 
+@media (min-width: 1600px) {
+  .comic-detail .md-detail-hero-media img:not(.md-detail-hero-soft) {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 1;
+    width: min(100%, 90rem);
+    transform: translateX(-50%);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  }
+
+  .comic-detail .md-detail-hero-media .md-detail-hero-soft {
+    z-index: 0;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
 .md-detail-hero-shade {
   position: absolute;
   inset: 0 0 auto 0;
@@ -1092,6 +1111,76 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   border-color: rgba(255, 255, 255, 0.22);
 }
 
+.comic-detail .action-press:active {
+  transform: scale(0.96);
+  filter: brightness(1.16);
+}
+
+.comic-detail .action-press:focus-visible {
+  outline: 2px solid var(--md-brand-soft);
+  outline-offset: 3px;
+}
+
+.md-detail-back {
+  overflow: hidden;
+  transition: width 0.2s ease, transform 0.18s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.md-detail-back-loading {
+  display: none;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.md-detail-back.is-loading {
+  width: 7rem;
+  border-color: var(--md-brand-soft);
+  background: var(--md-brand);
+  box-shadow: 0 0 0 4px rgba(var(--md-brand-rgb), 0.2);
+  color: #fff;
+}
+
+.md-detail-back.is-loading .md-detail-back-arrow { display: none; }
+.md-detail-back.is-loading .md-detail-back-loading { display: inline-flex; }
+
+@keyframes md-detail-busy-spin {
+  to { transform: rotate(360deg); }
+}
+
+.comic-detail form[data-api-busy="1"] button[type="submit"],
+.comic-detail form button.is-loading {
+  cursor: wait;
+  opacity: 0.8;
+}
+
+.comic-detail form[data-api-busy="1"] button[type="submit"]::after,
+.comic-detail form button.is-loading::after {
+  content: "";
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-left: 0.5rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: md-detail-busy-spin 0.7s linear infinite;
+}
+
+.md-detail-group-picker:has(form[data-api-busy="1"]) .md-detail-group-chevron {
+  animation: md-detail-busy-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comic-detail form[data-api-busy="1"] button[type="submit"]::after,
+  .comic-detail form button.is-loading::after,
+  .md-detail-group-picker:has(form[data-api-busy="1"]) .md-detail-group-chevron {
+    animation: none;
+  }
+}
+
 .md-detail-overflow {
   position: relative;
 }
@@ -1133,6 +1222,10 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
+
+.md-detail-menu-item--danger,
+.md-detail-menu-item--danger:hover,
+.md-detail-menu-item--danger:focus-visible { color: #f87171; }
 
 .md-detail-inner {
   position: relative;
@@ -1319,6 +1412,39 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   white-space: pre-line;
 }
 
+.comic-detail .md-detail-synopsis-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+}
+
+.comic-detail .md-detail-synopsis-text.is-expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.md-detail-synopsis-toggle {
+  display: flex;
+  margin: 0.4rem 0;
+  padding: 0.2rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--md-brand-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.md-detail-synopsis-toggle[hidden] { display: none; }
+.md-detail-synopsis-toggle:active { transform: scale(0.96); }
+.md-detail-synopsis-toggle:focus-visible {
+  outline: 2px solid var(--md-brand-soft);
+  outline-offset: 3px;
+  border-radius: 0.25rem;
+}
+
 .md-hero-progress-hint {
   margin-top: 0.65rem;
   font-size: 0.82rem;
@@ -1384,6 +1510,11 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
+  justify-content: center;
+}
+
+.md-detail-desktop-read-btn {
+  padding-inline: 2rem;
 }
 
 @media (min-width: 768px) {
@@ -1399,6 +1530,18 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   padding: 1rem 1rem 0.5rem;
 }
 
+.comic-detail .md-detail-chapters {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 @media (min-width: 768px) {
   .md-detail-chapters {
     padding: 1.25rem 1.25rem 0.75rem;
@@ -1411,6 +1554,14 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   gap: 0.85rem;
   margin-bottom: 1rem;
 }
+
+.comic-detail .md-detail-chapters-bar {
+  gap: 0;
+  margin-bottom: 0.15rem;
+  padding-bottom: 0;
+}
+
+.comic-detail .md-detail-chapter-tools { gap: 0.4rem; }
 
 @media (min-width: 640px) {
   .md-detail-chapters-bar {
@@ -1492,9 +1643,50 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
+.comic-detail .md-chapter-list { gap: 0; padding-bottom: 0; }
+.comic-detail .md-chapter-item {
+  padding: 0.65rem 0.4rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.comic-detail .md-chapter-meta {
+  display: block;
+  overflow: hidden;
+  margin-top: 0.1rem;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .md-chapter-item:hover {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.08);
+}
+
+.md-chapter-item.is-in-reading-progress {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.md-chapter-item.is-in-reading-progress .md-chapter-title {
+  color: #c4c8d3;
+}
+
+.md-chapter-item.is-in-reading-progress:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.comic-detail .md-chapter-item + .md-chapter-item {
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.comic-detail .md-chapter-item.is-in-reading-progress { background: transparent; }
+.comic-detail .md-chapter-item:hover,
+.comic-detail .md-chapter-item.is-in-reading-progress:hover {
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .md-chapter-title {
@@ -2517,6 +2709,13 @@ html:not(.theme-dark) body.md-body {
   color: var(--md-text) !important;
 }
 
+/* 桌面书架滚动到底部时保持同一底色，移动端沿用原页面背景。 */
+@media (min-width: 768px) {
+  html:not(.theme-dark) body.md-body.md-comics-page {
+    background: #fff !important;
+  }
+}
+
 html:not(.theme-dark) .md-topnav {
   border-color: rgba(148, 163, 184, 0.32);
   background: rgba(255, 255, 255, 0.88);
@@ -2617,6 +2816,12 @@ html:not(.theme-dark) .md-chapter-item { border-color: rgba(148, 163, 184, 0.3);
 html:not(.theme-dark) .md-chapter-item:hover { background: rgba(var(--md-brand-rgb), 0.08); }
 html:not(.theme-dark) .md-detail-icon-btn,
 html:not(.theme-dark) .md-detail-menu { border-color: rgba(148, 163, 184, 0.32); background: rgba(255, 255, 255, 0.94); color: var(--md-text); }
+html:not(.theme-dark) .md-detail-menu-item { color: var(--md-text); }
+html:not(.theme-dark) .md-detail-menu-item:hover,
+html:not(.theme-dark) .md-detail-menu-item:focus-visible { background: #f1f3f7; color: #111827; }
+html:not(.theme-dark) .md-detail-menu-item--danger,
+html:not(.theme-dark) .md-detail-menu-item--danger:hover,
+html:not(.theme-dark) .md-detail-menu-item--danger:focus-visible { color: #b42318; }
 html:not(.theme-dark) body.md-body .bg-white { background-color: #fff !important; color: var(--md-text); }
 html:not(.theme-dark) body.md-body .bg-gray-50,
 html:not(.theme-dark) body.md-body .bg-gray-100,
@@ -2704,6 +2909,12 @@ html:not(.theme-dark) .md-detail-icon-btn {
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
 }
 html:not(.theme-dark) .md-detail-icon-btn:hover { background: #fff; border-color: rgba(148, 163, 184, 0.48); }
+html:not(.theme-dark) .md-detail-back.is-loading,
+html:not(.theme-dark) .md-detail-back.is-loading:hover {
+  border-color: var(--md-brand-soft);
+  background: var(--md-brand);
+  color: #fff;
+}
 html:not(.theme-dark) .md-detail-cover {
   border-color: rgba(15, 23, 42, 0.12);
   background: #fff;
@@ -2730,6 +2941,7 @@ html:not(.theme-dark) .md-detail-synopsis {
   box-shadow: none;
 }
 html:not(.theme-dark) .md-detail-synopsis-label { color: var(--md-brand); }
+html:not(.theme-dark) .md-detail-synopsis-toggle { color: var(--md-brand); }
 /* The base ghost button uses an important white text color for dark pages. */
 html:not(.theme-dark) .md-btn-ghost { color: var(--md-text) !important; }
 
@@ -2755,6 +2967,30 @@ html:not(.theme-dark) .md-chapter-item {
   background: #fff;
   box-shadow: 0 5px 14px rgba(15, 23, 42, 0.035);
 }
+html:not(.theme-dark) .md-chapter-item.is-in-reading-progress {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: #edf2f8;
+}
+html:not(.theme-dark) .md-chapter-item.is-in-reading-progress:hover { background: #e3eaf3; }
+
+html:not(.theme-dark) .comic-detail .md-detail-chapters {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html:not(.theme-dark) .comic-detail .md-chapter-item,
+html:not(.theme-dark) .comic-detail .md-chapter-item.is-in-reading-progress {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html:not(.theme-dark) .comic-detail .md-chapter-item + .md-chapter-item {
+  border-top: 1px solid rgba(100, 116, 139, 0.28);
+}
+html:not(.theme-dark) .comic-detail .md-chapter-item:hover,
+html:not(.theme-dark) .comic-detail .md-chapter-item.is-in-reading-progress:hover {
+  background: rgba(15, 23, 42, 0.045);
+}
 
 /* Keep the secondary home action distinct without changing other ghost buttons.
    :where() 把 .md-hero-actions 的特异度降到 0，确保 figma 版
@@ -2779,6 +3015,7 @@ html:not(.theme-dark) .md-detail-sort,
 html:not(.theme-dark) .md-chapter-title,
 html:not(.theme-dark) .md-chapter-meta,
 html:not(.theme-dark) .md-chapter-chevron { color: #111827; }
+html:not(.theme-dark) .md-chapter-item.is-in-reading-progress .md-chapter-title { color: #667085; }
 html:not(.theme-dark) .md-detail-search input::placeholder { color: #667085; }
 
 /* Reading history uses dark utility classes by default; provide an explicit
@@ -3066,6 +3303,288 @@ html:not(.theme-dark) .md-lib-select {
     rgba(255, 255, 255, 0.92) !important;
 }
 
+/* 漫画书架顶部工具：保留触控高度，去掉胶囊底框。 */
+@media (min-width: 768px) {
+  .comics-library-content {
+    padding-top: 0.75rem;
+    padding-bottom: 0;
+  }
+}
+
+.comics-library-toolbar form .md-btn-ghost {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.comics-group-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 12rem;
+  min-height: 2.75rem;
+  padding: 0 0.35rem;
+  color: var(--md-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.comics-group-picker > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comics-group-picker::after {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: 0 0 auto;
+  margin-top: -0.2rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.75;
+}
+
+.comics-group-picker:focus-within {
+  outline: 2px solid rgba(148, 163, 184, 0.65);
+  outline-offset: 2px;
+}
+
+.comics-group-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.comics-library-toolbar form .md-btn-ghost {
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent !important;
+  font-size: 0.875rem;
+}
+
+.comics-library-toolbar form .md-btn-ghost:hover,
+.comics-library-toolbar form .md-btn-ghost:focus-visible {
+  border-bottom-color: var(--md-brand-soft);
+}
+
+.comics-library-toolbar form .md-btn-ghost:hover {
+  color: var(--md-brand-soft) !important;
+}
+
+html:not(.theme-dark) .comics-library-toolbar form .md-btn-ghost:hover {
+  color: var(--md-brand) !important;
+}
+
+.comics-library-manage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  padding: 0 0.4rem;
+  color: var(--md-muted) !important;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none !important;
+  white-space: nowrap;
+}
+
+.comics-library-manage .fa { font-size: 0.95rem; }
+.comics-library-manage:hover { color: var(--md-text) !important; }
+.comics-library-manage:focus-visible {
+  outline: 2px solid rgba(148, 163, 184, 0.65);
+  outline-offset: 2px;
+}
+
+@media (max-width: 359px) {
+  .comics-library-toolbar form .md-btn-ghost {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .comics-library-toolbar form .md-btn-ghost .fa {
+    margin-right: 0;
+    font-size: 1rem;
+  }
+
+  .comics-library-manage {
+    width: 2.75rem;
+    padding: 0;
+  }
+
+  .comics-library-manage span { display: none; }
+}
+
+@media (max-width: 480px) {
+  .comics-group-picker { max-width: 8.5rem; font-size: 0.8125rem; }
+}
+
+@media (min-width: 360px) and (max-width: 399px) {
+  .comics-group-picker { max-width: 6.5rem; }
+}
+
+/* 漫画分组管理：减少多层卡片和边框，只保留表单与选中态的必要提示。 */
+.md-comic-groups-page .md-novel-group-panel,
+.md-comic-groups-page .md-novel-batch-toolbar {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.md-comic-groups-page .md-novel-group-panel { gap: 0.8rem; }
+.md-comic-groups-page .md-novel-group-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+}
+.md-comic-groups-page .md-novel-group-create .md-input { min-width: 0; }
+.md-comic-groups-page .md-novel-group-list { gap: 0.25rem 1rem; }
+.md-comic-groups-page .md-novel-group-chip {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.md-comic-groups-page .md-novel-group-chip > a { padding: 0.4rem 0.15rem; }
+.md-comic-groups-page .md-novel-group-chip strong {
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--md-muted);
+}
+.md-comic-groups-page .md-novel-group-chip button {
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: 0;
+}
+
+.md-comic-groups-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.5rem;
+  padding: 0 0.65rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  box-shadow: none;
+  color: var(--md-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+.md-comic-groups-back:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--md-text);
+}
+.md-comic-groups-back:active { transform: translateX(-2px); }
+.md-comic-groups-back:focus-visible { outline: 2px solid var(--md-brand-soft); outline-offset: 2px; }
+html:not(.theme-dark) .md-comic-groups-back:hover { background: rgba(15, 23, 42, 0.055); }
+
+.md-comic-groups-page .md-novel-batch-toolbar {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) auto auto minmax(8.5rem, auto) auto;
+  gap: 0.6rem;
+}
+.md-comic-groups-page .md-novel-batch-search { min-width: 0; }
+.md-comic-groups-page .md-novel-group-create .md-input,
+.md-comic-groups-page .md-novel-group-create .md-btn-primary,
+.md-comic-groups-page .md-novel-batch-toolbar .md-input,
+.md-comic-groups-page .md-novel-batch-toolbar .md-chip,
+.md-comic-groups-page .md-novel-batch-toolbar .md-lib-select,
+.md-comic-groups-page .md-novel-batch-toolbar .md-btn-primary {
+  box-sizing: border-box;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+.md-comic-groups-page .md-novel-group-create .md-btn-primary,
+.md-comic-groups-page .md-novel-batch-toolbar .md-btn-primary { padding: 0 1rem; }
+.md-comic-groups-page .md-novel-batch-toolbar .md-chip {
+  padding: 0 0.8rem;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.065);
+  color: var(--md-text);
+  cursor: pointer;
+}
+.md-comic-groups-page .md-novel-batch-toolbar .md-chip:hover { background: rgba(255, 255, 255, 0.11); }
+.md-comic-groups-page .md-novel-batch-toolbar .md-lib-select {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .md-comic-groups-page .md-novel-batch-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md-comic-groups-page .md-novel-batch-search { grid-column: 1 / -1; }
+  .md-comic-groups-page .md-novel-batch-toolbar .md-chip,
+  .md-comic-groups-page .md-novel-batch-toolbar .md-btn-primary { width: 100%; }
+}
+
+@media (max-width: 359px) {
+  .md-comic-groups-page .md-novel-group-create { grid-template-columns: minmax(0, 1fr); }
+  .md-comic-groups-page .md-novel-batch-toolbar .md-lib-select,
+  .md-comic-groups-page .md-novel-batch-toolbar .md-btn-primary { grid-column: 1 / -1; }
+}
+
+.md-comic-groups-page .md-novel-select-card {
+  border: 0;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: none;
+}
+.md-comic-groups-page .md-novel-select-card:hover {
+  border: 0;
+  background: rgba(255, 255, 255, 0.075);
+}
+.md-comic-groups-page .md-novel-select-item > input:checked + .md-novel-select-card {
+  border: 0;
+  background: rgba(var(--md-brand-rgb), 0.11);
+  box-shadow: inset 0 0 0 2px rgba(var(--md-brand-rgb), 0.5);
+}
+
+html:not(.theme-dark) .md-comic-groups-page .md-novel-group-panel,
+html:not(.theme-dark) .md-comic-groups-page .md-novel-batch-toolbar,
+html:not(.theme-dark) .md-comic-groups-page .md-novel-group-chip {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html:not(.theme-dark) .md-comic-groups-page .md-novel-select-card {
+  border: 0;
+  background: rgba(15, 23, 42, 0.035);
+}
+html:not(.theme-dark) .md-comic-groups-page .md-novel-select-card:hover {
+  background: rgba(15, 23, 42, 0.065);
+}
+html:not(.theme-dark) .md-comic-groups-page .md-novel-select-item > input:checked + .md-novel-select-card {
+  background: rgba(var(--md-brand-rgb), 0.08);
+}
+html:not(.theme-dark) .md-comic-groups-page .md-novel-batch-toolbar .md-chip { background: #f1f3f7; }
+html:not(.theme-dark) .md-comic-groups-page .md-novel-batch-toolbar .md-chip:hover { background: #e8ebf1; }
+
 /* Fanqie relay health banner */
 .md-fanqie-alert {
   display: flex;
@@ -3282,6 +3801,15 @@ body.md-home-page .md-main--flush {
   text-shadow: none;
 }
 
+.md-hero--figma .md-hero-meta__badge--format {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.3rem;
+  padding: 0 0.35rem;
+  line-height: 1;
+}
+
 .md-hero--figma .md-hero-meta__group {
   color: #fff;
   font-weight: 600;
@@ -3299,7 +3827,7 @@ body.md-home-page .md-main--flush {
 .md-hero--figma .md-hero-desc {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 5;
   overflow: hidden;
   margin-top: 1.05rem;
   /* 参考稿正文宽约 38.7% 页宽（1920 → ~740），别锁死在 30rem 窄栏 */
@@ -3307,6 +3835,16 @@ body.md-home-page .md-main--flush {
   font-size: clamp(0.9rem, min(1vw, 1.7vh), 1rem);
   line-height: 1.78;
   color: #c2c2d2;
+}
+
+.md-hero--figma .md-hero-desc-toggle:not([hidden]) {
+  display: inline-flex;
+}
+
+.md-hero--figma .md-hero-desc.is-expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
 }
 
 /* ── 按钮：左幽灵描边 · 右金色实底 + ▶ 三角（46×16 → 2.875:1） ── */
@@ -3335,6 +3873,45 @@ body.md-home-page .md-main--flush {
 
 .md-hero--figma .md-btn-ghost:hover {
   background: rgba(255, 255, 255, 0.09);
+}
+
+.md-hero--figma .md-home-detail-link:active {
+  transform: translateY(1px) scale(0.96);
+}
+
+.md-hero--figma .md-home-detail-pending {
+  display: none;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.md-hero--figma .md-home-detail-link.is-loading {
+  pointer-events: none;
+  border-color: var(--md-brand);
+  background: var(--md-brand);
+  color: #fff !important;
+  box-shadow: 0 0 0 4px rgba(var(--md-brand-rgb), 0.2);
+}
+
+.md-hero--figma .md-home-detail-link.is-loading .md-home-detail-idle { display: none; }
+.md-hero--figma .md-home-detail-link.is-loading .md-home-detail-pending { display: inline-flex; }
+
+.md-hero--figma .md-home-detail-pending::before {
+  content: "";
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: md-home-detail-spin 0.7s linear infinite;
+}
+
+@keyframes md-home-detail-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-hero--figma .md-home-detail-pending::before { animation: none; }
 }
 
 .md-hero--figma .md-btn-primary {
@@ -3628,6 +4205,12 @@ html:not(.theme-dark) .md-hero--figma .md-btn-ghost:hover {
   background: rgba(18, 22, 31, 0.07);
 }
 
+html:not(.theme-dark) .md-hero--figma .md-home-detail-link.is-loading {
+  border-color: var(--md-brand);
+  background: var(--md-brand);
+  color: #fff !important;
+}
+
 /* 主按钮保持品牌色实底 + 白字（--md-gold 组已指向品牌色），浅色底无需变体 */
 
 html:not(.theme-dark) .md-hero--figma .md-hero-art img {
@@ -3681,6 +4264,23 @@ html:not(.theme-dark) .md-home-rail__card:hover {
 /* 窄屏 + 触摸宽屏（iPad 横屏等无 hover / coarse pointer）都走这套可滚动堆叠布局，
    不再被桌面一屏锁死（.md-hero--figma 已是 100dvh 且 overflow:hidden）。 */
 @media (max-width: 1024px), (hover: none), (pointer: coarse) {
+  /* 首页主视觉末端与滚动留白使用同一底色，避免到底时出现接缝。 */
+  body.md-body.md-home-page {
+    background: #07070a !important;
+  }
+
+  html:not(.theme-dark) body.md-body.md-home-page {
+    background: #fff !important;
+  }
+
+  html:not(.theme-dark) .md-hero--figma .md-hero-shade {
+    background: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0.72) 42%,
+      #fff 60%,
+      #fff 100%);
+  }
+
   /* 窄屏首页：hero 不能再顶到页面最上沿。
      桌面之所以 flush（padding-top:0），是因为桌面 hero 是 100dvh、封面整幅出血，
      顶栏压在图上就是参考稿的样子；但窄屏 hero 高度 auto、主视觉收成固定 360px 的
@@ -3737,6 +4337,8 @@ html:not(.theme-dark) .md-home-rail__card:hover {
     top: auto;
     width: 100%;
     max-width: none;
+    max-height: none;
+    overflow: visible;
     /* 图带高 360px，首行要完全落到图带下方（360 + 安全余量）才不被压住 */
     padding: 372px 1.25rem 1.5rem;
   }
@@ -3753,9 +4355,20 @@ html:not(.theme-dark) .md-home-rail__card:hover {
   }
 
   .md-hero--figma .md-hero-desc {
+    -webkit-line-clamp: 5;
     margin-top: 0.8rem;
     max-width: 100%;
     font-size: 0.875rem;
+  }
+
+  .md-hero--figma .md-hero-desc.is-expanded {
+    display: block;
+    -webkit-line-clamp: unset;
+    overflow: visible;
+  }
+
+  .md-hero--figma .md-hero-desc-toggle:not([hidden]) {
+    display: inline-flex;
   }
 
   .md-hero--figma .md-hero-actions {
@@ -3775,7 +4388,7 @@ html:not(.theme-dark) .md-home-rail__card:hover {
     left: auto;
     right: auto;
     bottom: auto;
-    padding-bottom: 1.75rem;
+    padding-bottom: 0.75rem;
   }
 
   .md-home-rail__head {
@@ -3795,13 +4408,30 @@ html:not(.theme-dark) .md-home-rail__card:hover {
   }
 
   .md-home-rail__track {
-    padding: 0 1.25rem 0.75rem;
+    padding: 0 1.25rem 0.5rem;
   }
 
   .md-home-rail__card {
     width: 104px;
     margin-right: 12px;
     border-radius: 10px;
+  }
+
+  html:not(.theme-dark) .md-home-rail__card,
+  html:not(.theme-dark) .md-home-rail__card:hover {
+    box-shadow: none;
+  }
+
+  html:not(.theme-dark) .md-home-rail__card:focus-visible {
+    outline: 2px solid var(--md-brand);
+    outline-offset: 2px;
+  }
+}
+
+@media (max-width: 768px) {
+  /* 首页 Dock 开启时只预留其实际高度和少量间距。 */
+  html[data-mobile-dock="on"] body.md-home-page.has-mobile-tabbar .app-main-content {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)) !important;
   }
 }
 

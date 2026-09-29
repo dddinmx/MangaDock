@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 NOVEL_PROGRESS_PREFIX = "novel:"
 NOVEL_COVER_CACHE_VERSION = 1
+MAX_EPUB_METADATA_BYTES = 2 * 1024 * 1024
+MAX_EPUB_CHAPTER_BYTES = 16 * 1024 * 1024
+MAX_EPUB_COVER_BYTES = 8 * 1024 * 1024
 
 # EPUB 解析失败时 `_metadata()` 的返回值。
 # 刻意用「正常返回值」而不是抛异常：functools.lru_cache 不缓存异常，
@@ -65,14 +68,25 @@ def _resolve_epub_path(base_path, href):
     return posixpath.normpath(posixpath.join(posixpath.dirname(base_path), href.split('#', 1)[0]))
 
 
+def _read_epub_entry(epub, name, max_bytes):
+    """Bound decompression even when a ZIP entry's declared size is wrong."""
+    if epub.getinfo(name).file_size > max_bytes:
+        raise ValueError('EPUB 条目超过大小限制')
+    with epub.open(name) as source:
+        content = source.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ValueError('EPUB 条目超过大小限制')
+    return content
+
+
 def _read_package(epub):
-    container = ET.fromstring(epub.read('META-INF/container.xml'))
+    container = ET.fromstring(_read_epub_entry(epub, 'META-INF/container.xml', MAX_EPUB_METADATA_BYTES))
     rootfile = next(
         element for element in container.iter()
         if _local_name(element.tag) == 'rootfile'
     )
     package_path = rootfile.attrib['full-path']
-    package = ET.fromstring(epub.read(package_path))
+    package = ET.fromstring(_read_epub_entry(epub, package_path, MAX_EPUB_METADATA_BYTES))
     return package_path, package
 
 
@@ -222,10 +236,15 @@ def _chapter_titles(file_path, modified_ns):
         ), None)
         if nav_item:
             nav_path = _resolve_epub_path(metadata['package_path'], nav_item.get('href', ''))
-            soup = BeautifulSoup(epub.read(nav_path), 'html.parser')
-            for link in soup.find_all('a', href=True):
-                target = _resolve_epub_path(nav_path, link['href'])
-                title_by_path[target] = _clean_text(link.get_text(' ', strip=True), 300)
+            try:
+                nav_content = _read_epub_entry(epub, nav_path, MAX_EPUB_METADATA_BYTES)
+            except ValueError:
+                nav_content = None
+            if nav_content is not None:
+                soup = BeautifulSoup(nav_content, 'html.parser')
+                for link in soup.find_all('a', href=True):
+                    target = _resolve_epub_path(nav_path, link['href'])
+                    title_by_path[target] = _clean_text(link.get_text(' ', strip=True), 300)
 
     chapters = []
     for index, item in enumerate(metadata['spine']):
@@ -257,8 +276,12 @@ def get_novel_chapter(novel_id, chapter_index):
     if chapter_index < 0 or chapter_index >= len(metadata['spine']):
         return None
     chapter_path = metadata['spine'][chapter_index]['href']
-    with ZipFile(novel['file_path']) as epub:
-        soup = BeautifulSoup(epub.read(chapter_path), 'html.parser')
+    try:
+        with ZipFile(novel['file_path']) as epub:
+            content = _read_epub_entry(epub, chapter_path, MAX_EPUB_CHAPTER_BYTES)
+    except ValueError:
+        return None
+    soup = BeautifulSoup(content, 'html.parser')
     for unwanted in soup(['script', 'style', 'noscript', 'svg']):
         unwanted.decompose()
     body = soup.body or soup
@@ -309,12 +332,14 @@ def get_novel_cover_file(novel_id):
         return None
     with ZipFile(novel['file_path']) as epub:
         try:
-            content = epub.read(cover_path)
-        except KeyError:
+            content = _read_epub_entry(epub, cover_path, MAX_EPUB_COVER_BYTES)
+        except (KeyError, ValueError):
             return None
 
     try:
         image = Image.open(BytesIO(content))
+        if image.width * image.height > 20_000_000:
+            return None
         image.load()
         if image.mode in {'RGBA', 'LA'}:
             canvas = Image.new('RGB', image.size, 'white')
@@ -342,7 +367,7 @@ def get_novel_cover_file(novel_id):
                 os.remove(temporary_path)
             except OSError:
                 pass
-    except (OSError, ValueError):
+    except (OSError, ValueError, Image.DecompressionBombError):
         return None
 
     return generated_cover_path, 'image/jpeg'

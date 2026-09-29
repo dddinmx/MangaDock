@@ -14,16 +14,9 @@ from flask import (
 from mangadock.auth import admin_required, library_write_required, login_required, get_current_user
 from mangadock.core import app
 from mangadock.extensions import db
-from mangadock.services.adult_content import is_adult_content_enabled, is_adult_content_enabled_for
-from mangadock.services.download import (
-    is_adult_content_blocked,
-    is_supported_comic_url,
-    normalize_target_input,
-)
-from mangadock.services.fanqie import classify_fanqie_target
-from mangadock.services.fanqie_api import FanqieApiError
+from mangadock.services.adult_content import is_adult_content_enabled_for
+from mangadock.services.enqueue import enqueue_user_download
 from mangadock.services.groups import (
-    can_user_access_group,
     can_user_access_task,
     get_accessible_group_names,
     get_comic_group_map,
@@ -35,7 +28,6 @@ from mangadock.services.tasks import (
     delete_task,
     get_all_tasks,
     get_task,
-    normalize_comic_url_identity,
     update_task,
 )
 from mangadock.services.updates import (
@@ -46,9 +38,8 @@ from mangadock.services.updates import (
     queue_background_command,
     set_comic_update_mode,
 )
-from mangadock.services.workers import start_download_task, start_novel_task, start_update_task
+from mangadock.services.workers import start_update_task
 from mangadock.settings import (
-    ADULT_CONTENT_DISABLED_MESSAGE,
     COMIC_UPDATE_MODE_AUTO,
     china_tz,
 )
@@ -62,109 +53,21 @@ def download():
     current_user = get_current_user()
     adult_enabled_for_user = is_adult_content_enabled_for(current_user)
     if request.method == 'POST':
-        comic_url = normalize_target_input(request.form.get('comic_url'))
-        comic_format = safe_int(request.form.get('format'), default=2)
-
-        if not is_supported_comic_url(comic_url):
-            return render_template(
+        result = enqueue_user_download(
+            current_user,
+            request.form.get('comic_url'),
+            safe_int(request.form.get('format'), default=2),
+        )
+        if not result.ok or result.code == 'NOVEL_IN_PROGRESS':
+            response = render_template(
                 'download.html',
-                error='请输入有效的漫画或小说链接/ID（支持包子漫画、漫画柜、嬉皮漫畫、'
-                      '番茄图片漫画、番茄小说'
-                      + ('、MXS' if adult_enabled_for_user else '')
-                      + '）',
+                error=result.message,
                 adult_content_enabled=adult_enabled_for_user,
             )
-
-        normalized_url = normalize_comic_url_identity(comic_url)
-        mapped_names = [
-            comic_name
-            for comic_name, mapped_url in load_comic_mapping().items()
-            if normalize_comic_url_identity(mapped_url) == normalized_url
-        ]
-        comic_group_map = get_comic_group_map()
-        if any(
-            not can_user_access_group(
-                normalize_group_name(comic_group_map.get(comic_name)) or '默认分组',
-                current_user,
-            )
-            for comic_name in mapped_names
-        ):
-            return render_template(
-                'download.html',
-                error='当前账号无权访问该漫画',
-                adult_content_enabled=adult_enabled_for_user,
-            )
-
-        if is_adult_content_blocked(comic_url, allow_adult=adult_enabled_for_user):
-            return render_template(
-                'download.html',
-                error=ADULT_CONTENT_DISABLED_MESSAGE,
-                adult_content_enabled=adult_enabled_for_user,
-            )
-
-        # 番茄小说与图片漫画共用 fanqienovel.com 域名：提交时判定类型再分流
-        # （小说固定走 EPUB 小说流水线，漫画仍走原有图片漫画管线）。
-        try:
-            fanqie_target = classify_fanqie_target(comic_url)
-        except (FanqieApiError, ValueError) as exc:
-            return render_template(
-                'download.html',
-                error=str(exc) or '番茄作品解析失败',
-                adult_content_enabled=adult_enabled_for_user,
-            )
-
-        if fanqie_target and fanqie_target['kind'] == 'comic':
-            fanqie_identity = normalize_comic_url_identity(
-                f"fanqie-comic://{fanqie_target['book_id']}"
-            )
-            fanqie_mapped_names = [
-                comic_name
-                for comic_name, mapped_url in load_comic_mapping().items()
-                if normalize_comic_url_identity(mapped_url) == fanqie_identity
-            ]
-            fanqie_group_map = get_comic_group_map()
-            if any(
-                not can_user_access_group(
-                    normalize_group_name(fanqie_group_map.get(comic_name)) or '默认分组',
-                    current_user,
-                )
-                for comic_name in fanqie_mapped_names
-            ):
-                return render_template(
-                    'download.html',
-                    error='当前账号无权访问该漫画',
-                    adult_content_enabled=adult_enabled_for_user,
-                )
-
-        if fanqie_target and fanqie_target['kind'] == 'novel':
-            task_id, _reused = start_novel_task(
-                fanqie_target['book_id'],
-                title=fanqie_target['title'],
-                created_by_user_id=current_user.id if current_user else None,
-            )
-            if not task_id:
-                return render_template(
-                    'download.html',
-                    error='这本小说已在下载队列中，完成后会出现在小说书架',
-                    adult_content_enabled=adult_enabled_for_user,
-                )
-            return redirect(url_for('progress', task_id=task_id))
-
-        # 启动下载线程并获取任务ID（带创建者 18+ 覆盖授权快照）
-        try:
-            task_id = start_download_task(
-                comic_url, comic_format,
-                allow_adult=bool(current_user and current_user.can_view_adult),
-                created_by_user_id=current_user.id if current_user else None,
-            )
-        except PermissionError:
-            return render_template(
-                'download.html', error='当前账号无权访问该漫画',
-                adult_content_enabled=adult_enabled_for_user,
-            ), 403
-
-        # 重定向到进度页
-        return redirect(url_for('progress', task_id=task_id))
+            if result.code == 'FORBIDDEN':
+                return response, 403
+            return response
+        return redirect(url_for('progress', task_id=result.task_id))
 
     return render_template('download.html', adult_content_enabled=adult_enabled_for_user)
 

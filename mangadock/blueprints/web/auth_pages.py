@@ -31,7 +31,8 @@ from mangadock.auth import (
 from mangadock.core import app
 from mangadock.extensions import db
 from mangadock.models import LoginLog, User
-from mangadock.services.providers.mxs import is_mxs_url
+from mangadock.services.groups import get_comic_group_map
+from mangadock.services.providers import is_adult_url
 from mangadock.settings import (
     BASE_DIR,
     COVER_ROOT,
@@ -66,9 +67,9 @@ _LOGIN_COVER_DENYLIST = frozenset({
     '诸天至尊',
 })
 
-# 名字命中这些硬词的封面一律不上登录页。这是「mxs 源判定」失效时的兜底：
+# 名字命中这些硬词的封面一律不上登录页。这是「18+ 源判定」失效时的兜底：
 # 2026-09-24 实测候选池 67 张里有 32 张根本没有 comic.json 源映射，
-# is_mxs_url() 对它们无从判断，成人向过滤形同虚设，只能靠名字再兜一层。
+# is_adult_url() 对它们无从判断，成人向过滤形同虚设，只能靠名字再兜一层。
 # 只收几乎不可能出现在正常漫画标题里的词，避免误伤（「诱她」「错撩」这类
 # 正常恋爱向标题不含其中任何一个）。
 _LOGIN_COVER_RISK_KEYWORDS = (
@@ -78,21 +79,36 @@ _LOGIN_COVER_RISK_KEYWORDS = (
 
 
 def _is_risky_login_cover(name):
-    """名字带硬关键词的封面不上公开登录页（mxs 判定失效时的兜底）。"""
+    """名字带硬关键词的封面不上公开登录页（18+ 源判定失效时的兜底）。"""
     low = name.lower()
     return any(k in low for k in _LOGIN_COVER_RISK_KEYWORDS)
 
 
+def _public_login_cover_names():
+    """Only operator-selected library covers may appear before login."""
+    try:
+        names = json.loads(os.environ.get('MANGADOCK_PUBLIC_LOGIN_COVERS', '[]'))
+    except ValueError:
+        return set()
+    return {name for name in names if isinstance(name, str)} if isinstance(names, list) else set()
+
+
 def _eligible_comic_cover_names():
-    """候选池：cover 根目录的 jpg，排除三层：mxs（18+ 来源）、人工黑名单、名字硬关键词。"""
+    """Only explicitly public, default-group, non-adult covers enter the pool."""
+    public_names = _public_login_cover_names()
+    if not public_names:
+        return []
+    group_map = get_comic_group_map()
     try:
         with open(os.path.join(BASE_DIR, 'comic.json'), 'r', encoding='utf-8') as fh:
             comic_index = json.load(fh)
     except (OSError, ValueError):
-        comic_index = {}
+        return []
+    if not isinstance(comic_index, dict):
+        return []
     adult_names = {
         name for name, source_url in comic_index.items()
-        if isinstance(source_url, str) and is_mxs_url(source_url)
+        if isinstance(source_url, str) and is_adult_url(source_url)
     }
     names = []
     try:
@@ -103,7 +119,8 @@ def _eligible_comic_cover_names():
         if not entry.lower().endswith('.jpg'):
             continue
         name = entry[:-4]
-        if (name in adult_names or name in _LOGIN_COVER_DENYLIST
+        if (name not in public_names or group_map.get(name, '默认分组') != '默认分组'
+                or name in adult_names or name in _LOGIN_COVER_DENYLIST
                 or _is_risky_login_cover(name) or name.startswith('._')):
             continue
         names.append(name)
@@ -162,12 +179,26 @@ def login_comic_cover(slot):
     comic_names = _pick_comic_covers()
     if slot < 0 or slot >= len(comic_names):
         abort(404)
-    cover_path = os.path.join(COVER_ROOT, f'{comic_names[slot]}.jpg')
+    comic_name = comic_names[slot]
+    # The pool is cached; revoke public access immediately after an opt-in or
+    # group change, even while the old day's slot assignment is still cached.
+    if (comic_name not in _public_login_cover_names()
+            or get_comic_group_map().get(comic_name, '默认分组') != '默认分组'):
+        abort(404)
+    if (comic_name in _LOGIN_COVER_DENYLIST or _is_risky_login_cover(comic_name)):
+        abort(404)
+    try:
+        with open(os.path.join(BASE_DIR, 'comic.json'), 'r', encoding='utf-8') as fh:
+            comic_index = json.load(fh)
+    except (OSError, ValueError):
+        abort(404)
+    if not isinstance(comic_index, dict) or is_adult_url(comic_index.get(comic_name)):
+        abort(404)
+    cover_path = os.path.join(COVER_ROOT, f'{comic_name}.jpg')
     if not os.path.isfile(cover_path):
         abort(404)
     response = send_file(cover_path, conditional=True)
-    # 名单按天轮换，缓存 1 小时即可
-    response.headers['Cache-Control'] = 'public, max-age=3600'
+    response.headers['Cache-Control'] = 'no-store'
     return response
 
 

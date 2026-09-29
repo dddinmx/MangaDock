@@ -103,7 +103,7 @@ def _graphql(query, variables):
     # for the existing progress integration. Honour upstream cooldowns too.
     from mangadock.services.anilist import graphql
     identity = os.path.join(app.instance_path, 'anilist-metadata-rate')
-    with webdav._open_lock_file(identity) as lock:
+    with webdav.open_lock_file(identity) as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         stamp = identity + '.json'
         try:

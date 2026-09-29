@@ -72,7 +72,6 @@ from mangadock.services.providers.mxs import (
     download_image_mxs,
     download_images_concurrently_mxs,
     download_mxs_chapter,
-    is_mxs_url,
     load_mxs_source,
     title,
     title_mxs,
@@ -109,9 +108,10 @@ def is_adult_content_blocked(url, allow_adult=False):
 
     - URL 已存在于库映射（comic.json）视为既有收藏：允许继续更新/重新下载；
     - 全局开关关闭时，创建者被授予 can_view_adult 的任务（allow_adult=True）
-      仍可下载 mxs 源（2026-09-20 用户级 18+ 授权）。
+      仍可下载 18+ 源（2026-09-20 用户级 18+ 授权）。
+    是否属于 18+ 源一律走 provider 注册表的 is_adult 标记。
     """
-    if not is_mxs_url(url):
+    if not providers.is_adult_url(url):
         return False
     from mangadock.services.adult_content import is_adult_content_enabled
     if is_adult_content_enabled() or allow_adult:

@@ -1,6 +1,10 @@
 .git
 .gitignore
 .github/
+.agents/
+.aws/
+.codex/
+.docker/
 **/__pycache__/
 **/*.py[cod]
 **/._*

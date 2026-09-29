@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}MangaDock - 漫画库{% endblock %}
-{% block body_class %}md-body min-h-screen{% endblock %}
+{% block body_class %}md-body md-comics-page min-h-screen{% endblock %}
 
 {% block extra_head %}
 <script>
@@ -65,7 +65,7 @@
     </div>
 
     <div class="page-shell-content">
-<div class="container mx-auto px-0 py-2 md:px-4 md:py-20 md:max-w-6xl relative">
+<div class="container comics-library-content mx-auto px-0 py-2 md:px-4 md:max-w-6xl relative">
         {% with messages = get_flashed_messages() %}
         {% if messages %}
         <div class="space-y-2 mb-4">
@@ -81,25 +81,28 @@
         {% set hidden_toggle_available = can_manage_library and (hidden_library_count > 0 or show_hidden_library) %}
         <div class="mb-8 flex flex-wrap items-end justify-between gap-3">
             <div>
-                <h1 class="md-page-title">漫画书架</h1>
-                <p class="md-page-sub">{% if selected_group == '全部' %}全部分组{% else %}{{ selected_group }}{% endif %} · 共 {{ pagination.total_items }} 本</p>
+                <h1 class="md-page-title">Library</h1>
+                <p class="md-page-sub">共 {{ pagination.total_items }} 本</p>
             </div>
-            <div class="md-lib-toolbar flex flex-wrap items-center gap-2">
+            <div class="md-lib-toolbar comics-library-toolbar flex flex-wrap items-center gap-2">
                 {% if groups or hidden_toggle_available %}
-                <select class="md-lib-select" onchange="handleQuickGroupChange(this)" aria-label="切换漫画分组">
-                    {% if groups %}
-                    <option value="{{ url_for('comics_list', group='全部') }}" {% if selected_group == '全部' %}selected{% endif %}>全部分组</option>
-                    {% for group_name in groups %}
-                    <option value="{{ url_for('comics_list', group=group_name) }}" {% if selected_group == group_name %}selected{% endif %}>{{ group_name }}（{{ group_counts.get(group_name, 0) }}）</option>
-                    {% endfor %}
-                    {% endif %}
-                    {% if hidden_toggle_available %}
-                    <option
-                        value="{% if show_hidden_library %}{{ url_for('comics_list', group=selected_group) }}{% else %}{{ url_for('comics_list', group=selected_group, show_hidden='1') }}{% endif %}"
-                        data-hidden-toggle="1"
-                    >{% if show_hidden_library %}隐藏隐藏内容{% else %}显示隐藏内容{% if hidden_library_count > 0 %}（{{ hidden_library_count }}）{% endif %}{% endif %}</option>
-                    {% endif %}
-                </select>
+                <div class="comics-group-picker">
+                    <span aria-hidden="true">{{ '全部分组' if selected_group == '全部' else selected_group }}</span>
+                    <select class="comics-group-select" onchange="handleQuickGroupChange(this)" aria-label="切换漫画分组">
+                        {% if groups %}
+                        <option value="{{ url_for('comics_list', group='全部') }}" {% if selected_group == '全部' %}selected{% endif %}>全部分组</option>
+                        {% for group_name in groups %}
+                        <option value="{{ url_for('comics_list', group=group_name) }}" {% if selected_group == group_name %}selected{% endif %}>{{ group_name }}（{{ group_counts.get(group_name, 0) }}）</option>
+                        {% endfor %}
+                        {% endif %}
+                        {% if hidden_toggle_available %}
+                        <option
+                            value="{% if show_hidden_library %}{{ url_for('comics_list', group=selected_group) }}{% else %}{{ url_for('comics_list', group=selected_group, show_hidden='1') }}{% endif %}"
+                            data-hidden-toggle="1"
+                        >{% if show_hidden_library %}隐藏隐藏内容{% else %}显示隐藏内容{% if hidden_library_count > 0 %}（{{ hidden_library_count }}）{% endif %}{% endif %}</option>
+                        {% endif %}
+                    </select>
+                </div>
                 {% endif %}
 
                 {% if can_manage_library and selected_group != '全部' %}
@@ -118,7 +121,7 @@
                 {% endif %}
 
                 {% if can_manage_library %}
-                <a href="{{ url_for('comic_group_manager') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-folder-open mr-2"></i>管理分组</a>
+                <a href="{{ url_for('comic_group_manager') }}" class="comics-library-manage action-press" data-app-loader="true" aria-label="管理分组"><i class="fa fa-folder-open" aria-hidden="true"></i><span>管理分组</span></a>
                 {% endif %}
             </div>
         </div>
@@ -151,11 +154,6 @@
                         </div>
                     </div>
                     <div class="md-cover-card__title">{{ task.comic_name }}</div>
-                    <div class="md-cover-card__meta">
-                        {{ task.available_chapters }} 章 · {{ 'PDF' if task.comic_format == 1 else 'CBZ' }}
-                        {% if selected_group == '全部' %} · {{ task.group or '默认分组' }}{% endif %}
-                        {% if show_hidden_library and task.is_admin_hidden %} · 隐藏{% endif %}
-                    </div>
                 </a>
             </div>
             {% endfor %}
@@ -207,11 +205,23 @@
 <script>
 (() => {
     let version = {{ library_version|tojson }};
+    let pollTimer = null;
+    let polling = false;
+
+    function schedulePoll(delay) {
+        window.clearTimeout(pollTimer);
+        if (!document.hidden) pollTimer = window.setTimeout(poll, delay);
+    }
+
     async function poll() {
+        if (document.hidden || polling) return;
+        polling = true;
+        let nextDelay = 30000;
         try {
             const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
             if (response.ok) {
                 const data = await response.json();
+                if (data.status === 'pending' || data.status === 'running') nextDelay = 2000;
                 if (version !== undefined && version !== data.version) {
                     const page = await fetch(location.href, {cache: 'no-store'});
                     if (!page.ok) throw new Error('library refresh failed');
@@ -234,9 +244,21 @@
                     version = data.version;
                 }
             }
-        } catch (_) {}
-        setTimeout(poll, 2000);
+        } catch (_) {
+            // 暂时断线时保持空闲频率，下次可见时立即重试。
+        } finally {
+            polling = false;
+            schedulePoll(nextDelay);
+        }
     }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            window.clearTimeout(pollTimer);
+        } else if (!polling) {
+            schedulePoll(0);
+        }
+    });
     poll();
 })();
 </script>

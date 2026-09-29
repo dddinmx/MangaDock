@@ -13,14 +13,14 @@ from mangadock.auth import admin_required, get_current_user, login_required
 from mangadock.core import app
 from mangadock.pagination import paginate_sequence
 from mangadock.services.groups import (
-    assign_comic_group,
-    delete_comic_group,
+    assign_existing_comic_to_group,
+    batch_assign_comics_to_group,
+    create_named_comic_group,
+    delete_named_comic_group,
     enrich_comics_with_groups,
-    ensure_comic_group,
     filter_grouped_comics_for_user,
     get_admin_hidden_targets,
     get_all_comic_groups,
-    get_comic_group_map,
     get_saved_group_filter,
     is_comic_hidden_for_admin,
     normalize_group_name,
@@ -223,46 +223,25 @@ def toggle_admin_hidden_group():
     return redirect_after_hidden_library_change(return_to, redirect_group, return_task_id, show_hidden)
 
 
+def _redirect_after_group_change(return_to, redirect_group, task_id=None):
+    if return_to == 'detail' and task_id:
+        return redirect(url_for('comic_detail', task_id=task_id))
+    return redirect(url_for('comics_list', group=redirect_group or '全部'))
+
+
 @app.route('/comic_groups', methods=['POST'])
 @login_required
 @admin_required
 def create_comic_group_route():
-    group_name = normalize_group_name(request.form.get('group_name'))
+    result = create_named_comic_group(request.form.get('group_name'))
     redirect_group = normalize_group_name(request.form.get('redirect_group', '全部')) or '全部'
     return_to = request.form.get('return_to')
     return_task_id = (request.form.get('task_id') or '').strip()
-
-    if not group_name:
-        flash('分组名称不能为空')
-        if return_to == 'detail' and return_task_id:
-            return redirect(url_for('comic_detail', task_id=return_task_id))
-        return redirect(url_for('comics_list', group=redirect_group))
-
-    if group_name == '全部':
-        flash('“全部”是系统筛选项，不能作为分组名称')
-        if return_to == 'detail' and return_task_id:
-            return redirect(url_for('comic_detail', task_id=return_task_id))
-        return redirect(url_for('comics_list', group=redirect_group))
-
-    existing_groups = set(get_all_comic_groups())
-    created_group = ensure_comic_group(group_name)
-
-    if not created_group:
-        flash('分组名称无效')
-        if return_to == 'detail' and return_task_id:
-            return redirect(url_for('comic_detail', task_id=return_task_id))
-        return redirect(url_for('comics_list', group=redirect_group))
-
-    if created_group in existing_groups:
-        flash('分组已存在')
-    else:
-        flash(f'已创建分组：{created_group}')
-
-    save_group_filter(created_group)
-
-    if return_to == 'detail' and return_task_id:
-        return redirect(url_for('comic_detail', task_id=return_task_id))
-    return redirect(url_for('comics_list', group=created_group))
+    flash(result.message)
+    if result.ok:
+        save_group_filter(result.name)
+        return _redirect_after_group_change(return_to, result.name, return_task_id)
+    return _redirect_after_group_change(return_to, redirect_group, return_task_id)
 
 
 @app.route('/comic_groups/assign', methods=['POST'])
@@ -270,33 +249,16 @@ def create_comic_group_route():
 @admin_required
 def assign_comic_group_route():
     comic_name = (request.form.get('comic_name') or '').strip()
-    group_name = normalize_group_name(request.form.get('group_name'))
+    result = assign_existing_comic_to_group(comic_name, request.form.get('group_name'))
     redirect_group = normalize_group_name(request.form.get('redirect_group', '全部')) or '全部'
     return_to = request.form.get('return_to')
     return_task_id = (request.form.get('task_id') or comic_name).strip()
-
-    if not comic_name or not get_comic_directory(comic_name):
-        flash('漫画不存在，无法设置分组')
-        if return_to == 'detail' and return_task_id:
-            return redirect(url_for('comic_detail', task_id=return_task_id))
-        return redirect(url_for('comics_list', group=redirect_group))
-
-    if not group_name:
-        flash('请选择一个分组')
-        if return_to == 'detail' and return_task_id:
-            return redirect(url_for('comic_detail', task_id=return_task_id))
-        return redirect(url_for('comics_list', group=redirect_group))
-
-    if not assign_comic_group(comic_name, group_name):
-        flash('设置分组失败，请重试')
-        if return_to == 'detail' and return_task_id:
-            return redirect(url_for('comic_detail', task_id=return_task_id))
-        return redirect(url_for('comics_list', group=redirect_group))
-
-    flash(f'《{comic_name}》已加入 {group_name}')
+    flash(result.message)
+    if not result.ok:
+        return _redirect_after_group_change(return_to, redirect_group, return_task_id)
     if return_to == 'detail' and return_task_id:
         return redirect(url_for('comic_detail', task_id=return_task_id))
-    target_group = redirect_group if redirect_group != '全部' else group_name
+    target_group = redirect_group if redirect_group != '全部' else result.name
     save_group_filter(target_group)
     return redirect(url_for('comics_list', group=target_group))
 
@@ -305,26 +267,16 @@ def assign_comic_group_route():
 @login_required
 @admin_required
 def delete_comic_group_route():
-    group_name = normalize_group_name(request.form.get('group_name'))
+    result = delete_named_comic_group(request.form.get('group_name'))
     redirect_group = normalize_group_name(request.form.get('redirect_group', '全部')) or '全部'
     return_to = request.form.get('return_to')
     return_task_id = (request.form.get('task_id') or '').strip()
-
-    if not group_name:
-        flash('请选择要删除的分组')
-    elif group_name == '默认分组':
-        flash('默认分组不能删除')
-    elif not delete_comic_group(group_name):
-        flash('删除分组失败，请重试')
-    else:
-        flash(f'已删除分组「{group_name}」。其中漫画暂时只有管理员可见，请重新分配分组')
-        if redirect_group == group_name:
+    flash(result.message)
+    if result.ok:
+        if redirect_group == result.name:
             redirect_group = '全部'
         save_group_filter(redirect_group)
-
-    if return_to == 'detail' and return_task_id:
-        return redirect(url_for('comic_detail', task_id=return_task_id))
-    return redirect(url_for('comics_list', group=redirect_group))
+    return _redirect_after_group_change(return_to, redirect_group, return_task_id)
 
 
 # --------------------------------------------------------------------------
@@ -351,17 +303,8 @@ def comic_group_manager():
 @login_required
 @admin_required
 def create_comic_group():
-    group_name = normalize_group_name(request.form.get('group_name'))
-    if not group_name:
-        flash('分组名称不能为空')
-    elif group_name == '全部':
-        flash('“全部”是系统筛选项，不能作为分组名称')
-    elif group_name in set(get_all_comic_groups()):
-        flash('分组已存在')
-    elif ensure_comic_group(group_name):
-        flash(f'已创建漫画分组：{group_name}')
-    else:
-        flash('创建分组失败，请重试')
+    result = create_named_comic_group(request.form.get('group_name'))
+    flash(result.message)
     return redirect(url_for('comic_group_manager'))
 
 
@@ -369,23 +312,11 @@ def create_comic_group():
 @login_required
 @admin_required
 def batch_assign_comic_group():
-    group_name = normalize_group_name(request.form.get('group_name'))
-    selected_comics = request.form.getlist('comic_names')
-    valid_names = {comic['comic_name'] for comic in get_available_comics()}
-    if group_name not in set(get_all_comic_groups()):
-        flash('请选择有效的目标分组')
-    elif not selected_comics:
-        flash('请至少选择一本漫画')
-    else:
-        assigned_count = sum(
-            1
-            for comic_name in selected_comics
-            if comic_name in valid_names and assign_comic_group(comic_name, group_name)
-        )
-        if assigned_count:
-            flash(f'已将 {assigned_count} 本漫画加入「{group_name}」')
-        else:
-            flash('没有可分配的漫画，请重新选择')
+    result = batch_assign_comics_to_group(
+        request.form.getlist('comic_names'),
+        request.form.get('group_name'),
+    )
+    flash(result.message)
     return redirect(url_for('comic_group_manager'))
 
 
@@ -393,13 +324,6 @@ def batch_assign_comic_group():
 @login_required
 @admin_required
 def remove_comic_group():
-    group_name = normalize_group_name(request.form.get('group_name'))
-    if not group_name:
-        flash('请选择要删除的分组')
-    elif group_name == '默认分组':
-        flash('默认分组不能删除')
-    elif delete_comic_group(group_name):
-        flash(f'已删除分组「{group_name}」。其中漫画暂时只有管理员可见，请重新分配分组')
-    else:
-        flash('分组不存在或删除失败')
+    result = delete_named_comic_group(request.form.get('group_name'))
+    flash(result.message)
     return redirect(url_for('comic_group_manager'))

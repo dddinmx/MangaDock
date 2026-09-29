@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}漫画分组管理 - MangaDock{% endblock %}
+{% block title %}分组管理 - MangaDock{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+<div class="md-comic-groups-page">
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
     <div>
-        <h1 class="md-page-title">漫画分组管理</h1>
+        <h1 class="md-page-title">分组管理</h1>
         <p class="md-page-sub">新建分组后，勾选多本漫画批量移动</p>
     </div>
-    <a href="{{ url_for('comics_list', group='全部') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-arrow-left mr-2"></i>返回漫画书架</a>
+    <a href="{{ url_for('comics_list', group='全部') }}" class="md-comic-groups-back action-press" data-app-loader="true"><i class="fa fa-arrow-left" aria-hidden="true"></i><span>书架</span></a>
 </div>
 
 {% with messages = get_flashed_messages() %}
@@ -28,7 +29,7 @@
     </div>
     <form method="post" action="{{ url_for('create_comic_group') }}" class="md-novel-group-create">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="text" name="group_name" class="md-input" maxlength="50" placeholder="输入新分组名称" required>
+        <input type="text" name="group_name" class="md-input" maxlength="50" placeholder="输入新分组名称" aria-label="新分组名称" required>
         <button type="submit" class="md-btn-primary action-press"><i class="fa fa-plus mr-2"></i>新建分组</button>
     </form>
     <div class="md-novel-group-list">
@@ -57,8 +58,8 @@
             <i class="fa fa-search"></i>
             <input id="comic-group-search" type="search" class="md-input" placeholder="搜索漫画名或当前分组" aria-label="搜索漫画">
         </div>
-        <button type="button" class="md-chip action-press" onclick="selectVisibleComics(true)">全选当前结果</button>
-        <button type="button" class="md-chip action-press" onclick="selectVisibleComics(false)">清空选择</button>
+        <button type="button" class="md-chip action-press" onclick="selectVisibleComics()">全选当前结果</button>
+        <button type="button" class="md-chip action-press" onclick="clearComicSelection()">清空选择</button>
         <select name="group_name" class="md-lib-select" required aria-label="目标漫画分组">
             <option value="">选择目标分组</option>
             {% for group_name in groups %}<option value="{{ group_name }}">{{ group_name }}</option>{% endfor %}
@@ -91,6 +92,7 @@
     <div class="md-empty mt-5">暂未下载到任何漫画。</div>
     {% endif %}
 </form>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -116,9 +118,16 @@
         if (empty) empty.hidden = visibleCount !== 0;
     }
 
-    function selectVisibleComics(checked) {
+    function selectVisibleComics() {
         comicItems.forEach((item) => {
-            if (!item.hidden) item.querySelector('input[type="checkbox"]').checked = checked;
+            if (!item.hidden) item.querySelector('input[type="checkbox"]').checked = true;
+        });
+        syncComicSelection();
+    }
+
+    function clearComicSelection() {
+        comicItems.forEach((item) => {
+            item.querySelector('input[type="checkbox"]').checked = false;
         });
         syncComicSelection();
     }

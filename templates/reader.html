@@ -31,7 +31,7 @@
             background-color: #0b0b0f;
             position: relative;
             padding-top: 56px; /* 为顶部标题栏留空间 */
-            padding-bottom: 96px; /* 为紧凑底部工具栏留空间 */
+            padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); /* 为底部工具栏及安全区留空间 */
         }
         
         /* 漫画图片样式 */
@@ -182,20 +182,19 @@
         /* 底部工具栏（移动端） */
         .floating-controls {
             position: fixed;
-            bottom: max(10px, env(safe-area-inset-bottom, 0px));
-            left: 12px;
-            right: 12px;
-            background: rgba(12, 12, 18, 0.96);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 24px;
-            padding: 10px 12px 12px;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #0c0c12;
+            border: 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 0;
+            padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
             z-index: 100;
             display: flex;
             gap: 8px 10px;
             justify-content: center;
-            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.35);
             transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
             flex-wrap: wrap;
         }
@@ -397,7 +396,7 @@
             position: fixed;
             left: 18px;
             right: 18px;
-            bottom: 102px;
+            bottom: calc(102px + env(safe-area-inset-bottom, 0px));
             padding: 14px 16px;
             background: rgba(0, 0, 0, 0.96);
             border-top: 1px solid rgba(107, 114, 128, 0.45);
@@ -419,7 +418,7 @@
             position: fixed;
             left: 18px;
             right: 18px;
-            bottom: 102px;
+            bottom: calc(102px + env(safe-area-inset-bottom, 0px));
             padding: 14px 16px;
             background: rgba(0, 0, 0, 0.96);
             border-top: 1px solid rgba(107, 114, 128, 0.45);
@@ -518,42 +517,117 @@
             position: fixed;
             left: 16px;
             right: 16px;
-            bottom: 98px;
+            bottom: calc(98px + env(safe-area-inset-bottom, 0px));
             transform: none;
-            background:
-                linear-gradient(180deg, rgba(30, 41, 59, 0.94), rgba(2, 6, 23, 0.98)),
-                rgba(0,0,0,0.92);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 20px;
-            padding: 18px;
+            background: #19191f;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 16px;
+            padding: 16px;
             z-index: 102;
-            color: white;
+            color: #f4f4f6;
+            color-scheme: dark;
             min-width: 0;
-            box-shadow: 0 24px 48px rgba(0,0,0,0.42);
+            box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
         }
 
-        .chapter-selector::before {
-            content: '';
-            width: 44px;
-            height: 4px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.24);
+        .chapter-selector-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .chapter-selector-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .chapter-selector-title > i {
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            flex: 0 0 auto;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.08);
+            color: #e7e7ed;
+            font-size: 16px;
+        }
+
+        .chapter-selector-title strong {
             display: block;
-            margin: 0 auto 14px;
+            font-size: 15px;
+            line-height: 1.25;
+        }
+
+        .chapter-selector-title small {
+            display: block;
+            margin-top: 2px;
+            color: #a0a0ae;
+            font-size: 11px;
+        }
+
+        .chapter-selector-close {
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            flex: 0 0 auto;
+            border: 0;
+            border-radius: 9px;
+            background: rgba(255, 255, 255, 0.06);
+            color: #d4d4dd;
+            cursor: pointer;
+        }
+
+        .chapter-selector-close:hover,
+        .chapter-selector-close:focus-visible {
+            background: rgba(255, 255, 255, 0.13);
+            color: #fff;
+        }
+
+        .chapter-selector-field {
+            position: relative;
+        }
+
+        .chapter-selector-field::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            right: 16px;
+            width: 8px;
+            height: 8px;
+            border-right: 2px solid #a0a0ae;
+            border-bottom: 2px solid #a0a0ae;
+            transform: translateY(-70%) rotate(45deg);
+            pointer-events: none;
         }
         
         .chapter-selector select {
-            background:
-                linear-gradient(180deg, rgba(59, 130, 246, 0.26), rgba(37, 99, 235, 0.18)),
-                rgba(15, 23, 42, 0.9);
-            color: white;
-            border: 1px solid rgba(96, 165, 250, 0.18);
-            border-radius: 12px;
-            padding: 12px 14px;
-            margin-top: 10px;
+            appearance: none;
+            -webkit-appearance: none;
+            background: #101016;
+            color: #f4f4f6;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 10px;
+            padding: 12px 38px 12px 14px;
             width: 100%;
+            min-height: 46px;
             font-size: 14px;
             outline: none;
+        }
+
+        .chapter-selector select:focus-visible {
+            border-color: #a5b4e2;
+            box-shadow: 0 0 0 3px rgba(165, 180, 226, 0.16);
+        }
+
+        .chapter-selector select option {
+            background: #19191f;
+            color: #f4f4f6;
         }
         
         /* 返回按钮 */
@@ -710,17 +784,10 @@
                 right: auto;
                 bottom: 112px;
                 transform: translateX(-50%);
-                background-color: rgba(0,0,0,0.95);
-                border: 1px solid rgba(107, 114, 128, 0.45);
-                border-radius: 20px;
+                border-radius: 16px;
                 padding: 16px;
-                box-shadow: 0 16px 34px rgba(0,0,0,0.34);
                 min-width: 0;
-                width: min(680px, calc(100vw - 48px));
-            }
-
-            .chapter-selector::before {
-                display: none;
+                width: min(420px, calc(100vw - 48px));
             }
 
             .back-btn {
@@ -845,8 +912,8 @@
     <!-- 底部工具栏 -->
     <div class="floating-controls" id="floating-controls">
         <div class="reading-progress-host" id="reading-progress-mobile-slot"></div>
-        <button id="chapter-selector-btn" class="control-btn" aria-label="章节列表">
-            <i class="fa fa-bookmark-o"></i>
+        <button id="chapter-selector-btn" class="control-btn" aria-label="章节列表" aria-controls="chapter-selector" aria-expanded="false">
+            <i class="fa fa-list-ol" aria-hidden="true"></i>
             <span>章节</span>
         </button>
         <button id="auto-scroll-btn" class="control-btn" aria-label="自动滚动">
@@ -881,8 +948,18 @@
     
     <!-- 章节选择器 -->
     <div id="chapter-selector" class="chapter-selector" style="display: none;">
-        <label style="font-weight: 600; font-size: 14px;">选择章节</label>
-        <select id="chapter-select"></select>
+        <div class="chapter-selector-heading">
+            <div class="chapter-selector-title">
+                <i class="fa fa-list-ol" aria-hidden="true"></i>
+                <div><strong>选择章节</strong><small>跳转到指定章节</small></div>
+            </div>
+            <button type="button" class="chapter-selector-close" id="chapter-selector-close" aria-label="关闭章节选择">
+                <i class="fa fa-times" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="chapter-selector-field">
+            <select id="chapter-select" aria-label="选择章节"></select>
+        </div>
     </div>
 
     <!-- 阅读容器 -->
@@ -908,6 +985,7 @@
         let autoScrollRafId = null;
         let autoScrollLastFrameTime = null;
         let autoScrollSpeed = 50;
+        const AUTO_SCROLL_SPEED_STORAGE_KEY = 'mangadock-reader-auto-scroll-speed';
         let autoScrollQueuedChapterChange = false;
         let autoScrollChapterTransitionLocked = false;
         let autoScrollQueueResumeAt = 0;
@@ -969,6 +1047,7 @@
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', () => {
             syncReadingProgressPlacement();
+            restoreAutoScrollSpeed();
             currentMargin = getDefaultMarginForViewport();
             setComicMargin(currentMargin);
             loadChapters();
@@ -1280,6 +1359,7 @@
                 });
             });
             chapterSelectorBtn.addEventListener('click', toggleChapterSelector);
+            document.getElementById('chapter-selector-close').addEventListener('click', hideChapterSelector);
             autoScrollBtn.addEventListener('click', toggleAutoScroll);
             document.getElementById('anilist-complete-btn')?.addEventListener('click', () => {
                 reportCompletedChapter(currentChapter, true);
@@ -1298,14 +1378,27 @@
 
             // 键盘导航
             document.addEventListener('keydown', (e) => {
-                if (e.key === 'ArrowUp') goToPrevChapter();
-                if (e.key === 'ArrowDown') goToNextChapter();
+                if (e.key === 'Escape') {
+                    hideChapterSelector();
+                    return;
+                }
+                const target = e.target;
+                if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey ||
+                    chapterSelector.style.display !== 'none' ||
+                    (target instanceof Element && target.closest('input, select, textarea, button, a, [contenteditable], [role="slider"]'))) {
+                    return;
+                }
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    goToPrevChapter();
+                }
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    goToNextChapter();
+                }
                 if (e.key === ' ') {
                     e.preventDefault();
                     toggleAutoScroll();
-                }
-                if (e.key === 'Escape') {
-                    hideChapterSelector();
                 }
             });
 
@@ -1368,6 +1461,18 @@
             autoScrollSpeedValue.textContent = String(autoScrollSpeed);
         }
 
+        function restoreAutoScrollSpeed() {
+            try {
+                const saved = Number(window.localStorage.getItem(AUTO_SCROLL_SPEED_STORAGE_KEY));
+                if (Number.isInteger(saved) && saved >= 10 && saved <= 120 && saved % 5 === 0) {
+                    autoScrollSpeed = saved;
+                }
+            } catch (error) {
+                // 隐私模式或存储被禁用时继续使用默认速度。
+            }
+            syncAutoScrollSpeedUi();
+        }
+
         function showAutoScrollSpeedControl() {
             autoScrollSpeedContainer.classList.add('active');
         }
@@ -1377,8 +1482,15 @@
         }
 
         function handleAutoScrollSpeedChange(e) {
-            autoScrollSpeed = parseInt(e.target.value, 10) || 50;
+            const speed = Number(e.target.value);
+            if (!Number.isInteger(speed) || speed < 10 || speed > 120 || speed % 5 !== 0) return;
+            autoScrollSpeed = speed;
             syncAutoScrollSpeedUi();
+            try {
+                window.localStorage.setItem(AUTO_SCROLL_SPEED_STORAGE_KEY, String(autoScrollSpeed));
+            } catch (error) {
+                // 存储不可用时，本次阅读仍可正常调速。
+            }
         }
 
         // 处理宽度变化
@@ -1968,12 +2080,16 @@
         
         // 切换章节选择器
         function toggleChapterSelector() {
-            chapterSelector.style.display = chapterSelector.style.display === 'none' ? 'block' : 'none';
+            const opening = chapterSelector.style.display === 'none';
+            chapterSelector.style.display = opening ? 'block' : 'none';
+            chapterSelectorBtn.setAttribute('aria-expanded', String(opening));
+            if (opening) updateChapterSelector();
         }
         
         // 隐藏章节选择器
         function hideChapterSelector() {
             chapterSelector.style.display = 'none';
+            chapterSelectorBtn.setAttribute('aria-expanded', 'false');
         }
         
         // 处理章节选择变更

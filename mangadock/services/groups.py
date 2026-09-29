@@ -1,6 +1,7 @@
 import re
 # -*- coding: utf-8 -*-
 """Comic groups, permissions, and admin-hidden library items."""
+from dataclasses import dataclass
 from datetime import datetime
 
 from flask import session
@@ -296,6 +297,92 @@ def delete_comic_group(group_name):
         db.session.commit()
 
     return True
+
+
+@dataclass(frozen=True)
+class GroupOp:
+    ok: bool
+    code: str
+    message: str
+    name: str | None = None
+    created: bool = False
+    assigned_count: int = 0
+
+
+def create_named_comic_group(group_name):
+    normalized = normalize_group_name(group_name)
+    if not normalized:
+        return GroupOp(False, 'EMPTY', '分组名称不能为空')
+    if normalized == '全部':
+        return GroupOp(False, 'RESERVED', '“全部”是系统筛选项，不能作为分组名称')
+    existing = set(get_all_comic_groups())
+    created = ensure_comic_group(normalized)
+    if not created:
+        return GroupOp(False, 'INVALID', '分组名称无效')
+    already = created in existing
+    return GroupOp(
+        True,
+        'EXISTS' if already else 'CREATED',
+        '分组已存在' if already else f'已创建分组：{created}',
+        name=created,
+        created=not already,
+    )
+
+
+def assign_existing_comic_to_group(comic_name, group_name):
+    from mangadock.services.library import get_comic_directory
+
+    comic_name = (comic_name or '').strip()
+    group_name = normalize_group_name(group_name)
+    if not comic_name or not get_comic_directory(comic_name):
+        return GroupOp(False, 'NOT_FOUND', '漫画不存在，无法设置分组')
+    if not group_name:
+        return GroupOp(False, 'NO_GROUP', '请选择一个分组')
+    if not assign_comic_group(comic_name, group_name):
+        return GroupOp(False, 'ASSIGN_FAILED', '设置分组失败，请重试', name=group_name)
+    return GroupOp(True, 'ASSIGNED', f'《{comic_name}》已加入 {group_name}', name=group_name)
+
+
+def delete_named_comic_group(group_name):
+    normalized = normalize_group_name(group_name)
+    if not normalized:
+        return GroupOp(False, 'EMPTY', '请选择要删除的分组')
+    if normalized == '默认分组':
+        return GroupOp(False, 'DELETE_FORBIDDEN', '默认分组不能删除', name=normalized)
+    if not delete_comic_group(normalized):
+        return GroupOp(False, 'DELETE_FAILED', '删除分组失败，请重试', name=normalized)
+    return GroupOp(
+        True,
+        'DELETED',
+        f'已删除分组「{normalized}」。其中漫画暂时只有管理员可见，请重新分配分组',
+        name=normalized,
+    )
+
+
+def batch_assign_comics_to_group(comic_names, group_name, valid_names=None):
+    group_name = normalize_group_name(group_name)
+    if group_name not in set(get_all_comic_groups()):
+        return GroupOp(False, 'NO_GROUP', '请选择有效的目标分组')
+    if not comic_names:
+        return GroupOp(False, 'EMPTY', '请至少选择一本漫画', name=group_name)
+    if valid_names is None:
+        from mangadock.services.library import get_available_comics
+        valid_names = {comic['comic_name'] for comic in get_available_comics()}
+    assigned_count = sum(
+        1
+        for comic_name in comic_names
+        if comic_name in valid_names and assign_comic_group(comic_name, group_name)
+    )
+    if not assigned_count:
+        return GroupOp(False, 'NONE_ASSIGNED', '没有可分配的漫画，请重新选择', name=group_name)
+    return GroupOp(
+        True,
+        'BATCH_ASSIGNED',
+        f'已将 {assigned_count} 本漫画加入「{group_name}」',
+        name=group_name,
+        assigned_count=assigned_count,
+    )
+
 
 def enrich_comics_with_groups(comics):
     comic_group_map = get_comic_group_map()
