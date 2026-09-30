@@ -34,7 +34,7 @@ from mangadock.auth import (
 from mangadock.core import app
 from mangadock.extensions import csrf, db
 from mangadock.models import AniListAccount, AniListComicLink
-from mangadock.services.download import refresh_comic_description
+from mangadock.services.download import schedule_comic_description_refresh
 from mangadock.services.groups import (
     can_user_access_group,
     can_user_access_task,
@@ -173,8 +173,8 @@ def comic_detail(task_id):
 
     comic_description = get_comic_description(task.comic_name)
     if not comic_description:
-        # 旧书库补全：有源站映射时按需抓取一次简介
-        comic_description = refresh_comic_description(task.comic_name) or ''
+        # 旧书库补全：后台抓取，详情页先显示现有内容。
+        schedule_comic_description_refresh(task.comic_name)
 
     # 2026-09-22 用户要求：详情页返回固定回「漫画首页」，不再回书架（对齐小说详情回小说首页的语义）。
     # 不再读 return_to：书架/搜索/首页等入口带来的 return_to 一律忽略；阅读链路不受影响

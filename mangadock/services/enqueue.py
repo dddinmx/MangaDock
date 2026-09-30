@@ -35,7 +35,7 @@ class EnqueueResult:
 
 
 def _unsupported_message(user):
-    extra = '、MXS' if is_adult_content_enabled_for(user) else ''
+    extra = '、MXS、卡拉漫画' if is_adult_content_enabled_for(user) else ''
     return (
         '请输入有效的漫画或小说链接/ID（支持包子漫画、漫画柜、嬉皮漫畫、'
         '番茄图片漫画、番茄小说' + extra + '）'

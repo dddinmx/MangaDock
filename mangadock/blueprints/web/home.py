@@ -8,7 +8,7 @@ from flask import (
 
 from mangadock.auth import get_current_user, login_required
 from mangadock.core import app
-from mangadock.services.download import refresh_comic_description
+from mangadock.services.download import schedule_comic_description_refresh
 from mangadock.services.groups import (
     filter_grouped_comics_for_user,
     get_admin_hidden_targets,
@@ -83,7 +83,7 @@ def _build_home_spotlight(user_id):
             'has_progress': False,
         }
 
-    # 批量注入简介；首页焦点位缺简介时尝试从源站补全一次
+    # 批量注入简介；缺失时后台补全，页面响应不等待源站。
     desc_names = set()
     if spotlight and spotlight.get('comic_name'):
         desc_names.add(spotlight['comic_name'])
@@ -97,9 +97,7 @@ def _build_home_spotlight(user_id):
         spotlight['banner_url'] = get_home_banner_url(name)
         description = descriptions.get(name) or ''
         if not description and name:
-            description = refresh_comic_description(name) or ''
-            if description:
-                descriptions[name] = description
+            schedule_comic_description_refresh(name)
         spotlight['description'] = description
 
     recent = []

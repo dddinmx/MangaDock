@@ -47,6 +47,18 @@ html.theme-dark body {
   pointer-events: none;
 }
 
+/* The standalone iOS status area shares the header's backdrop surface. */
+@media (display-mode: standalone) {
+  html.platform-ios .md-topnav {
+    background: #07070a;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  html.platform-ios:not(.theme-dark) .md-topnav {
+    background: #fbfcff;
+  }
+}
+
 .md-topnav-inner {
   max-width: var(--md-max);
   margin: 0 auto;
@@ -4793,4 +4805,17 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
   .md-anilist-result-actions { align-items: stretch; flex-direction: column; gap: 12px; }
   .md-anilist-result-actions label { line-height: 2.4; }
   .md-anilist-result-actions .md-btn-primary { width: 100%; }
+}
+
+/* Small touch devices spend less time rasterizing the full-screen blurred hero. */
+@media (max-width: 767px) and (pointer: coarse) {
+  .md-hero--figma .md-hero-media-img,
+  .md-hero--figma .md-hero-media-img.is-soft,
+  html:not(.theme-dark) .md-hero--figma .md-hero-media-img,
+  .md-hero--figma.md-hero--banner-cover .md-hero-media-img {
+    filter: blur(16px) saturate(1.1) brightness(0.65);
+  }
+  html:not(.theme-dark) .md-hero--figma .md-hero-media-img {
+    filter: blur(16px) saturate(1.05) brightness(1.08);
+  }
 }

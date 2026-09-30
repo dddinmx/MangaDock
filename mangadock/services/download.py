@@ -183,15 +183,15 @@ def persist_source_description(comic_name, source):
 _DESCRIPTION_REFRESH_COOLDOWN_SECONDS = 6 * 3600
 _description_refresh_attempts = {}
 _description_refresh_lock = threading.Lock()
+_description_refresh_pending = set()
+_description_refresh_slots = threading.BoundedSemaphore(4)
+_description_refresh_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='description-refresh')
 
 
 def refresh_comic_description(comic_name, source_url=None):
     """按 comic.json 源站 URL 重新抓取简介（用于旧书补全）。"""
     normalized_name = (comic_name or '').strip()
     if not normalized_name:
-        return ''
-    url = (source_url or '').strip() or load_comic_mapping().get(normalized_name)
-    if not url:
         return ''
     now = time.time()
     with _description_refresh_lock:
@@ -201,11 +201,47 @@ def refresh_comic_description(comic_name, source_url=None):
         # 先记录尝试时间再抓取：多线程并发请求同一页面时不会重复打源站
         _description_refresh_attempts[normalized_name] = now
     try:
+        url = (source_url or '').strip() or load_comic_mapping().get(normalized_name)
+        if not url:
+            return ''
         source = load_comic_source(url)
         persist_source_description(normalized_name, source)
         return normalize_comic_description(source.get('description'))
     except Exception:
         return ''
+
+
+def schedule_comic_description_refresh(comic_name):
+    """Queue a missing description without waiting for the source site in a page request."""
+    normalized_name = (comic_name or '').strip()
+    if not normalized_name:
+        return False
+    with _description_refresh_lock:
+        if (normalized_name in _description_refresh_pending
+                or time.time() - _description_refresh_attempts.get(normalized_name, 0)
+                < _DESCRIPTION_REFRESH_COOLDOWN_SECONDS):
+            return False
+        if not _description_refresh_slots.acquire(blocking=False):
+            return False
+        _description_refresh_pending.add(normalized_name)
+
+    def run():
+        try:
+            with app.app_context():
+                refresh_comic_description(normalized_name)
+        finally:
+            with _description_refresh_lock:
+                _description_refresh_pending.discard(normalized_name)
+            _description_refresh_slots.release()
+
+    try:
+        _description_refresh_pool.submit(run)
+    except RuntimeError:
+        with _description_refresh_lock:
+            _description_refresh_pending.discard(normalized_name)
+        _description_refresh_slots.release()
+        return False
+    return True
 
 
 def _final_output_base(folder, chapter, comic_format):

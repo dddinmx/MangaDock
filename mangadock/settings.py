@@ -14,7 +14,7 @@ REPORT_SECRET = os.environ.get("MANGADOCK_REPORT_SECRET", "").strip()
 REPORT_INTERVAL = int(os.environ.get("MANGADOCK_REPORT_INTERVAL", "1800"))
 ENABLE_REPORT = bool(REPORT_URL and REPORT_SECRET)
 APP_VERSION = "5.0"
-RELEASE_VERSION = "2.11.23"
+RELEASE_VERSION = "2.11.24"
 
 CONFIG = {
     'max_workers': 2,
@@ -138,6 +138,9 @@ SAFE_HTTP_ALLOWED_HOST_SUFFIXES = (
     # 瓜子漫画：主站 guazimanhua.com、图床 img.guazicdn.com（无防盗链）
     'guazimanhua.com',
     'guazicdn.com',
+    # 卡拉漫画：主站 kalamanhua.com、图床/阅读器 image.kalaimg.top
+    'kalamanhua.com',
+    'kalaimg.top',
 )
 SAFE_HTTP_ALLOWED_PROXY_NETWORKS = (
     ipaddress.ip_network('198.18.0.0/15'),

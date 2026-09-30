@@ -19,6 +19,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 - 嬉皮漫畫（`hipmh.com`）
 - 漫小肆漫画源
 - 瓜子漫画 (`guazimanhua.com`)
+- 卡拉漫画 (`kalamanhua.com`)
 - 番茄漫画
 - 番茄小说（搜索、下载、更新、EPUB 阅读）
 - 本地漫画和 EPUB 导入
@@ -29,7 +30,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:2.11.23`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.23` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.24`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.24` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 

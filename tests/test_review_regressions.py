@@ -82,6 +82,21 @@ class ReviewRegressions(unittest.TestCase):
         admin = self.models.User.query.filter_by(username='admin').first()
         self.assertTrue(self.groups.can_user_access_group('默认分组', admin))
 
+    def test_description_refresh_is_queued_once_without_waiting_for_source(self):
+        from mangadock.services import download
+
+        submitted = []
+        name = 'async-description-test'
+        with patch.object(download._description_refresh_pool, 'submit', side_effect=submitted.append), \
+                patch.object(download, 'refresh_comic_description', return_value='简介') as refresh:
+            self.assertTrue(download.schedule_comic_description_refresh(name))
+            self.assertFalse(download.schedule_comic_description_refresh(name))
+            refresh.assert_not_called()
+            self.assertEqual(len(submitted), 1)
+            submitted[0]()
+            refresh.assert_called_once_with(name)
+            self.assertNotIn(name, download._description_refresh_pending)
+
     def test_release_check_uses_public_redirect_without_api_rate_limit(self):
         from mangadock.blueprints.web import settings_pages
 

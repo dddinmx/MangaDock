@@ -32,14 +32,22 @@ def normalize_task_url(url):
         parsed_url = urlsplit(url)
     except ValueError:
         return url
+    host = (parsed_url.hostname or '').lower()
     if (
         parsed_url.scheme.lower() in {'http', 'https'}
-        and (parsed_url.hostname or '').lower() in {'guazimanhua.com', 'www.guazimanhua.com'}
+        and host in {'guazimanhua.com', 'www.guazimanhua.com'}
         and parsed_url.path == '/comic.php'
     ):
         comic_id = (parse_qs(parsed_url.query).get('id') or [''])[0]
         if comic_id.isdigit():
             return f'https://www.guazimanhua.com/comic.php?id={comic_id}'
+    if (
+        parsed_url.scheme.lower() in {'http', 'https'}
+        and host in {'kalamanhua.com', 'www.kalamanhua.com'}
+    ):
+        comic_match = re.match(r'^/comic/(\d+)\.html/?$', parsed_url.path or '')
+        if comic_match:
+            return f'https://www.kalamanhua.com/comic/{comic_match.group(1)}.html'
     return url
 
 

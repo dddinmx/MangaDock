@@ -91,6 +91,15 @@ register(
     load_source='load_guazimanhua_source',
     download_chapter='download_guazimanhua_chapter',
 )
+register(
+    'kalamanhua',
+    hosts=('kalamanhua.com',),
+    pattern=r'^https?://(?:www\.)?kalamanhua\.com/comic/\d+\.html/?$',
+    module='mangadock.services.providers.kalamanhua',
+    load_source='load_kalamanhua_source',
+    download_chapter='download_kalamanhua_chapter',
+    is_adult=True,
+)
 
 
 def _resolve(ref):

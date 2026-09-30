@@ -1,4 +1,4 @@
-const STATIC_CACHE_NAME = 'mangadock-static-v11';
+const STATIC_CACHE_NAME = 'mangadock-static-v12';
 const PAGE_CACHE_PREFIX = 'mangadock-pages-';
 
 // 2026-09-20 code review P2：不再缓存任何 HTML 导航响应。
@@ -55,23 +55,26 @@ function shouldHandleStatic(request, url) {
   return url.pathname.startsWith('/static/');
 }
 
-async function cacheStaticResponse(request, response) {
+function cacheStaticResponse(request, response, event) {
   if (!response || response.status !== 200 || response.type !== 'basic') {
     return response;
   }
 
-  const cache = await caches.open(STATIC_CACHE_NAME);
-  cache.put(request, response.clone());
+  event.waitUntil(
+    caches.open(STATIC_CACHE_NAME)
+      .then((cache) => cache.put(request, response.clone()))
+      .catch(() => {})
+  );
   return response;
 }
 
-async function handleStaticRequest(request) {
-  const cachedResponse = await caches.match(request);
-  const networkFetch = fetch(request)
-    .then((response) => cacheStaticResponse(request, response))
-    .catch(() => cachedResponse);
-
-  return cachedResponse || networkFetch;
+async function handleStaticRequest(request, event) {
+  const cache = await caches.open(STATIC_CACHE_NAME);
+  const cachedResponse = await cache.match(request);
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+  return cacheStaticResponse(request, await fetch(request), event);
 }
 
 async function clearPageCache() {
@@ -127,6 +130,6 @@ self.addEventListener('fetch', (event) => {
 
   // 导航请求（含 HTML 页面）不拦截：直连网络，避免跨会话/跨账号的缓存泄露。
   if (shouldHandleStatic(event.request, url)) {
-    event.respondWith(handleStaticRequest(event.request));
+    event.respondWith(handleStaticRequest(event.request, event));
   }
 });
