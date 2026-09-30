@@ -11,6 +11,7 @@
   --md-mint: #2dd4a8;
   --md-border: rgba(255, 255, 255, 0.1);
   --md-max: 72rem;
+  --md-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--md-pwa-safe-bottom, 0px));
 }
 
 html.theme-dark,
@@ -1853,7 +1854,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   right: 0;
   bottom: 0;
   z-index: 40;
-  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  padding: 0.75rem 1rem calc(0.75rem + var(--md-safe-bottom));
   background: linear-gradient(180deg, transparent, rgba(7, 7, 10, 0.92) 28%, rgba(7, 7, 10, 0.98));
   pointer-events: none;
 }
@@ -4548,7 +4549,7 @@ html:not(.theme-dark) .md-home-rail__card:hover {
 @media (max-width: 768px) {
   /* 首页 Dock 开启时只预留其实际高度和少量间距。 */
   html[data-mobile-dock="on"] body.md-home-page.has-mobile-tabbar .app-main-content {
-    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)) !important;
+    padding-bottom: calc(4.5rem + var(--md-safe-bottom)) !important;
   }
 }
 

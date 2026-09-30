@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <script defer src="{{ asset_url('js/ios-pwa-status-guard.js') }}"></script>
     <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
     <title>{{ task.comic_name }} - 阅读</title>
@@ -22,6 +23,7 @@
     <script defer src="{{ asset_url('js/vendor/pdf.min.js') }}"></script>
     
     <style>
+        :root { --md-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--md-pwa-safe-bottom, 0px)); }
         * {
             -webkit-tap-highlight-color: transparent;
         }
@@ -41,7 +43,7 @@
             background-color: #0b0b0f;
             position: relative;
             padding-top: calc(65px + env(safe-area-inset-top, 0px)); /* 为顶部标题栏及安全区留空间 */
-            padding-bottom: calc(120px + max(8px, env(safe-area-inset-bottom, 0px))); /* 为底部工具栏及安全区留空间 */
+            padding-bottom: calc(120px + max(8px, var(--md-safe-bottom))); /* 为底部工具栏及安全区留空间 */
         }
         
         /* 漫画图片样式 */
@@ -210,7 +212,7 @@
             border: 0;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 0;
-            padding: 14px 20px max(8px, env(safe-area-inset-bottom, 0px));
+            padding: 14px 20px max(8px, var(--md-safe-bottom));
             z-index: 100;
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -424,7 +426,7 @@
             position: fixed;
             left: 18px;
             right: 18px;
-            bottom: calc(118px + max(8px, env(safe-area-inset-bottom, 0px)));
+            bottom: calc(118px + max(8px, var(--md-safe-bottom)));
             padding: 14px 16px;
             background: rgba(0, 0, 0, 0.96);
             border-top: 1px solid rgba(107, 114, 128, 0.45);
@@ -446,7 +448,7 @@
             position: fixed;
             left: 18px;
             right: 18px;
-            bottom: calc(118px + max(8px, env(safe-area-inset-bottom, 0px)));
+            bottom: calc(118px + max(8px, var(--md-safe-bottom)));
             padding: 14px 16px;
             background: rgba(0, 0, 0, 0.96);
             border-top: 1px solid rgba(107, 114, 128, 0.45);
@@ -545,7 +547,7 @@
             position: fixed;
             left: 16px;
             right: 16px;
-            bottom: calc(118px + max(8px, env(safe-area-inset-bottom, 0px)));
+            bottom: calc(118px + max(8px, var(--md-safe-bottom)));
             transform: none;
             background: #19191f;
             border: 1px solid rgba(255, 255, 255, 0.14);

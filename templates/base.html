@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <script defer src="{{ asset_url('js/ios-pwa-status-guard.js') }}"></script>
     <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
     <!-- PWA Meta Tags -->
@@ -699,7 +700,7 @@
                 isolation: isolate;
                 overflow: hidden;
                 left: 50%;
-                bottom: max(0.65rem, env(safe-area-inset-bottom, 0px));
+                bottom: max(0.65rem, var(--md-safe-bottom));
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -781,7 +782,7 @@
             }
             html:not(.theme-dark) .md-mobile-tabbar__link.is-active .md-ui-icon { color: var(--md-brand); }
             html:not(.platform-android) body {
-                padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+                padding-bottom: calc(1rem + var(--md-safe-bottom));
             }
             html:not(.platform-android) .app-main-content {
                 padding-bottom: 2.75rem !important;
@@ -789,7 +790,7 @@
             html:not(.platform-android) .mobile-ios-bottom-nav {
                 left: 50%;
                 right: auto;
-                bottom: max(0.72rem, env(safe-area-inset-bottom, 0px));
+                bottom: max(0.72rem, var(--md-safe-bottom));
                 width: min(23rem, calc(100vw - 1.5rem));
                 transform: translateX(-50%);
                 transition: transform 0.24s ease, opacity 0.24s ease;
@@ -809,7 +810,7 @@
                 display: inline-flex;
                 position: fixed;
                 left: 50%;
-                bottom: max(0.65rem, env(safe-area-inset-bottom, 0px));
+                bottom: max(0.65rem, var(--md-safe-bottom));
                 transform: translate(-50%, calc(100% + 1.25rem));
                 align-items: center;
                 justify-content: center;
