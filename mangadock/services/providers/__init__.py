@@ -72,6 +72,7 @@ register(
     pattern=r'^https://(?:cn\.baozimhcn\.com|(?:www\.)?baozimh\.com)/comic/[^/?#]+/?$',
     module='mangadock.services.providers.baozimhcn',
     load_source='load_baozimhcn_source',
+    download_chapter='download_baozimhcn_chapter',
 )
 register(
     'hipmh',

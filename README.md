@@ -14,7 +14,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## 支持的内容来源
 
-- 包子漫画（`baozimh.org` / `cn.baozimhcn.com`）
+- 包子漫画（`baozimh.org` / `baozimh.com` / `cn.baozimhcn.com`）
 - 漫画柜（`manhuagui.com`）
 - 嬉皮漫畫（`hipmh.com`）
 - 漫小肆漫画源
@@ -29,7 +29,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:2.11.21`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.21` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.22`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.22` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 

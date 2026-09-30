@@ -344,7 +344,7 @@ def download_image(session, base_url, save_dir, n, task_id, retries=CONFIG['retr
     return False, n, False
 
 
-def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
+def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id, response_text=None):
     """下载单个章节（通用兜底：scomic 顺序图片规则，baozimhcn / fanqie 走此路径）"""
     save_dir = os.path.join(COMIC_ROOT, folder, f"{chapter:02d}")
     os.makedirs(save_dir, exist_ok=True)
@@ -355,25 +355,22 @@ def crawl_chapter(chapter_url, folder, chapter, comic_format, task_id):
 
     try:
         with requests.Session() as session:
-            response_text = None
-            for attempt in range(3):
-                if is_task_cancel_requested(task_id):
-                    shutil.rmtree(save_dir, ignore_errors=True)
-                    return False, "任务已取消"
-                try:
-                    # 2026-09-20 code review P2：用 with 关闭响应，避免连接泄漏（连接池耗尽阻塞）。
-                    with safe_http_get(chapter_url, headers=headers, timeout=10, session_obj=session) as response:
-                        # 如果成功获取200响应，直接返回成功
-                        if response.status_code == 200:
-                            response_text = response.text
-                            break
-                        # 非200状态码，记录并继续重试
-                        safe_print(f"章节页访问失败，状态码: {response.status_code}，第{attempt+1}次尝试")
-                except Exception as e:
-                    safe_print(f"章节页访问异常: {str(e)}，第{attempt+1}次尝试")
-            else:
-                # 当循环完成且未通过break退出时，说明3次尝试都失败
-                return False, f"章节页经过3次尝试后仍访问失败"
+            if response_text is None:
+                for attempt in range(3):
+                    if is_task_cancel_requested(task_id):
+                        shutil.rmtree(save_dir, ignore_errors=True)
+                        return False, "任务已取消"
+                    try:
+                        # 2026-09-20 code review P2：用 with 关闭响应，避免连接泄漏（连接池耗尽阻塞）。
+                        with safe_http_get(chapter_url, headers=headers, timeout=10, session_obj=session) as response:
+                            if response.status_code == 200:
+                                response_text = response.text
+                                break
+                            safe_print(f"章节页访问失败，状态码: {response.status_code}，第{attempt+1}次尝试")
+                    except Exception as e:
+                        safe_print(f"章节页访问异常: {str(e)}，第{attempt+1}次尝试")
+                else:
+                    return False, "章节页经过3次尝试后仍访问失败"
 
             match = re.search(r'(https?://[^/]+/scomic/[^/]+/\d+/[^/]+/1\.jpg)', response_text)
             if not match:
