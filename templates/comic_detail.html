@@ -5,6 +5,20 @@
 
 {% block extra_head %}
 <script>
+    (() => {
+        try {
+            const key = 'mangadock-comic-detail-entry';
+            const entry = JSON.parse(sessionStorage.getItem(key) || 'null');
+            sessionStorage.removeItem(key);
+            if (entry && entry.path === location.pathname && Date.now() - entry.at < 120000
+                    && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                document.documentElement.classList.add('md-detail-entering');
+            }
+        } catch (error) {
+            // A blocked storage API only disables the optional transition.
+        }
+    })();
+
     function resetReaderEntryButtons() {
         const readerEntryButtons = document.querySelectorAll('[data-reader-entry]');
 
@@ -75,9 +89,7 @@
 
                 const targetUrl = button.getAttribute('href');
                 window.requestAnimationFrame(() => {
-                    window.setTimeout(() => {
-                        window.location.href = targetUrl;
-                    }, 140);
+                    window.location.href = targetUrl;
                 });
             });
         });

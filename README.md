@@ -29,7 +29,7 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:2.11.22`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.22` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.23`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.23` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 

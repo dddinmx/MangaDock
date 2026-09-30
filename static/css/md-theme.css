@@ -1152,7 +1152,16 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 
 .md-detail-back {
   overflow: hidden;
+  touch-action: manipulation;
   transition: width 0.2s ease, transform 0.18s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.comic-detail .md-detail-back.is-pressed {
+  transform: scale(0.9);
+  border-color: var(--md-brand-soft);
+  background: var(--md-brand);
+  box-shadow: 0 0 0 4px rgba(var(--md-brand-rgb), 0.2);
+  color: #fff;
 }
 
 .md-detail-back-loading {
@@ -1306,6 +1315,73 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   height: auto;
   aspect-ratio: 3 / 4;
   object-fit: cover;
+}
+
+/* Keep the clicked cover responsive while the next HTML request is in flight. */
+.md-cover-card.is-opening-detail .md-book {
+  transform: translateY(-3px) scale(1.035);
+}
+.md-home-rail__card.is-opening-detail {
+  transform: translateY(-4px) scale(1.025);
+}
+.md-hero--figma .md-hero-art img {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.md-hero--figma.is-opening-detail .md-hero-art img {
+  transform: scale(1.025);
+}
+
+.md-detail-entering .comic-detail .md-detail-inner {
+  animation: md-detail-content-enter 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.md-detail-entering .comic-detail .md-detail-cover {
+  animation: md-detail-cover-enter 0.46s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.comic-detail .md-detail-cover {
+  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.26s ease;
+}
+.md-detail-leaving .comic-detail .md-detail-cover {
+  transform: translateY(-5px) scale(0.96);
+  opacity: 0.72;
+}
+.md-detail-returning .md-home-page .md-hero-copy,
+.md-detail-returning .md-home-page .md-home-rail,
+.md-detail-returning .md-comics-page .page-shell-content {
+  animation: md-detail-return-enter 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.md-detail-returning .md-home-page .md-hero-art {
+  animation: md-detail-return-cover 0.5s ease-out both;
+}
+@keyframes md-detail-content-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes md-detail-cover-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes md-detail-return-enter {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes md-detail-return-cover {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-cover-card.is-opening-detail .md-book,
+  .md-home-rail__card.is-opening-detail,
+  .md-hero--figma.is-opening-detail .md-hero-art img {
+    transform: none;
+  }
+  .md-hero--figma .md-hero-art img { transition: none; }
+  .md-detail-entering .comic-detail .md-detail-inner,
+  .md-detail-entering .comic-detail .md-detail-cover,
+  .md-detail-returning .md-home-page .md-hero-copy,
+  .md-detail-returning .md-home-page .md-hero-art,
+  .md-detail-returning .md-home-page .md-home-rail,
+  .md-detail-returning .md-comics-page .page-shell-content { animation: none; }
+  .md-detail-leaving .comic-detail .md-detail-cover { transform: none; opacity: 1; }
 }
 
 .md-detail-meta {
@@ -4681,7 +4757,10 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
 .md-anilist-empty p { margin: 0; }
 .md-anilist-flash { margin: 0 0 20px; border-radius: 12px; padding: 12px 16px; background: rgba(var(--md-brand-rgb), .12); }
 .md-anilist-metadata-state { margin-bottom: 28px; }
-.md-anilist-metadata-state form { margin-top: 16px; }
+.md-anilist-metadata-state .md-anilist-section-head { margin-bottom: 16px; }
+.md-anilist-metadata-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.md-anilist-metadata-sources { min-width: 0; }
+.md-anilist-metadata-state form { flex: none; margin: 0; }
 .md-anilist-candidate { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 22px; align-items: start; }
 .md-anilist-cover { width: 100%; height: auto; aspect-ratio: 12 / 17; object-fit: cover; border-radius: 12px; background: var(--md-bg); border: 1px solid var(--md-border); }
 .md-anilist-candidate-info { min-width: 0; }

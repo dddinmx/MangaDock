@@ -9,7 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from mangadock.services.providers.common import extract_description_from_html
-from mangadock.utils.http import safe_http_get, validate_safe_upstream_url
+from mangadock.utils.http import safe_http_get, safe_http_post, validate_safe_upstream_url
 from mangadock.utils.media import default_headers, sanitize_filename
 
 
@@ -42,6 +42,7 @@ def _solve_challenge(challenge_id, bits):
 def _fetch_page(url, session):
     headers = default_headers()
     with safe_http_get(url, headers=headers, timeout=30, session_obj=session) as response:
+        page_url = response.url
         if response.status_code != 403:
             response.raise_for_status()
             return response.text
@@ -52,27 +53,29 @@ def _fetch_page(url, session):
         if not challenge_path.startswith('/__gatekeeper_challenge/start?'):
             response.raise_for_status()
     if challenge_path:
-        challenge_url = urljoin(url, challenge_path)
+        # The legacy cn.baozimhcn.com address redirects to www.baozimh.com.
+        # Challenge cookies and the verify endpoint belong to the final host.
+        challenge_url = urljoin(page_url, challenge_path)
         validate_safe_upstream_url(challenge_url)
         with safe_http_get(challenge_url, headers=headers, timeout=30, session_obj=session) as challenge:
             challenge.raise_for_status()
             config = _challenge_config(challenge.text)
         if config['verifyUrl'] != '/__gatekeeper_challenge/verify':
             raise ValueError('包子漫画浏览器验证地址无效')
-        verify_url = urljoin(url, config['verifyUrl'])
+        verify_url = urljoin(page_url, config['verifyUrl'])
         validate_safe_upstream_url(verify_url)
         nonce = _solve_challenge(config['challengeId'], config['difficultyBits'])
-        origin = f'{urlparse(url).scheme}://{urlparse(url).netloc}'
-        with session.post(
+        origin = f'{urlparse(page_url).scheme}://{urlparse(page_url).netloc}'
+        with safe_http_post(
             verify_url,
-            json={'challenge_id': config['challengeId'], 'ticket': config['ticket'], 'nonce': nonce},
+            json_body={'challenge_id': config['challengeId'], 'ticket': config['ticket'], 'nonce': nonce},
             headers={**headers, 'Origin': origin, 'Referer': challenge_url,
                      'Sec-Fetch-Site': 'same-origin', 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty'},
-            timeout=15, allow_redirects=False,
+            timeout=15, session_obj=session,
         ) as verified:
             if verified.status_code != 200 or verified.json().get('status') != 'passed':
                 raise ValueError('包子漫画浏览器验证失败')
-    with safe_http_get(url, headers=headers, timeout=30, session_obj=session) as response:
+    with safe_http_get(page_url, headers=headers, timeout=30, session_obj=session) as response:
         response.raise_for_status()
         return response.text
 

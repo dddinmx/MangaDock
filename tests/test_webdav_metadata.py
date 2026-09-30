@@ -212,16 +212,30 @@ class WebDavMetadataTests(unittest.TestCase):
 
     def test_metadata_selection_does_not_require_anilist_account(self):
         with app.app_context():
-            admin_id = User.query.filter_by(username='admin').first().id
+            admin = User.query.filter_by(username='admin').first()
+            admin_id = admin.id
+            session_version = admin.session_version
         with app.test_client() as client, patch.dict(app.config, {'WTF_CSRF_ENABLED': False}), \
                 patch('mangadock.blueprints.web.anilist.user_can_access_progress_key', return_value=True), \
                 patch('mangadock.blueprints.web.anilist.list_local_chapters', return_value=[]), \
-                patch('mangadock.blueprints.web.anilist.search_metadata', return_value=[self.media]):
+                patch('mangadock.blueprints.web.anilist.mangaupdates_metadata.search_metadata', return_value=[self.secondary_media()]) as manga_search, \
+                patch('mangadock.blueprints.web.anilist.search_metadata', return_value=[self.media]) as search:
             with client.session_transaction() as session:
                 session['user_id'] = admin_id
+                session['session_version'] = session_version
             response = client.get('/anilist/match/Book?metadata=1')
             self.assertEqual(response.status_code, 200)
+            search.assert_not_called()
+            manga_search.assert_not_called()
+            self.assertIn(b'<option value="mangaupdates" selected>', response.data)
+            self.assertNotIn('暂时没有找到作品'.encode(), response.data)
+            response = client.get('/anilist/match/Book?metadata=1&q=Book')
+            self.assertEqual(response.status_code, 200)
+            manga_search.assert_called_once_with('Book')
             self.assertIn('使用这部作品的资料'.encode(), response.data)
+            response = client.get('/anilist/match/Book?metadata=1&provider=anilist&q=Book')
+            self.assertEqual(response.status_code, 200)
+            search.assert_called_once_with('Book')
             response = client.post('/anilist/metadata/Book', data={'media_id': '123'})
             self.assertEqual(response.status_code, 302)
         self.assertEqual(metadata.metadata_view('Book')['selected_id'], 123)
@@ -330,7 +344,7 @@ class WebDavMetadataTests(unittest.TestCase):
              patch.object(secondary, 'search_metadata', return_value=[self.secondary_media()]):
             with client.session_transaction() as session:
                 session['user_id'] = admin_id
-            response = client.get('/anilist/match/Book?metadata=1&provider=mangaupdates')
+            response = client.get('/anilist/match/Book?metadata=1&provider=mangaupdates&q=Book')
             self.assertEqual(response.status_code, 200)
             self.assertIn(b'name="provider" value="mangaupdates"', response.data)
             self.assertIn(b'Secondary synopsis', response.data)

@@ -66,6 +66,38 @@
             }
         })();
     </script>
+    <script>
+        (() => {
+            const showDetailReturn = () => {
+                try {
+                    const key = 'mangadock-comic-detail-return';
+                    const entry = JSON.parse(sessionStorage.getItem(key) || 'null');
+                    if (!entry || entry.path !== location.pathname) return;
+                    sessionStorage.removeItem(key);
+                    if (Date.now() - entry.at < 120000
+                            && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                        document.documentElement.classList.add('md-detail-returning');
+                    }
+                } catch (error) {
+                    // A blocked storage API only disables the optional transition.
+                }
+            };
+            showDetailReturn();
+            window.addEventListener('pageshow', (event) => {
+                if (event.persisted) showDetailReturn();
+            });
+            document.addEventListener('animationend', (event) => {
+                if (event.animationName === 'md-detail-return-cover'
+                        || (event.animationName === 'md-detail-return-enter'
+                            && !document.querySelector('.md-home-page .md-hero-art'))) {
+                    document.documentElement.classList.remove('md-detail-returning');
+                }
+            });
+            window.addEventListener('pagehide', () => {
+                document.documentElement.classList.remove('md-detail-returning');
+            });
+        })();
+    </script>
     <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
     <link href="{{ asset_url('css/md-theme.css') }}" rel="stylesheet">
     {% if request.endpoint != 'settings' %}<link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">{% endif %}
@@ -270,6 +302,9 @@
                 linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
             backdrop-filter: blur(12px);
             transition: opacity 0.32s ease, visibility 0.32s ease;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
         }
         body.app-ready .app-shell-loader {
             opacity: 0;
@@ -280,6 +315,27 @@
             opacity: 1;
             visibility: visible;
             pointer-events: auto;
+        }
+        .app-shell-loader.is-navigation {
+            align-items: flex-start;
+            padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+            background: transparent !important;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+            pointer-events: none;
+        }
+        .app-shell-loader.is-navigation .app-shell-loader__panel {
+            width: min(15rem, calc(100vw - 2rem));
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.9rem;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+        }
+        .app-shell-loader.is-navigation .app-shell-loader__logo {
+            display: none;
+        }
+        .app-shell-loader.is-navigation .app-shell-loader__status {
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
         }
         .app-shell-loader__panel {
             width: min(84vw, 320px);
@@ -904,7 +960,8 @@
                 animation: none !important;
             }
             .app-shell-loader.is-visible .app-shell-loader__bar span {
-                animation: shell-loader-slide 1.35s linear infinite !important;
+                animation: none !important;
+                transform: none;
             }
         }
     </style>
@@ -1062,11 +1119,9 @@
             const installBannerText = document.getElementById('install-banner-text');
             const installBannerAction = document.getElementById('install-banner-action');
             const installBannerClose = document.getElementById('install-banner-close');
-            const APP_NAVIGATION_ANIMATION_MS = 760;
             let pendingAppNavigation = false;
             let pendingAppLink = null;
             let pendingAppNavigationTimer = null;
-            let appNavigationToken = 0;
             const themeColorMeta = document.getElementById('theme-color-meta');
             const themeToggleButtons = document.querySelectorAll('[data-theme-toggle]');
             const accentOptionButtons = document.querySelectorAll('[data-accent-option]');
@@ -1256,25 +1311,26 @@
             }
 
             const resetAppNavigationState = () => {
-                appNavigationToken += 1;
                 if (pendingAppNavigationTimer !== null) {
                     window.clearTimeout(pendingAppNavigationTimer);
                     pendingAppNavigationTimer = null;
                 }
                 pendingAppNavigation = false;
+                document.body.classList.remove('md-detail-leaving');
                 if (pendingAppLink) {
-                    pendingAppLink.classList.remove('is-loading');
+                    pendingAppLink.classList.remove('is-loading', 'is-opening-detail', 'is-pressed');
+                    const hero = pendingAppLink.closest('.md-hero--figma');
+                    if (hero) hero.classList.remove('is-opening-detail');
                     pendingAppLink.removeAttribute('aria-busy');
                     pendingAppLink = null;
                 }
                 document.body.classList.add('app-ready');
                 if (appShellLoader) {
-                    appShellLoader.classList.remove('is-visible');
+                    appShellLoader.classList.remove('is-visible', 'is-navigation');
                 }
             };
 
             const beginAppNavigation = (link) => {
-                appNavigationToken += 1;
                 pendingAppNavigation = true;
                 pendingAppLink = link;
                 link.classList.add('is-loading');
@@ -1284,23 +1340,14 @@
                 }
                 document.body.classList.remove('app-ready');
                 if (appShellLoader) {
-                    appShellLoader.classList.add('is-visible');
+                    appShellLoader.classList.add('is-navigation');
+                    pendingAppNavigationTimer = window.setTimeout(() => {
+                        pendingAppNavigationTimer = null;
+                        if (pendingAppNavigation) {
+                            appShellLoader.classList.add('is-visible');
+                        }
+                    }, 180);
                 }
-            };
-
-            const navigateAfterLoaderPaint = (targetUrl) => {
-                const navigationToken = appNavigationToken;
-                window.requestAnimationFrame(() => {
-                    if (navigationToken !== appNavigationToken) return;
-                    window.requestAnimationFrame(() => {
-                        if (navigationToken !== appNavigationToken) return;
-                        pendingAppNavigationTimer = window.setTimeout(() => {
-                            pendingAppNavigationTimer = null;
-                            if (navigationToken !== appNavigationToken) return;
-                            window.location.assign(targetUrl.href);
-                        }, APP_NAVIGATION_ANIMATION_MS);
-                    });
-                });
             };
 
             const mobileTabbar = document.querySelector('.md-mobile-tabbar');
@@ -1374,6 +1421,18 @@
                 window.requestAnimationFrame(resetAppNavigationState);
             });
 
+            document.querySelectorAll('.md-detail-back').forEach((backLink) => {
+                backLink.addEventListener('pointerdown', (event) => {
+                    if (event.button === 0) backLink.classList.add('is-pressed');
+                });
+                backLink.addEventListener('pointercancel', () => backLink.classList.remove('is-pressed'));
+                backLink.addEventListener('pointerleave', (event) => {
+                    if (event.pointerType === 'mouse' && !pendingAppNavigation) {
+                        backLink.classList.remove('is-pressed');
+                    }
+                });
+            });
+
             document.querySelectorAll('[data-page-shell]').forEach((shell) => {
                 window.requestAnimationFrame(() => {
                     shell.classList.add('page-shell-ready');
@@ -1432,9 +1491,43 @@
                     return;
                 }
 
-                event.preventDefault();
+                if (targetUrl.pathname.startsWith('/comic/')
+                        && link.matches('.md-cover-card, .md-home-rail__card, .md-home-detail-link')) {
+                    try {
+                        sessionStorage.setItem('mangadock-comic-detail-entry', JSON.stringify({
+                            path: targetUrl.pathname,
+                            at: Date.now()
+                        }));
+                    } catch (error) {
+                        // Private browsing can disable session storage; navigation still works.
+                    }
+                    link.classList.add('is-opening-detail');
+                    const hero = link.closest('.md-hero--figma');
+                    if (hero && link.classList.contains('md-home-detail-link')) {
+                        hero.classList.add('is-opening-detail');
+                    }
+                }
+                if (link.matches('.md-detail-back')
+                        && (targetUrl.pathname === '/' || targetUrl.pathname === '/comics')) {
+                    try {
+                        sessionStorage.setItem('mangadock-comic-detail-return', JSON.stringify({
+                            path: targetUrl.pathname,
+                            at: Date.now()
+                        }));
+                    } catch (error) {
+                        // Navigation remains available when storage is blocked.
+                    }
+                    document.body.classList.add('md-detail-leaving');
+                }
                 beginAppNavigation(link);
-                navigateAfterLoaderPaint(targetUrl);
+                if (link.matches('.md-detail-back')) {
+                    event.preventDefault();
+                    window.requestAnimationFrame(() => {
+                        window.requestAnimationFrame(() => {
+                            window.location.assign(targetUrl.href);
+                        });
+                    });
+                }
             });
 
             const installPromptMutedUntil = Number(localStorage.getItem('mangadock-install-muted-until') || '0');
