@@ -93,12 +93,6 @@ docker compose logs -f mangadock
 - **漫画柜**的图片图床 `*.hamreus.com` 在中国大陆无法直连，必须经代理，否则章节会下载失败。  
 - 只有在应用前面部署了一层可信反向代理时，才设置 `MANGADOCK_TRUST_PROXY=true`，让应用读取代理转发的地址和 HTTPS 请求头。
 
-登录页默认只显示随程序提供的封面，不公开书库封面。若要在未登录页面展示指定漫画，可设置 `MANGADOCK_PUBLIC_LOGIN_COVERS='["漫画名一","漫画名二"]'`（JSON 数组）；只有仍在默认分组、且未被成人来源或登录页过滤规则排除的封面会展示。移出默认分组或从名单移除后，公开封面路由会立即停止提供该图片。
-
-### 番茄功能
-
-番茄小说与漫画功能已内置，部署时无需填写额外地址或参数。首次使用时会自动完成初始化；请持续挂载 `instance` 数据卷，以便升级或重启后继续使用。
-
 ### 更新
 
 ```bash
@@ -130,7 +124,7 @@ Docker 容器内监听 `0.0.0.0:5001`，Compose 默认只将它绑定到宿主�
 
 客户端插件或安装包请查看 [Releases](https://github.com/dddinmx/MangaDock/releases)。Android 上可尝试通过 Mihon 使用兼容插件，兼容性以对应客户端实际表现为准。
 
-**阅读进度同步（扩展 v1.6.3+）**：在 Tachimanga（iOS）/ Mihon 中安装 MangaDock 扩展后，进入扩展设置填写 Server URL、用户名与密码，并保持 "Sync reading progress" 开启。此后在 App 内打开章节时会自动把进度上报到 web 端：
+**阅读进度同步（扩展 v1.6.5）**：在 Tachimanga（iOS）/ Mihon 中安装 MangaDock 扩展后，进入扩展设置填写 Server URL、用户名与密码，并保持 "Sync reading progress" 开启。此后在 App 内打开章节时会自动把进度上报到 web 端：
 
 - 同步方向为 App → web 单向，只前进不后退，不会覆盖 web 上更新的章节进度；
 - 记录粒度为「打开章节」；
