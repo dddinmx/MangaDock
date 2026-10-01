@@ -28,15 +28,15 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 >
 > 部分图床在中国大陆无法直连（漫画柜的 `*.hamreus.com` 需要通过容器出网代理访问，见 [网络与代理](#网络与代理)。  
 
-## 2.11.26 更新
+## 2.11.27 更新
 
-- 首页与漫画详情采用页面内滑入、滑出转场，保留首页轮播和滚动位置。
-- 修复从阅读器退出详情后返回首页的动画丢失，详情高清封面直接铺满顶部。
-- 优化移动端封面轮播、按钮点击反馈和后台页面的资源使用；修复 iOS 15 最近观看封面的比例。
+- 桌面首页大封面、标题与简介平滑切换，模糊背景同步淡入淡出，支持鼠标拖动。
+- 修复桌面系统开启“减少动态效果”后，手动切换首页漫画直接跳过滑动的问题。
+- 漫画详情滑入、滑出仅在移动端启用；桌面端保留按钮反馈并直接切换详情。
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:2.11.26`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.26` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.27`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.27` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 

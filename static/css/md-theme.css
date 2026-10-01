@@ -4112,6 +4112,13 @@ body.md-home-page .md-main--flush {
   inset: 0;
 }
 .md-hero--figma .md-hero-art .md-hero-art-next[hidden] { display: none; }
+@media (min-width: 768px) {
+  .md-hero--figma .md-hero-media-img { will-change: opacity; }
+  .md-hero--figma .md-hero-art-viewport {
+    -webkit-mask-image: linear-gradient(180deg, #000 42%, transparent 90%);
+            mask-image: linear-gradient(180deg, #000 42%, transparent 90%);
+  }
+}
 .md-hero--figma.is-sliding {
   overflow-x: clip;
 }

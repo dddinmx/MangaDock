@@ -237,6 +237,16 @@
 
     var syncBannerFit = function () {
         if (!hero.clientHeight) return;
+        // Desktop uses the same masked cover layers for every carousel slide.
+        // A separate full-screen banner bypasses those layers and jumps on switch.
+        if (window.matchMedia('(min-width: 768px)').matches) {
+            hero.classList.remove('md-hero--has-banner', 'md-hero--banner-cover', 'md-hero--banner-fallback');
+            if (background && background.dataset.coverSrc && !hero.dataset.desktopCoverReady) {
+                background.setAttribute('src', background.dataset.coverSrc);
+                hero.dataset.desktopCoverReady = 'true';
+            }
+            return;
+        }
         if (!banner.getAttribute('src')) {
             hero.classList.remove('md-hero--has-banner', 'md-hero--banner-cover', 'md-hero--banner-fallback');
             if (background && background.dataset.coverSrc) background.setAttribute('src', background.dataset.coverSrc);

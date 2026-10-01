@@ -29,4 +29,17 @@ function check(returnByPush) {
     assert.equal(pushes + backs, 1, 'Repeated taps during a slide do not change history');
 }
 check(false); check(true);
+const animationStart = source.indexOf('    function animate(enter) {');
+const animationEnd = source.indexOf('    async function showDetail()', animationStart);
+for (const mobile of [false, true]) {
+    let animations = 0;
+    const context = {mobile: {matches: mobile}, reduced: {matches: false}, motion: null,
+        shell: {animate: (_, options) => {
+            animations++;
+            assert.equal(options.duration, 380);
+            return {finished: Promise.resolve()};
+        }}, Promise};
+    vm.runInNewContext(source.slice(animationStart, animationEnd) + '\nanimate(true);', context);
+    assert.equal(animations, mobile ? 1 : 0, 'Only mobile detail navigation should slide');
+}
 console.log('Home-origin and reader-origin details both close to home using the correct history path');

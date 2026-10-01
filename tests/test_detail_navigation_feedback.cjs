@@ -14,7 +14,7 @@ function scenario(kind, cachedReturn = false) {
         hasAttribute: () => false, getAttribute: () => target,
         matches: selector => selector.split(',').map(s => s.trim()).includes(cls),
         classList: {add() {}}, closest: () => null};
-    const context = {URL, Date, location: {pathname: source},
+    const context = {URL, Date, matchMedia: () => ({matches: true}), location: {pathname: source},
         sessionStorage: {setItem() {}},
         document: {addEventListener: (_, fn) => handler = fn, body: {classList: {add() {}}},
             documentElement: {dataset: {detailReturnPath: cachedReturn ? '/' : undefined}}},

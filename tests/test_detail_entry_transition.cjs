@@ -30,7 +30,7 @@ const context = vm.createContext({
         addEventListener: (name, listener) => listeners.set(name, listener),
         requestAnimationFrame: (callback) => frames.push(callback),
     },
-    matchMedia: () => ({ matches: false }),
+    matchMedia: (query) => ({ matches: query.includes('max-width') }),
     Date,
 });
 
@@ -58,5 +58,11 @@ storage.set(key, JSON.stringify({ path: pathName, at: Date.now() - 130000 }));
 listeners.get('pageshow')({ persisted: true });
 while (frames.length) frames.shift()();
 assert.equal(classes.has('md-detail-entering'), false, 'Stale navigation does not replay');
+
+context.matchMedia = () => ({matches: false});
+storage.set(key, JSON.stringify({path: pathName, at: Date.now()}));
+listeners.get('pageshow')({persisted: true});
+while (frames.length) frames.shift()();
+assert.equal(classes.has('md-detail-entering'), false, 'Desktop detail entry must not slide');
 
 console.log('Detail entry animation replays after back-forward cache restore');

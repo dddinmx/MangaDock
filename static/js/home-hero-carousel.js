@@ -17,9 +17,8 @@
     let art = find('.md-hero-art-current');
     let nextArt = find('.md-hero-art-next');
     const copy = find('.md-hero-copy');
-    const background = find('.md-hero-media-img');
+    let background = find('.md-hero-media-img');
     const mobileSource = find('.md-hero-media source');
-    const banner = find('.md-hero-banner-art img');
     const zone = find('.md-hero-swipe-zone');
     const indicators = find('.md-hero-indicators');
     const dots = [...hero.querySelectorAll('.md-hero-indicator')];
@@ -35,6 +34,18 @@
     const artLoads = new Map();
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const mobileArt = window.matchMedia('(max-width: 767px)').matches;
+    const slideDuration = mobileArt ? 260 : 420;
+    const slideEasing = mobileArt ? 'cubic-bezier(0.22, 1, 0.36, 1)' : 'cubic-bezier(0.25, 0.1, 0.25, 1)';
+    let nextBackground = null;
+    if (!mobileArt) {
+        // Blend two already decoded covers; never animate the expensive blur filter.
+        mobileSource?.remove();
+        nextBackground = background.cloneNode(false);
+        nextBackground.removeAttribute('srcset');
+        // Keep the standby surface rasterized before the transition starts.
+        nextBackground.style.opacity = '0.001';
+        background.closest('.md-hero-media').appendChild(nextBackground);
+    }
     const nextCopy = copy.cloneNode(true);
     nextCopy.classList.add('md-hero-copy-next');
     nextCopy.removeAttribute('id');
@@ -161,21 +172,7 @@
             indicators.scrollTo({left: Math.max(0, left), behavior: 'auto'});
         }
         cards.forEach((card, cardIndex) => card.classList.toggle('is-current', cardIndex === index));
-        // 背景模糊和书轨的布局读取会抢占过渡末帧，留到画面稳定后再做。
-        if (!mobileArt) window.setTimeout(() => {
-            if (activeIndex !== index || sliding) return;
-            background.dataset.coverSrc = slide.cover;
-            background.dataset.bannerSrc = slide.banner;
-            background.classList.toggle('is-soft', !slide.banner);
-            if (mobileSource) mobileSource.srcset = slide.cover;
-            if (banner) {
-                if (slide.banner) banner.src = slide.banner;
-                else banner.removeAttribute('src');
-            }
-            hero.classList.toggle('md-hero--has-banner', !!slide.banner);
-            hero.classList.remove('md-hero--banner-cover', 'md-hero--banner-fallback');
-            hero.dispatchEvent(new Event('md-home-hero-change'));
-        }, 90);
+        if (!mobileArt && updateImage) background.src = artUrl;
         warmNeighbors(index);
     };
 
@@ -192,6 +189,12 @@
     };
 
     const stageSlide = (index, imageUrl, direction) => {
+        if (nextBackground) {
+            background.style.transition = nextBackground.style.transition = 'none';
+            background.style.opacity = '';
+            nextBackground.style.opacity = '0.001';
+            nextBackground.src = imageUrl;
+        }
         if (stagedIndex !== index) {
             fillCopy(nextCopy, slides[index]);
             nextCopy.hidden = false;
@@ -233,6 +236,7 @@
         if (token !== motionToken) return;
         movingParts().forEach((part) => { part.style.transition = 'none'; });
         if (committed) {
+            if (nextBackground) [background, nextBackground] = [nextBackground, background];
             copy.querySelector('[data-hero-description-toggle]').hidden =
                 nextCopy.querySelector('[data-hero-description-toggle]').hidden;
             const previousArt = art;
@@ -254,6 +258,11 @@
         nextCopy.style.transform = '';
         hero.classList.remove('is-sliding', 'is-dragging');
         sliding = false;
+        if (nextBackground) {
+            background.style.transition = nextBackground.style.transition = 'none';
+            background.style.opacity = '';
+            nextBackground.style.opacity = '0.001';
+        }
         stagedIndex = -1;
         if (committed) showSlide(index, imageUrl, false);
         else requestedIndex = activeIndex;
@@ -271,6 +280,32 @@
     };
 
     const settleSlide = (index, imageUrl, committed, token, direction, duration) => {
+        if (!mobileArt && typeof nextArt.animate === 'function') {
+            const parts = movingParts();
+            const starts = parts.map(part => part.style.transform || 'translate3d(0, 0, 0)');
+            parts.forEach(part => { part.style.transition = 'none'; });
+            setProgress(direction, committed ? 1 : 0);
+            const animations = parts.map((part, position) => part.animate([
+                {transform: starts[position]}, {transform: part.style.transform}
+            ], {duration, easing: slideEasing, fill: 'both'}));
+            if (nextBackground) {
+                for (const [node, opacity] of [[background, committed ? '0' : '0.9'],
+                        [nextBackground, committed ? '0.9' : '0.001']]) {
+                    animations.push(node.animate([
+                        {opacity: getComputedStyle(node).opacity}, {opacity}
+                    ], {duration, easing: 'ease', fill: 'both'}));
+                }
+            }
+            let finished = false;
+            const finish = () => {
+                if (finished) return;
+                finished = true;
+                animations.forEach(animation => animation.cancel());
+                finishSlide(index, imageUrl, committed, token);
+            };
+            Promise.all(animations.map(animation => animation.finished.catch(() => {}))).then(finish);
+            return;
+        }
         const incoming = nextArt;
         let finished = false;
         const finish = () => {
@@ -285,20 +320,29 @@
         incoming.addEventListener('transitionend', onEnd);
         // Explicit shorthand preserves the same duration used by the completion guard.
         movingParts().forEach((part) => {
-            part.style.transition = `transform ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+            part.style.transition = `transform ${duration}ms ${slideEasing}`;
         });
+        if (nextBackground) {
+            background.style.transition = nextBackground.style.transition = `opacity ${duration}ms ease`;
+            background.style.opacity = committed ? '0' : '';
+            nextBackground.style.opacity = committed ? '0.9' : '0.001';
+        }
         setProgress(direction, committed ? 1 : 0);
         window.setTimeout(finish, duration + 80);
     };
 
     const animateSlide = (index, imageUrl, direction) => {
         const token = prepareSlide(index, imageUrl, direction);
+        if (!mobileArt && typeof nextArt.animate === 'function') {
+            settleSlide(index, imageUrl, true, token, direction, slideDuration);
+            return;
+        }
 
         let started = false;
         const start = () => {
             if (started || token !== motionToken) return;
             started = true;
-            settleSlide(index, imageUrl, true, token, direction, 260);
+            settleSlide(index, imageUrl, true, token, direction, slideDuration);
         };
         window.requestAnimationFrame(() => window.requestAnimationFrame(start));
         window.setTimeout(start, 48);
@@ -322,7 +366,9 @@
             if (currentRequest !== requestId || sliding || requestedIndex !== index) return;
             hero.classList.remove('is-waiting-cover');
             zone.setAttribute('aria-busy', 'false');
-            if (reducedMotion) showSlide(index, imageUrl);
+            // Desktop cover switching is an explicit user action: keep its slide
+            // feedback independent of the optional page-navigation motion.
+            if (reducedMotion && mobileArt) showSlide(index, imageUrl);
             else animateSlide(index, imageUrl, requestedDirection);
         });
     };
@@ -355,7 +401,7 @@
         setProgress(drag.direction, progress);
     };
     const touchBegin = (event) => {
-        if (sliding || reducedMotion || event.touches?.length > 1) return;
+        if (sliding || (reducedMotion && mobileArt) || event.touches?.length > 1) return;
         if (event.target?.closest?.('a, button')) return;
         const touch = event.changedTouches[0];
         if (touch) touchStart = {id: touch.identifier, x: touch.clientX, y: touch.clientY, at: Date.now()};
@@ -411,7 +457,7 @@
         drag = null;
         touchStart = null;
         hero.classList.remove('is-dragging');
-        const duration = Math.max(120, Math.round(260 * (commit ? 1 - progress : progress)));
+        const duration = Math.max(120, Math.round(slideDuration * (commit ? 1 - progress : progress)));
         let settled = false;
         const settle = () => {
             if (settled || token !== motionToken) return;
@@ -429,18 +475,34 @@
     });
 
     let pointerStart = null;
+    const pointerTouch = (event) => ({
+        target: event.target,
+        changedTouches: [{identifier: event.pointerId, clientX: event.clientX, clientY: event.clientY}],
+    });
     zone.addEventListener('pointerdown', (event) => {
         if (event.pointerType === 'touch') return;
         if (event.pointerType === 'mouse' && event.button !== 0) return;
+        if (sliding) return;
         pointerStart = {id: event.pointerId, x: event.clientX, y: event.clientY};
+        zone.setPointerCapture?.(event.pointerId);
+        touchBegin(pointerTouch(event));
+    });
+    zone.addEventListener('pointermove', (event) => {
+        if (!pointerStart || pointerStart.id !== event.pointerId) return;
+        touchMove(pointerTouch(event));
     });
     zone.addEventListener('pointerup', (event) => {
         if (!pointerStart || pointerStart.id !== event.pointerId) return;
         const start = pointerStart;
         pointerStart = null;
-        swipeFrom(start, event.clientX, event.clientY);
+        if (touchStart) touchFinish(pointerTouch(event));
+        else swipeFrom(start, event.clientX, event.clientY);
+        if (zone.hasPointerCapture?.(event.pointerId)) zone.releasePointerCapture(event.pointerId);
     });
-    zone.addEventListener('pointercancel', () => { pointerStart = null; });
+    zone.addEventListener('pointercancel', (event) => {
+        if (touchStart) touchFinish(pointerTouch(event), true);
+        pointerStart = null;
+    });
     zone.addEventListener('keydown', (event) => {
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
         event.preventDefault();

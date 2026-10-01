@@ -76,6 +76,7 @@
                     if (!entry || entry.path !== location.pathname) return;
                     sessionStorage.removeItem(key);
                     if (Date.now() - entry.at < 120000
+                            && matchMedia('(max-width: 767px)').matches
                             && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
                         document.documentElement.classList.add('md-detail-returning');
                     }
@@ -1512,7 +1513,7 @@
                         // Private browsing can disable session storage; navigation still works.
                     }
                     link.classList.add('is-opening-detail');
-                    document.body.classList.add('md-detail-opening');
+                    if (matchMedia('(max-width: 767px)').matches) document.body.classList.add('md-detail-opening');
                 }
                 if (link.matches('.md-detail-back')
                         && (targetUrl.pathname === '/' || targetUrl.pathname === '/comics')) {
@@ -1524,7 +1525,7 @@
                     } catch (error) {
                         // Navigation remains available when storage is blocked.
                     }
-                    document.body.classList.add('md-detail-leaving');
+                    if (matchMedia('(max-width: 767px)').matches) document.body.classList.add('md-detail-leaving');
                 }
                 beginAppNavigation(link);
                 if (link.matches('.md-home-detail-link, .md-home-rail__card, .md-cover-card, .md-detail-back, [data-hero-reader-link]')) {

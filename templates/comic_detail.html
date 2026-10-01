@@ -19,6 +19,7 @@
                     }
                 }
                 if (entry && entry.path === location.pathname && Date.now() - entry.at < 120000
+                        && matchMedia('(max-width: 767px)').matches
                         && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
                     document.documentElement.classList.add('md-detail-entering');
                 }

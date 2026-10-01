@@ -4,6 +4,7 @@ function initializeHomeDetailNavigation(restored = null) {
     const homeUrl = restored?.homeUrl || location.href;
     const homeTitle = restored?.homeTitle || document.title;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+    const mobile = matchMedia('(max-width: 767px)');
     const dock = document.querySelector('.md-mobile-tabbar');
     const shell = document.createElement('section');
     shell.className = 'md-in-app-detail';
@@ -25,6 +26,10 @@ function initializeHomeDetailNavigation(restored = null) {
         opener?.removeAttribute('aria-busy');
     }
     function animate(enter) {
+        if (!mobile.matches || reduced.matches) {
+            motion?.cancel(); motion = null;
+            return Promise.resolve();
+        }
         const from = motion ? getComputedStyle(shell).transform
             : enter ? 'translateX(100%)' : 'translateX(0)';
         motion?.cancel();
