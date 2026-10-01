@@ -1,0 +1,11 @@
+/* Shared feedback includes login and both standalone readers. */
+:where(button, a[href], input[type="button"], input[type="submit"], input[type="reset"], [role="button"], summary, label[for]) {
+  -webkit-tap-highlight-color: transparent;
+}
+.md-control-pressed {
+  opacity: .62 !important;
+}
+:where(button, a[href], input[type="button"], input[type="submit"], input[type="reset"], [role="button"], summary):focus-visible {
+  outline: 2px solid var(--md-brand-soft, #ee536b);
+  outline-offset: 3px;
+}

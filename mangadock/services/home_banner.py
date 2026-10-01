@@ -114,14 +114,15 @@ def _queue_home_banner_upscale(comic_name, source_path):
     return True
 
 
-def get_home_banner_url(comic_name):
+def get_home_banner_url(comic_name, queue_upscale=True):
     """Return a same-origin static URL, or None to keep the existing hero."""
     source_path = _existing_banner_path(comic_name)
     if not source_path:
         return None
     path = _upscaled_banner_path(comic_name, source_path)
     if not _upscaled_banner_ready(comic_name, source_path):
-        _queue_home_banner_upscale(comic_name, source_path)
+        if queue_upscale:
+            _queue_home_banner_upscale(comic_name, source_path)
         path = source_path
     relative_path = os.path.relpath(path, app.static_folder).replace(os.sep, '/')
     version = int(os.path.getmtime(path))

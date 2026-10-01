@@ -11,7 +11,7 @@
     <meta id="theme-color-meta" name="theme-color" content="#0B0B0F">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="MangaDock">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <title>{% block title %}MangaDock{% endblock %}</title>
     <script>
         (() => {
@@ -88,9 +88,7 @@
                 if (event.persisted) showDetailReturn();
             });
             document.addEventListener('animationend', (event) => {
-                if (event.animationName === 'md-detail-return-cover'
-                        || (event.animationName === 'md-detail-return-enter'
-                            && !document.querySelector('.md-home-page .md-hero-art'))) {
+                if (event.animationName === 'md-detail-return-enter') {
                     document.documentElement.classList.remove('md-detail-returning');
                 }
             });
@@ -101,6 +99,9 @@
     </script>
     <link href="{{ asset_url('css/app.generated.css') }}" rel="stylesheet">
     <link href="{{ asset_url('css/md-theme.css') }}" rel="stylesheet">
+    <link href="{{ asset_url('css/comic-detail.css') }}" rel="stylesheet">
+    <script defer src="{{ asset_url('js/comic-detail.js') }}"></script>
+    <script defer src="{{ asset_url('js/home-detail-navigation.js') }}"></script>
     {% if request.endpoint != 'settings' %}<link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">{% endif %}
     <style>
         .md-icon-symbols { position: absolute; width: 0; height: 0; overflow: hidden; }
@@ -359,6 +360,9 @@
             font-weight: 600;
             text-align: center;
         }
+        .app-shell-loader.is-navigation .app-shell-loader__bar {
+            display: none;
+        }
         .app-shell-loader__bar {
             position: relative;
             width: 100%;
@@ -372,8 +376,8 @@
             width: 34%;
             height: 100%;
             border-radius: inherit;
-            background: linear-gradient(90deg, rgb(79, 70, 229), rgb(139, 92, 246), rgb(59, 130, 246));
-            box-shadow: 0 0 18px rgba(99, 102, 241, 0.42);
+            background: var(--md-brand, #dc3545);
+            box-shadow: none;
             transform: translateX(-140%);
             will-change: transform;
         }
@@ -967,6 +971,8 @@
         }
     </style>
     {% block extra_head %}{% endblock %}
+    <link rel="stylesheet" href="{{ asset_url('css/interaction-feedback.css') }}">
+    <script defer src="{{ asset_url('js/interaction-feedback.js') }}"></script>
 </head>
 {% set hide_mobile_tabbar = request.endpoint in ['comic_detail', 'novel_detail'] %}
 <body class="{% block body_class %}md-body min-h-screen{% endblock %}{% if session.get('user_id') and not hide_mobile_tabbar %} has-mobile-tabbar{% endif %}">
@@ -1199,7 +1205,7 @@
                     }
                 });
                 if (themeColorMeta) {
-                    themeColorMeta.setAttribute('content', isDark ? '#0d1117' : '#667eea');
+                    themeColorMeta.setAttribute('content', isDark ? '#0b0b0f' : '#f6f7fb');
                 }
             };
 
@@ -1317,7 +1323,7 @@
                     pendingAppNavigationTimer = null;
                 }
                 pendingAppNavigation = false;
-                document.body.classList.remove('md-detail-leaving');
+                document.body.classList.remove('md-detail-leaving', 'md-detail-opening');
                 if (pendingAppLink) {
                     pendingAppLink.classList.remove('is-loading', 'is-opening-detail', 'is-pressed');
                     const hero = pendingAppLink.closest('.md-hero--figma');
@@ -1347,12 +1353,13 @@
                         if (pendingAppNavigation) {
                             appShellLoader.classList.add('is-visible');
                         }
-                    }, 180);
+                    }, link.matches('.md-home-detail-link, .md-home-rail__card, .md-cover-card') ? 650 : 180);
                 }
             };
 
-            const mobileTabbar = document.querySelector('.md-mobile-tabbar');
-            if (mobileTabbar) {
+            window.initializeMobileDock = (mobileTabbar) => {
+                if (!mobileTabbar || mobileTabbar.dataset.scrollBound === 'true') return;
+                mobileTabbar.dataset.scrollBound = 'true';
                 let lastScrollY = Math.max(window.scrollY, 0);
                 let scrollDirection = 0;
                 let scrollDistance = 0;
@@ -1396,7 +1403,8 @@
                         scrollTicking = false;
                     });
                 }, { passive: true });
-            }
+            };
+            window.initializeMobileDock(document.querySelector('.md-mobile-tabbar'));
 
             document.addEventListener('click', (event) => {
                 if (groupMenuBtn && groupMenuDropdown && !groupMenuDropdown.classList.contains('hidden')) {
@@ -1497,16 +1505,14 @@
                     try {
                         sessionStorage.setItem('mangadock-comic-detail-entry', JSON.stringify({
                             path: targetUrl.pathname,
+                            returnPath: location.pathname,
                             at: Date.now()
                         }));
                     } catch (error) {
                         // Private browsing can disable session storage; navigation still works.
                     }
                     link.classList.add('is-opening-detail');
-                    const hero = link.closest('.md-hero--figma');
-                    if (hero && link.classList.contains('md-home-detail-link')) {
-                        hero.classList.add('is-opening-detail');
-                    }
+                    document.body.classList.add('md-detail-opening');
                 }
                 if (link.matches('.md-detail-back')
                         && (targetUrl.pathname === '/' || targetUrl.pathname === '/comics')) {
@@ -1521,11 +1527,18 @@
                     document.body.classList.add('md-detail-leaving');
                 }
                 beginAppNavigation(link);
-                if (link.matches('.md-detail-back')) {
+                if (link.matches('.md-home-detail-link, .md-home-rail__card, .md-cover-card, .md-detail-back, [data-hero-reader-link]')) {
                     event.preventDefault();
+                    // Guarantee one painted feedback frame even when HTML is already cached.
                     window.requestAnimationFrame(() => {
                         window.requestAnimationFrame(() => {
-                            window.location.assign(targetUrl.href);
+                            if (link.matches('.md-detail-back')
+                                    && document.documentElement.dataset.detailReturnPath === targetUrl.pathname
+                                    && window.history.length > 1) {
+                                window.history.back();
+                            } else {
+                                window.location.assign(targetUrl.href);
+                            }
                         });
                     });
                 }

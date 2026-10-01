@@ -68,6 +68,9 @@ SR_TIMEOUT_SECONDS = int(os.environ.get('MANGADOCK_COVER_SR_TIMEOUT', '180'))
 SR_ENGINE = (os.environ.get('MANGADOCK_COVER_SR', 'auto') or 'auto').strip().lower()
 
 HERO_DIR = os.path.join(COVER_ROOT, 'hero')
+HERO_MOBILE_DIR = os.path.join(HERO_DIR, 'mobile')
+HERO_MOBILE_EDGE = 1800
+HERO_MOBILE_QUALITY = 84
 
 _lock = threading.Lock()
 # 正在后台补生成的漫画名，避免同一张封面被并发排队
@@ -132,6 +135,12 @@ def hero_cover_path(comic_name):
     return os.path.join(HERO_DIR, f'{comic_name}.jpg')
 
 
+def mobile_hero_cover_path(comic_name):
+    if not comic_name:
+        return None
+    return os.path.join(HERO_MOBILE_DIR, f'{comic_name}.jpg')
+
+
 def hero_cover_ready(comic_name):
     """缓存存在**且不比源图旧**才算可用（源封面换了要重新生成）。"""
     source = source_cover_path(comic_name)
@@ -144,6 +153,14 @@ def hero_cover_ready(comic_name):
         return os.path.getmtime(dest) >= os.path.getmtime(source)
     except OSError:
         return False
+
+
+def mobile_hero_cover_ready(comic_name):
+    source = hero_cover_path(comic_name)
+    dest = mobile_hero_cover_path(comic_name)
+    if not source or not dest or not hero_cover_ready(comic_name):
+        return False
+    return _cache_is_fresh(dest, source)
 
 
 # ────────────────────────── 外部 AI 超分引擎 ──────────────────────────
@@ -433,7 +450,7 @@ def _sharpen(image, strong=True):
             return image
 
 
-def _save_jpeg(image, dest_path):
+def _save_jpeg(image, dest_path, quality=HERO_JPEG_QUALITY):
     """原子写：先写同目录临时文件再 os.replace，杜绝半截缓存被静态服务读走。"""
     directory = os.path.dirname(dest_path) or '.'
     os.makedirs(directory, exist_ok=True)
@@ -443,7 +460,7 @@ def _save_jpeg(image, dest_path):
         image.save(
             temp_path,
             'JPEG',
-            quality=HERO_JPEG_QUALITY,
+            quality=quality,
             optimize=True,
             progressive=True,
         )
@@ -631,10 +648,30 @@ def refresh_hero_cover(comic_name):
     return ensure_hero_cover(comic_name, force=True)
 
 
+def ensure_mobile_hero_cover(comic_name):
+    """Create a smaller decoded surface for touch screens from the existing hero cache."""
+    source = hero_cover_path(comic_name)
+    dest = mobile_hero_cover_path(comic_name)
+    if not source or not dest or not hero_cover_ready(comic_name):
+        return None
+    if mobile_hero_cover_ready(comic_name):
+        return dest
+    try:
+        with Image.open(source) as image:
+            image.load()
+            image = image.convert('RGB')
+            image.thumbnail((HERO_MOBILE_EDGE, HERO_MOBILE_EDGE), Image.Resampling.LANCZOS)
+            _save_jpeg(image, dest, quality=HERO_MOBILE_QUALITY)
+        return dest
+    except Exception as exc:
+        print(f'移动端封面缓存失败: {comic_name} -> {exc}')
+        return None
+
+
 def request_hero_cover(comic_name):
     """请求后台补生成（不阻塞请求线程）。已在排队/已可用则直接返回。"""
     global _queue_worker_running
-    if not comic_name or hero_cover_ready(comic_name):
+    if not comic_name or (hero_cover_ready(comic_name) and mobile_hero_cover_ready(comic_name)):
         return False
 
     with _pending_lock:
@@ -656,6 +693,7 @@ def request_hero_cover(comic_name):
                     name = _queued.popleft()
                 try:
                     ensure_hero_cover(name)
+                    ensure_mobile_hero_cover(name)
                 except Exception as exc:
                     print(f'封面超分后台任务失败: {name} -> {exc}')
                 finally:

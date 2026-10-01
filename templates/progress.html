@@ -348,11 +348,15 @@
     }
 
     // 获取任务状态（/api/v1）
+    let statusRequestPending = false;
+    let lastStatusSignature = '';
     function fetchTaskStatus() {
+        if (document.hidden || statusRequestPending) return;
         if (!window.MangaDockApi || typeof window.MangaDockApi.apiV1 !== 'function') {
             console.error('MangaDockApi 未加载');
             return;
         }
+        statusRequestPending = true;
         window.MangaDockApi.apiV1('GET', `/api/v1/tasks/${encodeURIComponent(taskId)}`)
             .then(result => {
                 if (!result.ok || !result.data) {
@@ -373,7 +377,11 @@
                 if (data.status !== 'error') {
                     document.getElementById('error-message').classList.add('hidden');
                 }
-                updateUI(data);
+                const signature = JSON.stringify(result.data);
+                if (signature !== lastStatusSignature) {
+                    updateUI(data);
+                    lastStatusSignature = signature;
+                }
 
                 // 漫画封面可能中途才写入；番茄小说封面则通过书籍 ID 获取。
                 if (data.comic_name) {
@@ -418,7 +426,8 @@
                     document.getElementById('error-text').textContent = '获取任务状态失败，请稍后刷新页面';
                     resetCancelButtonState();
                 }
-            });
+            })
+            .finally(() => { statusRequestPending = false; });
     }
 
     function maybeLoadCoverImage(comicName, force) {

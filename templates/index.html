@@ -4,6 +4,17 @@
 
 {% block body_class %}md-body min-h-screen md-home-page{% endblock %}
 
+{% block extra_head %}
+{% if spotlight and spotlight.comic_name %}
+<link rel="preload" as="image" media="(max-width: 767px)" href="{{ cover_hero_mobile_image_url(spotlight.comic_name) }}" fetchpriority="high">
+<link rel="preload" as="image" media="(min-width: 768px)" href="{{ cover_hero_image_url(spotlight.comic_name) }}" fetchpriority="high">
+{% if hero_comics|length > 1 %}
+<link rel="preload" as="image" media="(max-width: 767px)" href="{{ cover_hero_mobile_image_url(hero_comics[1].comic_name) }}" fetchpriority="low">
+<link rel="preload" as="image" media="(min-width: 768px)" href="{{ cover_hero_image_url(hero_comics[1].comic_name) }}" fetchpriority="low">
+{% endif %}
+{% endif %}
+{% endblock %}
+
 {% block main_wrapper %}
 <div class="md-main--flush app-main-content">
     {% block content %}
@@ -14,10 +25,8 @@
         {# 底图强模糊只做氛围；清晰主封面单独一层，出血到右边缘 #}
         <div class="md-hero-media" aria-hidden="true">
             <picture>
-                {% if spotlight.banner_url %}
                 <source media="(max-width: 1024px), (hover: none), (pointer: coarse)"
                         srcset="{{ cover_image_url(spotlight.comic_name) }}">
-                {% endif %}
                 <img
                     class="md-hero-media-img{% if not spotlight.banner_url %} is-soft{% endif %}"
                     src="{{ spotlight.banner_url or cover_image_url(spotlight.comic_name) }}"
@@ -29,30 +38,26 @@
             </picture>
         </div>
         <div class="md-hero-shade"></div>
-        {% if spotlight.banner_url %}
         <div class="md-hero-banner-art" aria-hidden="true">
-            <img src="{{ spotlight.banner_url }}" alt="" loading="eager" decoding="async">
+            <img {% if spotlight.banner_url %}src="{{ spotlight.banner_url }}"{% endif %} alt="" loading="eager" decoding="async">
         </div>
-        {% endif %}
         <div class="md-hero-inner">
             <div class="md-hero-copy">
-                <h1 class="md-hero-title">{{ spotlight.comic_name }}</h1>
+                <h1 class="md-hero-title" data-hero-title aria-live="polite" title="{{ spotlight.comic_name }}"><span data-hero-title-text>{{ spotlight.comic_name }}</span></h1>
                 <div class="md-hero-meta">
-                    <span class="md-hero-meta__badge md-hero-meta__badge--format">
+                    <span class="md-hero-meta__badge md-hero-meta__badge--format" data-hero-format>
                         {% if spotlight.comic_format == 1 %}PDF{% elif spotlight.comic_format == 2 %}CBZ{% else %}本地{% endif %}
                     </span>
-                    {% if is_adult_comic(spotlight) %}
-                    <span class="md-hero-meta__badge md-badge-adult md-badge-adult--inline" title="18+ 源漫画">18+</span>
-                    {% endif %}
-                    <span class="md-hero-meta__group">{{ spotlight.group or '默认分组' }}</span>
+                    <span class="md-hero-meta__badge md-badge-adult md-badge-adult--inline" data-hero-adult title="18+ 源漫画"{% if not is_adult_comic(spotlight) %} hidden{% endif %}>18+</span>
+                    <span class="md-hero-meta__group" data-hero-group>{{ spotlight.group or '默认分组' }}</span>
                     <span class="md-hero-meta__sep">|</span>
-                    <span>{{ spotlight.available_chapters or 0 }} 话</span>
-                    {% if spotlight.has_progress %}
-                    <span class="md-hero-meta__sep">|</span>
-                    <span class="md-hero-meta__progress">
+                    <span data-hero-chapters>{{ spotlight.available_chapters or 0 }} 话</span>
+                    <span class="md-hero-meta__sep" data-hero-progress-sep{% if not spotlight.has_progress %} hidden{% endif %}>|</span>
+                    <span class="md-hero-meta__progress" data-hero-progress{% if not spotlight.has_progress %} hidden{% endif %}>
+                        {% if spotlight.has_progress %}
                         读到第 {{ (spotlight.last_chapter or 0) + 1 }} 话{% if spotlight.last_page %} · 第 {{ (spotlight.last_page or 0) + 1 }} 页{% endif %}
+                        {% endif %}
                     </span>
-                    {% endif %}
                 </div>
                 <p class="md-hero-desc" id="hero-comic-description">
                     {% if spotlight.description %}
@@ -76,8 +81,9 @@
                         <span class="md-home-detail-idle">详情</span>
                         <span class="md-home-detail-pending" aria-hidden="true">打开中…</span>
                     </a>
-                    <a href="{{ url_for('comic_reader', task_id=spotlight.comic_name) }}" class="md-btn-primary action-press">
-                        <span class="md-play" aria-hidden="true"></span>{% if spotlight.has_progress %}继续阅读{% else %}开始阅读{% endif %}
+                    <a href="{{ url_for('comic_reader', task_id=spotlight.comic_name) }}" class="md-btn-primary action-press" data-hero-reader-link data-loading-label="正在打开阅读器…">
+                        <span class="md-play" aria-hidden="true"></span><span data-hero-reader-label>{% if spotlight.has_progress %}继续阅读{% else %}开始阅读{% endif %}</span>
+                        <span class="md-home-reader-pending" aria-hidden="true">打开中…</span>
                     </a>
                 </div>
             </div>
@@ -85,13 +91,40 @@
                用 cover_hero_image_url（= static/cover/hero/ 的超分缓存，长边 1920）；
                源封面普遍只有 320px 宽，直接铺满一屏会糊。 #}
             <div class="md-hero-art">
-                <img src="{{ cover_hero_image_url(spotlight.comic_name) }}"
-                     alt="{{ spotlight.comic_name }}"
-                     loading="eager"
-                     decoding="async"
-                     data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
+                <div class="md-hero-art-viewport">
+                    <picture>
+                    <source media="(max-width: 767px)" srcset="{{ cover_hero_mobile_image_url(spotlight.comic_name) }}">
+                    <img class="md-hero-art-current" src="{{ cover_hero_image_url(spotlight.comic_name) }}"
+                         srcset="{{ cover_hero_mobile_image_url(spotlight.comic_name) }} 1100w, {{ cover_hero_image_url(spotlight.comic_name) }} 1920w"
+                         sizes="(max-width: 767px) 360px, 66vw"
+                         alt="{{ spotlight.comic_name }}"
+                         loading="eager"
+                         decoding="async"
+                         fetchpriority="high"
+                         data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
+                    </picture>
+                    <img class="md-hero-art-next" alt="" decoding="async" aria-hidden="true" hidden>
+                </div>
             </div>
+            {% if hero_comics|length > 1 %}
+            <div class="md-hero-swipe-zone" tabindex="0" role="region" aria-label="左右滑动切换最近观看的漫画"></div>
+            {% endif %}
         </div>
+        {% if hero_comics|length > 1 %}
+        <button type="button" class="md-hero-arrow md-hero-arrow--previous" data-hero-direction="-1" aria-label="上一张漫画封面" title="上一张漫画封面">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <button type="button" class="md-hero-arrow md-hero-arrow--next" data-hero-direction="1" aria-label="下一张漫画封面" title="下一张漫画封面">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+        <div class="md-hero-indicators" role="group" aria-label="选择首页海报">
+            {% for comic in hero_comics %}
+            <button type="button" class="md-hero-indicator{% if loop.first %} is-active{% endif %}"
+                    data-hero-index="{{ loop.index0 }}" aria-label="显示第 {{ loop.index }} 本：{{ comic.comic_name }}"
+                    aria-current="{% if loop.first %}true{% else %}false{% endif %}"></button>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% if recent_comics %}
         {# 底部横滑书轨：压在 hero 下沿（对应参考稿的海报轨） #}
         <div class="md-home-rail">
@@ -106,7 +139,8 @@
             <div class="md-home-rail__track" tabindex="0" role="region" aria-label="最近观看的漫画">
                 {% for comic in recent_comics[:18] %}
                 <a href="{{ url_for('comic_detail', task_id=comic.comic_name) }}"
-                   class="md-home-rail__card"
+                   class="md-home-rail__card{% if loop.first %} is-current{% endif %}"
+                   data-hero-index="{{ loop.index0 }}"
                    data-app-loader="true">
                     {% if is_adult_comic(comic) %}
                     <span class="md-badge-adult" title="18+ 源漫画">18+</span>
@@ -122,6 +156,27 @@
         </div>
         {% endif %}
     </section>
+    <script type="application/json" id="md-home-hero-slides">[
+        {% for comic in hero_comics %}
+        {
+            "name": {{ comic.comic_name|tojson }},
+            "group": {{ (comic.group or '默认分组')|tojson }},
+            "format": {{ comic.comic_format|tojson }},
+            "chapters": {{ (comic.available_chapters or comic.total_chapters or 0)|tojson }},
+            "description": {{ (comic.description or '')|tojson }},
+            "hasProgress": {{ (comic.has_progress or false)|tojson }},
+            "lastChapter": {{ (comic.last_chapter or 0)|tojson }},
+            "lastPage": {{ (comic.last_page or 0)|tojson }},
+            "adult": {{ is_adult_comic(comic)|tojson }},
+            "cover": {{ cover_image_url(comic.comic_name)|tojson }},
+            "art": {{ cover_hero_image_url(comic.comic_name)|tojson }},
+            "artMobile": {{ cover_hero_mobile_image_url(comic.comic_name)|tojson }},
+            "banner": {{ (comic.banner_url or '')|tojson }},
+            "detail": {{ url_for('comic_detail', task_id=comic.comic_name)|tojson }},
+            "reader": {{ url_for('comic_reader', task_id=comic.comic_name)|tojson }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ]</script>
     {% else %}
     <section class="md-hero md-hero--figma">
         <div class="md-hero-shade"></div>
@@ -148,7 +203,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
+<script data-home-init>
 // 首页简介默认显示五行；超出时在桌面和移动端均可展开。
 (function () {
     const description = document.getElementById('hero-comic-description');
@@ -170,17 +225,23 @@
     requestAnimationFrame(syncOverflow);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncOverflow);
     window.addEventListener('resize', syncOverflow, { passive: true });
+    description.addEventListener('md-home-hero-change', () => requestAnimationFrame(syncOverflow));
 })();
 
 // 横幅无法自然铺满主视觉时，桌面自动使用原来的超分封面布局。
 (function () {
-    var hero = document.querySelector('.md-hero--has-banner');
+    var hero = document.querySelector('.md-hero--figma');
     var banner = hero && hero.querySelector('.md-hero-banner-art img');
     var background = hero && hero.querySelector('.md-hero-media-img');
     if (!banner) return;
 
     var syncBannerFit = function () {
         if (!hero.clientHeight) return;
+        if (!banner.getAttribute('src')) {
+            hero.classList.remove('md-hero--has-banner', 'md-hero--banner-cover', 'md-hero--banner-fallback');
+            if (background && background.dataset.coverSrc) background.setAttribute('src', background.dataset.coverSrc);
+            return;
+        }
         var imageRatio = banner.naturalWidth / banner.naturalHeight;
         var frameRatio = hero.clientWidth / hero.clientHeight;
         var visiblePart = Math.min(imageRatio / frameRatio, frameRatio / imageRatio);
@@ -195,6 +256,7 @@
 
     banner.addEventListener('load', syncBannerFit);
     banner.addEventListener('error', syncBannerFit);
+    hero.addEventListener('md-home-hero-change', syncBannerFit);
     window.addEventListener('resize', syncBannerFit);
     syncBannerFit();
 })();
@@ -228,4 +290,6 @@
     syncArrows();
 })();
 </script>
+<script data-home-init defer src="{{ asset_url('js/home-hero-native.js') }}"></script>
+<script data-home-init defer src="{{ asset_url('js/home-hero-carousel.js') }}"></script>
 {% endblock %}

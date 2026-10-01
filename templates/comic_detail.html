@@ -6,258 +6,44 @@
 {% block extra_head %}
 <script>
     (() => {
-        try {
-            const key = 'mangadock-comic-detail-entry';
-            const entry = JSON.parse(sessionStorage.getItem(key) || 'null');
-            sessionStorage.removeItem(key);
-            if (entry && entry.path === location.pathname && Date.now() - entry.at < 120000
-                    && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-                document.documentElement.classList.add('md-detail-entering');
-            }
-        } catch (error) {
-            // A blocked storage API only disables the optional transition.
-        }
-    })();
-
-    function resetReaderEntryButtons() {
-        const readerEntryButtons = document.querySelectorAll('[data-reader-entry]');
-
-        readerEntryButtons.forEach(button => {
-            button.dataset.loading = 'false';
-            button.classList.remove('is-loading');
-            button.removeAttribute('aria-busy');
-        });
-    }
-
-    function resetDetailSubmitButtons() {
-        document.querySelectorAll('.comic-detail form button.is-loading').forEach(button => {
-            button.classList.remove('is-loading');
-            button.removeAttribute('aria-busy');
-        });
-    }
-
-    function bindComicSynopsisToggle() {
-        const description = document.getElementById('comic-detail-description');
-        const toggle = document.querySelector('[data-comic-synopsis-toggle]');
-        if (!description || !toggle) return;
-
-        const syncOverflow = () => {
-            if (!description.classList.contains('is-expanded')) {
-                toggle.hidden = description.scrollHeight <= description.clientHeight + 1;
+        const showDetailEntry = () => {
+            try {
+                const key = 'mangadock-comic-detail-entry';
+                const entry = JSON.parse(sessionStorage.getItem(key) || 'null');
+                sessionStorage.removeItem(key);
+                if (entry && entry.path === location.pathname && Date.now() - entry.at < 120000
+                        && entry.returnPath && document.referrer) {
+                    const previous = new URL(document.referrer);
+                    if (previous.origin === location.origin && previous.pathname === entry.returnPath) {
+                        document.documentElement.dataset.detailReturnPath = entry.returnPath;
+                    }
+                }
+                if (entry && entry.path === location.pathname && Date.now() - entry.at < 120000
+                        && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    document.documentElement.classList.add('md-detail-entering');
+                }
+            } catch (error) {
+                // A blocked storage API only disables the optional transition.
             }
         };
-
-        toggle.addEventListener('click', () => {
-            const expanded = description.classList.toggle('is-expanded');
-            toggle.setAttribute('aria-expanded', String(expanded));
-            toggle.textContent = expanded ? '收起简介' : '展开简介';
-            if (!expanded) window.requestAnimationFrame(syncOverflow);
+        showDetailEntry();
+        window.addEventListener('pagehide', () => {
+            document.documentElement.classList.remove('md-detail-entering');
         });
-
-        window.requestAnimationFrame(syncOverflow);
-        if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncOverflow);
-        let resizeTimer;
-        window.addEventListener('resize', () => {
-            window.clearTimeout(resizeTimer);
-            resizeTimer = window.setTimeout(syncOverflow, 120);
-        }, { passive: true });
-    }
-
-    function bindReaderEntryButtons() {
-        const readerEntryButtons = document.querySelectorAll('[data-reader-entry]');
-
-        readerEntryButtons.forEach(button => {
-            if (button.dataset.bound === 'true') {
-                return;
-            }
-
-            button.dataset.bound = 'true';
-            button.addEventListener('click', (event) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
-                    return;
-                }
-
-                if (button.dataset.loading === 'true') {
-                    event.preventDefault();
-                    return;
-                }
-
-                event.preventDefault();
-                button.dataset.loading = 'true';
-                button.classList.add('is-loading');
-                button.setAttribute('aria-busy', 'true');
-
-                const targetUrl = button.getAttribute('href');
-                window.requestAnimationFrame(() => {
-                    window.location.href = targetUrl;
-                });
-            });
-        });
-    }
-
-    function toggleCoverEditor() {
-        const editor = document.getElementById('cover-editor-panel');
-        const toggle = document.querySelector('[data-cover-editor-toggle]');
-        if (!editor) {
-            return;
-        }
-
-        if (editor.hasAttribute('hidden')) {
-            editor.removeAttribute('hidden');
-            if (toggle) {
-                toggle.setAttribute('aria-expanded', 'true');
-            }
-            return;
-        }
-
-        editor.setAttribute('hidden', '');
-        if (toggle) {
-            toggle.setAttribute('aria-expanded', 'false');
-        }
-    }
-
-    function toggleDetailOverflowMenu(forceClose = false) {
-        const menu = document.getElementById('detail-overflow-menu');
-        const toggle = document.querySelector('[data-detail-menu-toggle]');
-        if (!menu || !toggle) {
-            return;
-        }
-
-        const shouldOpen = forceClose ? false : menu.hasAttribute('hidden');
-        if (shouldOpen) {
-            menu.removeAttribute('hidden');
-            toggle.setAttribute('aria-expanded', 'true');
-            return;
-        }
-
-        menu.setAttribute('hidden', '');
-        toggle.setAttribute('aria-expanded', 'false');
-    }
-
-    function searchChapters() {
-        const searchInput = document.getElementById('chapter-search');
-        const searchTerm = searchInput.value.toLowerCase();
-        const chapterItems = document.querySelectorAll('.chapter-item');
-
-        chapterItems.forEach(item => {
-            const titleEl = item.querySelector('.chapter-title');
-            const chapterTitle = (titleEl ? titleEl.textContent : '').toLowerCase();
-            if (chapterTitle.includes(searchTerm)) {
-                item.style.display = 'flex';
-            } else {
-                item.style.display = 'none';
+        document.addEventListener('animationend', (event) => {
+            if (event.animationName === 'md-detail-content-enter') {
+                document.documentElement.classList.remove('md-detail-entering');
             }
         });
-    }
-
-    function sortChapters() {
-        const sortSelect = document.getElementById('chapter-sort');
-        const sortType = sortSelect.value;
-        const chapterList = document.getElementById('chapter-list');
-        const chapterItems = Array.from(chapterList.querySelectorAll('.chapter-item'));
-
-        if (sortType === 'asc') {
-            chapterItems.sort((a, b) => {
-                const aNum = parseInt(a.dataset.chapter);
-                const bNum = parseInt(b.dataset.chapter);
-                return aNum - bNum;
-            });
-        } else {
-            chapterItems.sort((a, b) => {
-                const aNum = parseInt(a.dataset.chapter);
-                const bNum = parseInt(b.dataset.chapter);
-                return bNum - aNum;
-            });
-        }
-
-        chapterItems.forEach(item => {
-            chapterList.appendChild(item);
-        });
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        resetReaderEntryButtons();
-        resetDetailSubmitButtons();
-        bindReaderEntryButtons();
-        bindComicSynopsisToggle();
-        document.querySelectorAll('.comic-detail form:not([data-api-v1])').forEach(form => {
-            form.addEventListener('submit', event => {
-                if (event.defaultPrevented) {
-                    return;
-                }
-                if (event.submitter) {
-                    event.submitter.classList.add('is-loading');
-                    event.submitter.setAttribute('aria-busy', 'true');
-                }
-                const loader = document.getElementById('app-shell-loader');
-                const status = document.getElementById('app-shell-loader-status');
-                if (status) {
-                    status.textContent = '正在提交操作…';
-                }
-                document.body.classList.remove('app-ready');
-                if (loader) {
-                    loader.classList.add('is-visible');
-                }
-            });
-        });
-        document.addEventListener('click', function(event) {
-            const groupPicker = document.querySelector('.md-detail-group-picker');
-            if (groupPicker && !groupPicker.contains(event.target)) {
-                groupPicker.open = false;
+        window.addEventListener('pageshow', (event) => {
+            if (event.persisted) {
+                window.requestAnimationFrame(() => window.requestAnimationFrame(showDetailEntry));
             }
-            const menu = document.getElementById('detail-overflow-menu');
-            const toggle = document.querySelector('[data-detail-menu-toggle]');
-            if (!menu || !toggle || menu.hasAttribute('hidden')) {
-                return;
-            }
-
-            if (menu.contains(event.target) || toggle.contains(event.target)) {
-                return;
-            }
-
-            toggleDetailOverflowMenu(true);
         });
-    });
+    })();
 
-    window.addEventListener('pageshow', function() {
-        resetReaderEntryButtons();
-        resetDetailSubmitButtons();
-    });
 </script>
-<style>
-    .reader-entry-btn {
-        position: relative;
-        overflow: hidden;
-    }
-    .reader-entry-btn .btn-label,
-    .reader-entry-btn .btn-loading {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem;
-        width: 100%;
-        transition: opacity 0.2s ease, transform 0.2s ease;
-    }
-    .reader-entry-btn .btn-loading {
-        position: absolute;
-        inset: 0;
-        opacity: 0;
-        transform: translateY(6px);
-        pointer-events: none;
-    }
-    .reader-entry-btn.is-loading {
-        pointer-events: none;
-        opacity: 0.96;
-    }
-    .reader-entry-btn.is-loading .btn-label {
-        opacity: 0;
-        transform: translateY(-6px);
-    }
-    .reader-entry-btn.is-loading .btn-loading {
-        opacity: 1;
-        transform: translateY(0);
-    }
-</style>
+
 {% endblock %}
 
 {% block main_wrapper %}
@@ -266,17 +52,25 @@
 <article class="md-detail comic-detail">
     {# 氛围底图（方案 C） #}
     <div class="md-detail-hero-media" aria-hidden="true">
+        <picture>
+        <source media="(max-width: 767px)" srcset="{{ cover_hero_image_url(task.comic_name) }}">
         <img
             src="{{ cover_hero_image_url(task.comic_name) }}"
             alt=""
+            decoding="async"
             data-fallback="{{ asset_url('default-comic-cover.jpg') }}"
         >
+        </picture>
+        <picture>
+        <source media="(max-width: 767px)" srcset="{{ cover_hero_image_url(task.comic_name) }}">
         <img
             class="md-detail-hero-soft"
             src="{{ cover_hero_image_url(task.comic_name) }}"
             alt=""
+            decoding="async"
             data-fallback="{{ asset_url('default-comic-cover.jpg') }}"
         >
+        </picture>
     </div>
     <div class="md-detail-hero-shade"></div>
 
@@ -369,11 +163,15 @@
                 {% if is_adult_comic(task) %}
                 <span class="md-badge-adult" title="18+ 源漫画">18+</span>
                 {% endif %}
+                <picture>
+                <source media="(max-width: 767px)" srcset="{{ cover_hero_image_url(task.comic_name) }}">
                 <img
                     src="{{ cover_hero_image_url(task.comic_name) }}"
                     alt="{{ task.comic_name }}封面"
+                    decoding="async" fetchpriority="high"
                     data-fallback="{{ asset_url('default-comic-cover.jpg') }}"
                 >
+                </picture>
             </div>
             <div class="md-detail-meta">
                 <h1 class="md-detail-title">{{ task.comic_name }}</h1>

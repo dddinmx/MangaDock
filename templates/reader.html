@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <script defer src="{{ asset_url('js/ios-pwa-status-guard.js') }}"></script>
     <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
@@ -965,6 +966,8 @@
         }
 
     </style>
+    <link rel="stylesheet" href="{{ asset_url('css/interaction-feedback.css') }}">
+    <script defer src="{{ asset_url('js/interaction-feedback.js') }}"></script>
 </head>
 <body>
     <!-- 加载遮罩 -->
@@ -1189,7 +1192,7 @@
                 }, 60000);
             }
             if (!progressIntervalId) {
-                progressIntervalId = window.setInterval(() => saveProgress(), 30000);
+                progressIntervalId = window.setInterval(() => { if (!document.hidden) saveProgress(); }, 30000);
             }
             detectDevice();
 

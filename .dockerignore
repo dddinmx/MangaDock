@@ -59,3 +59,7 @@ dockerhub-src/
 
 # Unselected local artwork is not part of the release build.
 docs/banner-candidates/
+
+# Local browser verification artifacts
+.playwright-cli/
+output/playwright/

@@ -34,11 +34,7 @@ html.theme-dark body {
   -webkit-backdrop-filter: blur(18px);
 }
 
-/* PWA 独立窗口下（viewport-fit=cover + black-translucent）顶栏的 top:0 就是屏幕
-   物理顶端，内层又用 padding-top: env(safe-area-inset-top) 主动撑到状态栏，
-   于是状态栏那一条也落进了 backdrop-filter 的模糊范围里，看起来像顶栏顶部
-   糊了一块。用一个只覆盖安全区的纯色伪元素把这条从模糊里摘出来；
-   浏览器模式下该高度为 0，不产生任何影响。 */
+/* Older standalone WebViews can still place the page below a safe-area inset. */
 .md-topnav::before {
   content: "";
   position: absolute;
@@ -1071,6 +1067,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   transform: scale(1.01);
   opacity: 0.98;
 }
+.md-detail-hero-media picture { display: contents; }
 
 .comic-detail .md-detail-hero-media .md-detail-hero-soft {
   position: absolute;
@@ -1173,7 +1170,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   transform: scale(0.9);
   border-color: var(--md-brand-soft);
   background: var(--md-brand);
-  box-shadow: 0 0 0 4px rgba(var(--md-brand-rgb), 0.2);
+  transform: translateY(1px) scale(0.97);
   color: #fff;
 }
 
@@ -1190,7 +1187,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   width: 7rem;
   border-color: var(--md-brand-soft);
   background: var(--md-brand);
-  box-shadow: 0 0 0 4px rgba(var(--md-brand-rgb), 0.2);
+  transform: translateY(1px) scale(0.97);
   color: #fff;
 }
 
@@ -1330,71 +1327,40 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   object-fit: cover;
 }
 
-/* Keep the clicked cover responsive while the next HTML request is in flight. */
-.md-cover-card.is-opening-detail .md-book {
-  transform: translateY(-3px) scale(1.035);
-}
-.md-home-rail__card.is-opening-detail {
-  transform: translateY(-4px) scale(1.025);
-}
-.md-hero--figma .md-hero-art img {
-  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.md-hero--figma.is-opening-detail .md-hero-art img {
-  transform: scale(1.025);
-}
-
-.md-detail-entering .comic-detail .md-detail-inner {
-  animation: md-detail-content-enter 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.md-detail-entering .comic-detail .md-detail-cover {
-  animation: md-detail-cover-enter 0.46s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.comic-detail .md-detail-cover {
-  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.26s ease;
-}
-.md-detail-leaving .comic-detail .md-detail-cover {
-  transform: translateY(-5px) scale(0.96);
-  opacity: 0.72;
+/* Gentle acceleration and a longer settle, with covers kept in place. */
+.md-detail-entering .comic-detail .md-detail-meta {
+  animation: md-detail-content-enter 1s cubic-bezier(0.3, 0.08, 0.24, 1) both;
 }
 .md-detail-returning .md-home-page .md-hero-copy,
-.md-detail-returning .md-home-page .md-home-rail,
 .md-detail-returning .md-comics-page .page-shell-content {
-  animation: md-detail-return-enter 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: md-detail-return-enter 1s cubic-bezier(0.3, 0.08, 0.24, 1) both;
 }
-.md-detail-returning .md-home-page .md-hero-art {
-  animation: md-detail-return-cover 0.5s ease-out both;
+.md-detail-opening .md-home-page .md-hero-copy,
+.md-detail-leaving .comic-detail .md-detail-meta {
+  animation: md-detail-content-leave 0.28s ease-in-out both;
+}
+.md-detail-returning .md-hero-native-panel[inert] .md-hero-copy,
+.md-detail-opening .md-hero-native-panel[inert] .md-hero-copy {
+  animation: none;
 }
 @keyframes md-detail-content-enter {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0.55; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
-}
-@keyframes md-detail-cover-enter {
-  from { opacity: 0; transform: translateY(10px) scale(0.94); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes md-detail-return-enter {
-  from { opacity: 0; transform: translateY(-10px); }
+  from { opacity: 0.55; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-@keyframes md-detail-return-cover {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@keyframes md-detail-content-leave {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0.94; transform: translateY(-2px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .md-cover-card.is-opening-detail .md-book,
-  .md-home-rail__card.is-opening-detail,
-  .md-hero--figma.is-opening-detail .md-hero-art img {
-    transform: none;
-  }
-  .md-hero--figma .md-hero-art img { transition: none; }
-  .md-detail-entering .comic-detail .md-detail-inner,
-  .md-detail-entering .comic-detail .md-detail-cover,
+  .md-detail-entering .comic-detail .md-detail-meta,
   .md-detail-returning .md-home-page .md-hero-copy,
-  .md-detail-returning .md-home-page .md-hero-art,
-  .md-detail-returning .md-home-page .md-home-rail,
-  .md-detail-returning .md-comics-page .page-shell-content { animation: none; }
-  .md-detail-leaving .comic-detail .md-detail-cover { transform: none; opacity: 1; }
+  .md-detail-returning .md-comics-page .page-shell-content,
+  .md-detail-opening .md-home-page .md-hero-copy,
+  .md-detail-leaving .comic-detail .md-detail-meta { animation: none; }
 }
 
 .md-detail-meta {
@@ -3884,6 +3850,7 @@ body.md-home-page .md-main--flush {
   /* 极端矮窗时文案区内部细滚动，好过顶出屏幕把书轨（z-index:20 固定底）压住 */
   max-height: calc(100dvh - 260px);
   overflow: auto;
+  touch-action: pan-y;
 }
 
 .md-hero--figma .md-hero-title {
@@ -3892,6 +3859,11 @@ body.md-home-page .md-main--flush {
   line-height: 1.12;
   letter-spacing: -0.01em;
   max-width: 9em;            /* CJK 一个汉字 ≈ 1em，即最多 9 字一行 */
+  height: 2.24em;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 /* meta 行：[格式] 分组 | 话数 | 进度（对应参考稿的 [HD] ★4.9 · 年份 | 话数 | 16+） */
@@ -3905,6 +3877,9 @@ body.md-home-page .md-main--flush {
   font-weight: 500;
   color: #d6d6e2;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+  height: 3em;
+  overflow: hidden;
+  align-content: flex-start;
 }
 
 .md-hero--figma .md-hero-meta__badge {
@@ -3945,7 +3920,8 @@ body.md-home-page .md-main--flush {
 .md-hero--figma .md-hero-desc {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
+  -webkit-line-clamp: 4;
+  height: 7.12em;
   overflow: hidden;
   margin-top: 1.05rem;
   /* 参考稿正文宽约 38.7% 页宽（1920 → ~740），别锁死在 30rem 窄栏 */
@@ -3959,16 +3935,28 @@ body.md-home-page .md-main--flush {
   display: inline-flex;
 }
 
+.md-hero--figma .md-hero-desc-toggle {
+  height: 1.6rem;
+  box-sizing: border-box;
+}
+.md-hero--figma .md-hero-desc-toggle[hidden] {
+  display: inline-flex;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .md-hero--figma .md-hero-desc.is-expanded {
   display: block;
   -webkit-line-clamp: unset;
-  overflow: visible;
+  overflow-y: auto;
 }
 
 /* ── 按钮：左幽灵描边 · 右金色实底 + ▶ 三角（46×16 → 2.875:1） ── */
 .md-hero--figma .md-hero-actions {
   margin-top: 1.85rem;
   gap: 0.875rem;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .md-hero--figma .md-btn-ghost,
@@ -3983,6 +3971,13 @@ body.md-home-page .md-main--flush {
   box-shadow: none;
 }
 
+.md-hero--figma .md-home-detail-link {
+  flex: 0 0 clamp(108px, 7.5vw, 144px);
+}
+.md-hero--figma [data-hero-reader-link] {
+  flex: 0 0 clamp(128px, 9vw, 160px);
+}
+
 .md-hero--figma .md-btn-ghost {
   border: 1px solid rgba(255, 255, 255, 0.42);
   background: transparent;
@@ -3993,11 +3988,13 @@ body.md-home-page .md-main--flush {
   background: rgba(255, 255, 255, 0.09);
 }
 
-.md-hero--figma .md-home-detail-link:active {
+.md-hero--figma .md-home-detail-link:active,
+.md-hero--figma [data-hero-reader-link]:active {
   transform: translateY(1px) scale(0.96);
 }
 
-.md-hero--figma .md-home-detail-pending {
+.md-hero--figma .md-home-detail-pending,
+.md-hero--figma .md-home-reader-pending {
   display: none;
   align-items: center;
   gap: 0.45rem;
@@ -4008,13 +4005,22 @@ body.md-home-page .md-main--flush {
   border-color: var(--md-brand);
   background: var(--md-brand);
   color: #fff !important;
-  box-shadow: 0 0 0 4px rgba(var(--md-brand-rgb), 0.2);
+  transform: translateY(1px) scale(0.97);
 }
 
 .md-hero--figma .md-home-detail-link.is-loading .md-home-detail-idle { display: none; }
 .md-hero--figma .md-home-detail-link.is-loading .md-home-detail-pending { display: inline-flex; }
 
-.md-hero--figma .md-home-detail-pending::before {
+.md-hero--figma [data-hero-reader-link].is-loading {
+  pointer-events: none;
+  transform: translateY(1px) scale(0.97);
+}
+.md-hero--figma [data-hero-reader-link].is-loading .md-play,
+.md-hero--figma [data-hero-reader-link].is-loading [data-hero-reader-label] { display: none; }
+.md-hero--figma [data-hero-reader-link].is-loading .md-home-reader-pending { display: inline-flex; }
+
+.md-hero--figma .md-home-detail-pending::before,
+.md-hero--figma .md-home-reader-pending::before {
   content: "";
   width: 0.8rem;
   height: 0.8rem;
@@ -4029,7 +4035,8 @@ body.md-home-page .md-main--flush {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .md-hero--figma .md-home-detail-pending::before { animation: none; }
+  .md-hero--figma .md-home-detail-pending::before,
+  .md-hero--figma .md-home-reader-pending::before { animation: none; }
 }
 
 .md-hero--figma .md-btn-primary {
@@ -4074,6 +4081,15 @@ body.md-home-page .md-main--flush {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 clamp(210px, 22%, 300px));
           mask-image: linear-gradient(90deg, transparent 0, #000 clamp(210px, 22%, 300px));
   pointer-events: none;
+  overflow: hidden;
+}
+
+.md-hero--figma .md-hero-art-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 52%, transparent 94%);
+          mask-image: linear-gradient(180deg, #000 52%, transparent 94%);
 }
 
 .md-hero--figma .md-hero-art img {
@@ -4087,10 +4103,69 @@ body.md-home-page .md-main--flush {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  /* 第二层遮罩：底边淡出，免得封面自带的烫金书名在书轨下方露出来 */
-  -webkit-mask-image: linear-gradient(180deg, #000 52%, transparent 94%);
-          mask-image: linear-gradient(180deg, #000 52%, transparent 94%);
+  /* 底部遮罩放在共享容器上，滑动时不重复重绘两张图的蒙版。 */
+  transition: opacity 0.2s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+.md-hero--figma .md-hero-art .md-hero-art-next {
+  position: absolute;
+  inset: 0;
+}
+.md-hero--figma .md-hero-art .md-hero-art-next[hidden] { display: none; }
+.md-hero--figma.is-sliding {
+  overflow-x: clip;
+}
+.md-hero--figma .md-hero-copy-next[hidden] { display: none; }
+.md-hero--figma.is-sliding .md-hero-art img,
+.md-hero--figma.is-sliding .md-hero-copy {
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.md-hero--figma.md-hero--banner-cover.is-sliding .md-hero-art { display: block; }
+.md-hero-swipe-zone {
+  position: absolute;
+  z-index: 4;
+  top: 8%;
+  right: 0;
+  bottom: 33%;
+  left: 54%;
+  cursor: grab;
+  touch-action: pan-y;
+}
+.md-hero-swipe-zone:active { cursor: grabbing; }
+.md-hero-swipe-zone:focus-visible { outline: 2px solid var(--md-brand-soft); outline-offset: -5px; }
+.md-hero-indicators {
+  position: absolute;
+  z-index: 25;
+  left: 50%;
+  bottom: 30%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: calc(100% - 2rem);
+  overflow-x: auto;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(7, 7, 10, 0.22);
+  scrollbar-width: none;
+  transform: translateX(-50%);
+}
+.md-hero-indicators::-webkit-scrollbar { display: none; }
+.md-hero-indicator {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+.md-hero-indicator.is-active { width: 16px; background: rgba(255, 255, 255, 0.94); }
+.md-hero-indicator:focus-visible { outline: 2px solid var(--md-brand-soft); outline-offset: 3px; }
+.md-hero-meta [hidden] { display: none; }
 
 /* ── 遮罩：见 --fig-shade（深浅两主题共用） ── */
 .md-hero--figma .md-hero-shade {
@@ -4200,6 +4275,15 @@ body.md-home-page .md-main--flush {
   display: none;
 }
 
+@media (min-width: 768px) {
+  .md-home-rail__track {
+    /* Reserve space inside the scrollport for the 6px hover lift.
+       Offset it so the covers and heading keep their existing positions. */
+    padding-top: 10px;
+    margin-top: -10px;
+  }
+}
+
 .md-home-rail__track:focus-visible {
   box-shadow: inset 0 0 0 2px rgba(var(--md-brand-rgb), 0.6);
 }
@@ -4210,6 +4294,9 @@ body.md-home-page .md-main--flush {
   width: var(--fig-card-w);
   margin-right: var(--fig-card-gap);
   aspect-ratio: 57 / 74;
+  /* Give older Safari a definite height; tall source images must not size the card. */
+  height: calc(var(--fig-card-w) * 1.298245614);
+  min-height: 0;
   overflow: hidden;
   border-radius: 12px;
   background: #14141c;
@@ -4223,12 +4310,13 @@ body.md-home-page .md-main--flush {
   transform: translateY(-6px);
   box-shadow: 0 24px 44px rgba(0, 0, 0, 0.62);
 }
-
 .md-home-rail__card:focus-visible {
   box-shadow: 0 0 0 2px var(--md-gold), 0 16px 34px rgba(0, 0, 0, 0.5);
 }
 
 .md-home-rail__card img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -4337,6 +4425,8 @@ html:not(.theme-dark) .md-hero--figma .md-hero-art img {
   box-shadow: none;
 }
 
+html:not(.theme-dark) .md-hero-indicators { background: rgba(7, 7, 10, 0.28); }
+
 /* 书轨：浅色底上的导航按钮 / 标签 / 更多链接 / 卡片 */
 html:not(.theme-dark) .md-home-rail__nav button {
   border-color: rgba(18, 22, 31, 0.14);
@@ -4438,15 +4528,29 @@ html:not(.theme-dark) .md-home-rail__card:hover {
     bottom: auto;
     left: 0;
     width: 100%;
-    height: 360px;
+    height: 425px;
     -webkit-mask-image: none;
             mask-image: none;
   }
 
-  .md-hero--figma .md-hero-art img {
-    object-position: 58% 16%;
+  .md-hero--figma .md-hero-art-viewport {
     -webkit-mask-image: linear-gradient(180deg, #000 38%, transparent 99%);
             mask-image: linear-gradient(180deg, #000 38%, transparent 99%);
+  }
+
+  .md-hero--figma .md-hero-art img { object-position: 58% 16%; }
+
+  .md-hero-swipe-zone {
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    height: 425px;
+  }
+
+  .md-hero-indicators {
+    top: 384px;
+    bottom: auto;
   }
 
   .md-hero--figma .md-hero-copy {
@@ -4457,23 +4561,41 @@ html:not(.theme-dark) .md-home-rail__card:hover {
     max-width: none;
     max-height: none;
     overflow: visible;
-    /* 图带高 360px，首行要完全落到图带下方（360 + 安全余量）才不被压住 */
-    padding: 372px 1.25rem 1.5rem;
+    /* 图带末端已渐隐，文案稍叠进暗部，给下方书轨保留可见空间。 */
+    padding: 425px 1.25rem 1.5rem;
+  }
+
+  .md-hero--figma .md-hero-copy-next {
+    position: absolute;
+    inset: 0 0 auto;
   }
 
   .md-hero--figma .md-hero-title {
     font-size: 1.7rem;
     max-width: none;
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .md-hero--figma .md-hero-title [data-hero-title-text] {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
   }
 
   .md-hero--figma .md-hero-meta {
     margin-top: 0.85rem;
     gap: 0.55rem;
     font-size: 0.8125rem;
+    height: 1.6em;
+    flex-wrap: nowrap;
+    white-space: nowrap;
   }
 
   .md-hero--figma .md-hero-desc {
-    -webkit-line-clamp: 5;
+    -webkit-line-clamp: 2;
+    height: 3.56em;
     margin-top: 0.8rem;
     max-width: 100%;
     font-size: 0.875rem;
@@ -4482,7 +4604,7 @@ html:not(.theme-dark) .md-home-rail__card:hover {
   .md-hero--figma .md-hero-desc.is-expanded {
     display: block;
     -webkit-line-clamp: unset;
-    overflow: visible;
+    overflow-y: auto;
   }
 
   .md-hero--figma .md-hero-desc-toggle:not([hidden]) {
@@ -4500,6 +4622,9 @@ html:not(.theme-dark) .md-home-rail__card:hover {
     min-width: 0;
     padding: 0 1.35rem;
   }
+
+  .md-hero--figma .md-home-detail-link { flex-basis: 100px; }
+  .md-hero--figma [data-hero-reader-link] { flex-basis: 132px; }
 
   .md-home-rail {
     position: relative;
@@ -4531,6 +4656,7 @@ html:not(.theme-dark) .md-home-rail__card:hover {
 
   .md-home-rail__card {
     width: 104px;
+    height: 135.018px;
     margin-right: 12px;
     border-radius: 10px;
   }
@@ -4544,6 +4670,12 @@ html:not(.theme-dark) .md-home-rail__card:hover {
     outline: 2px solid var(--md-brand);
     outline-offset: 2px;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-hero--figma .md-hero-art img,
+  .md-hero--figma .md-hero-copy,
+  .md-hero-indicator { transition: none; }
 }
 
 @media (max-width: 768px) {
@@ -4720,6 +4852,12 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
     overflow: visible;
   }
 
+  .md-hero--figma .md-hero-copy-next {
+    position: absolute;
+    top: calc(max(7rem, 18vh) + 1.25rem);
+    left: 0;
+  }
+
   .md-home-rail {
     position: relative;
     left: auto;
@@ -4808,15 +4946,154 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
   .md-anilist-result-actions .md-btn-primary { width: 100%; }
 }
 
-/* Small touch devices spend less time rasterizing the full-screen blurred hero. */
-@media (max-width: 767px) and (pointer: coarse) {
-  .md-hero--figma .md-hero-media-img,
-  .md-hero--figma .md-hero-media-img.is-soft,
-  html:not(.theme-dark) .md-hero--figma .md-hero-media-img,
-  .md-hero--figma.md-hero--banner-cover .md-hero-media-img {
-    filter: blur(16px) saturate(1.1) brightness(0.65);
+/* 手机滑动只移动已解码的图片；底部渐隐由静止覆盖层完成。 */
+@media (max-width: 767px) {
+  .md-hero--figma .md-hero-art-viewport {
+    -webkit-mask-image: none;
+    mask-image: none;
   }
-  html:not(.theme-dark) .md-hero--figma .md-hero-media-img {
-    filter: blur(16px) saturate(1.05) brightness(1.08);
+  .md-hero--figma .md-hero-art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 38%, #07070a 99%);
+    pointer-events: none;
+  }
+  html:not(.theme-dark) .md-hero--figma .md-hero-art::after {
+    background: linear-gradient(180deg, transparent 38%, #fff 99%);
+  }
+  .md-hero--figma .md-hero-media-img {
+    display: none;
   }
 }
+
+.md-hero--figma.is-waiting-cover .md-hero-indicators {
+  opacity: .5;
+}
+
+/* Keep the mobile compositing surfaces small and ready before the gesture. */
+@media (max-width: 767px) {
+  .md-hero--figma .md-hero-inner { padding-top: 425px; }
+  .md-hero--figma .md-hero-copy { padding-top: 0; }
+  .md-hero--figma .md-hero-copy-next { top: 425px; }
+  .md-hero--figma .md-hero-art img,
+  .md-hero--figma .md-hero-copy { will-change: transform; }
+  .md-hero--figma .md-hero-art-viewport { contain: paint; }
+}
+
+/* The mobile hero uses the browser's scrolling compositor, including touch inertia. */
+@media (max-width: 767px) {
+  .md-hero--figma.md-hero--native .md-hero-inner { padding: 0; }
+  .md-hero--native .md-hero-art[hidden],
+  .md-hero--native .md-hero-swipe-zone[hidden] { display: none; }
+  .md-hero-native {
+    display: flex;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    touch-action: pan-x pan-y;
+  }
+  .md-hero-native::-webkit-scrollbar { display: none; }
+  .md-hero-native-panel {
+    position: relative;
+    flex: 0 0 100%;
+    min-width: 0;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    contain: layout;
+  }
+  .md-hero-native-art { position: relative; height: 425px; overflow: hidden; }
+  .md-hero-native-art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 38%, #07070a 99%);
+    pointer-events: none;
+  }
+  html:not(.theme-dark) .md-hero-native-art::after {
+    background: linear-gradient(180deg, transparent 38%, #fff 99%);
+  }
+  .md-hero-native-art img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 58% 16%;
+  }
+  .md-hero--figma .md-hero-native-copy {
+    position: relative;
+    padding: 0 1.25rem 1.5rem;
+    transform: none;
+    transition: none;
+    will-change: auto;
+    touch-action: pan-x pan-y;
+  }
+  .md-hero--native .md-hero-desc-toggle {
+    display: inline-flex;
+    height: 22px;
+  }
+  .md-hero--native .md-hero-desc-toggle[hidden] {
+    display: inline-flex;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+@media (max-width: 767px) {
+  /* Keep only the visible and adjacent cover surfaces ready for fast swipes. */
+  .md-hero-native-panel.is-near .md-hero-native-image {
+    transform: translateZ(0);
+    will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+}
+
+/* Desktop hero controls stay outside the title and above the swipe hit area. */
+.md-hero-arrow { display: none; }
+@media (min-width: 768px) and (hover: hover) and (pointer: fine) {
+  .md-hero-arrow {
+    position: absolute;
+    z-index: 26;
+    top: 38%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, .28);
+    border-radius: 50%;
+    color: #fff;
+    background: rgba(7, 7, 10, .46);
+    cursor: pointer;
+    transition: background-color .16s ease, border-color .16s ease;
+  }
+  .md-hero-arrow--previous { left: max(1rem, 2vw); }
+  .md-hero-arrow--next { right: max(1rem, 2vw); }
+  .md-hero-arrow:hover { background: rgba(7, 7, 10, .78); border-color: rgba(255, 255, 255, .7); }
+}
+
+/* Homepage/detail share one document, with a viewport-sized sliding panel. */
+.md-in-app-detail {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  background: var(--md-bg);
+  outline: none;
+}
+body.md-home-page .md-in-app-detail .md-main--flush { padding-top: 0; }
+.md-in-app-detail .md-detail { min-height: 100vh; }
+.md-in-app-detail .md-detail-topbar { padding-top: calc(1rem + env(safe-area-inset-top, 0px)); }
+.md-in-app-detail[hidden] { display: none !important; }
+.md-in-app-detail-open > .app-main-content { pointer-events: none; }
+.md-in-app-detail-open .md-mobile-tabbar { display: none !important; }
+html:not(.theme-dark) .md-in-app-detail { background: #f6f7fb; }

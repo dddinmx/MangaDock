@@ -41,3 +41,7 @@ node_modules/
 mangadock/vendor/
 private/
 fanqie-api/
+
+# Local browser verification artifacts
+.playwright-cli/
+output/playwright/

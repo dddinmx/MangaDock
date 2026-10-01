@@ -190,11 +190,12 @@ def _static_cover_url(filename):
     return f'{url}?v={version}' if version else url
 
 
-def cover_image_url(comic_name, variant='default'):
+def cover_image_url(comic_name, variant='default', queue_missing=True):
     """
     variant:
       - default: original downloaded cover
       - hero: upscaled cache for full-bleed banners (generated on demand)
+      - hero-mobile: smaller full-quality display cache for touch screens
     """
     if not comic_name:
         return asset_url('default-comic-cover.jpg')
@@ -207,17 +208,25 @@ def cover_image_url(comic_name, variant='default'):
     # 否则 % 会被二次编码）。与 API 侧 serialize_api_comic_summary 的 cover_url 保持一致。
     encoded_name = quote(comic_name, safe='')
 
-    if variant == 'hero':
+    if variant in ('hero', 'hero-mobile'):
         # 只认「已经生成好」的缓存：命中就直接发超分图，没命中就丢给后台线程补，
         # 本次仍返回原图。绝不在请求线程里跑超分——Lanczos 要几百毫秒，接了
         # AI 引擎更是几秒起，会把首页首字节拖垮。
-        from mangadock.utils.cover_enhance import hero_cover_ready, request_hero_cover
+        from mangadock.utils.cover_enhance import (
+            hero_cover_ready, mobile_hero_cover_ready, request_hero_cover,
+        )
         if hero_cover_ready(comic_name):
+            if variant == 'hero-mobile':
+                if mobile_hero_cover_ready(comic_name):
+                    return _static_cover_url(f'cover/hero/mobile/{encoded_name}.jpg')
+                if queue_missing:
+                    request_hero_cover(comic_name)
             return _static_cover_url(f'cover/hero/{encoded_name}.jpg')
-        try:
-            request_hero_cover(comic_name)
-        except Exception:
-            pass
+        if queue_missing:
+            try:
+                request_hero_cover(comic_name)
+            except Exception:
+                pass
         # fall through to source cover
 
     # 2026-09-20 二次修复：不再在服务端回落占位图。SMB stat 瞬时失败曾让这里对
@@ -227,8 +236,12 @@ def cover_image_url(comic_name, variant='default'):
     return _static_cover_url(f'cover/{encoded_name}.jpg')
 
 
-def cover_hero_image_url(comic_name):
-    return cover_image_url(comic_name, variant='hero')
+def cover_hero_image_url(comic_name, queue_missing=True):
+    return cover_image_url(comic_name, variant='hero', queue_missing=queue_missing)
+
+
+def cover_hero_mobile_image_url(comic_name, queue_missing=True):
+    return cover_image_url(comic_name, variant='hero-mobile', queue_missing=queue_missing)
 
 
 def save_uploaded_cover_image(comic_name, file_storage):
@@ -385,6 +398,7 @@ def inject_user_context():
         'asset_url': asset_url,
         'cover_image_url': cover_image_url,
         'cover_hero_image_url': cover_hero_image_url,
+        'cover_hero_mobile_image_url': cover_hero_mobile_image_url,
         'is_adult_comic': is_adult_comic,
         'display_reading_minutes': api_display_reading_minutes,
     }

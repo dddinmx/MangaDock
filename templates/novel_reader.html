@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <meta id="reader-theme-color-meta" name="theme-color" content="#0b0b0f">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <title>{{ novel.title }} - 阅读</title>
     <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
@@ -94,6 +94,8 @@
         html[data-reader-mode="vertical"] .novel-reader-title { margin-top: .35rem; }
         @media (max-width: 600px) { :root { --reader-size: 21px; --reader-title-size: 32px; --reader-leading: 2.2; --reader-margin: 16px; } .novel-reader-main { padding-top: calc(52px + var(--reader-safe-top)); padding-bottom: calc(42px + var(--reader-safe-bottom)); } .novel-reader-controls { max-width: calc(100vw - 12px); gap: 2px; padding: 5px; } .novel-control { min-width: 35px; height: 36px; padding: 0 5px; } .novel-control span { display: none; } }
     </style>
+    <link rel="stylesheet" href="{{ asset_url('css/interaction-feedback.css') }}">
+    <script defer src="{{ asset_url('js/interaction-feedback.js') }}"></script>
 </head>
 <body>
     <header class="novel-reader-header is-hidden" id="reader-header">
@@ -1669,8 +1671,8 @@
             });
         });
         addEventListener('load', startReadingTimer);
-        setInterval(() => saveProgress(false), 30000);
-        setInterval(updateClock, 60000);
+        setInterval(() => { if (!document.hidden) saveProgress(false); }, 30000);
+        setInterval(() => { if (!document.hidden) updateClock(); }, 60000);
     </script>
 </body>
 </html>

@@ -87,7 +87,7 @@ def _build_home_spotlight(user_id):
     desc_names = set()
     if spotlight and spotlight.get('comic_name'):
         desc_names.add(spotlight['comic_name'])
-    for progress in progresses[:12]:
+    for progress in progresses[:18]:
         if progress.comic_name:
             desc_names.add(progress.comic_name)
     descriptions = get_comic_descriptions(desc_names)
@@ -107,8 +107,12 @@ def _build_home_spotlight(user_id):
             recent.append({
                 **comic,
                 'last_chapter': progress.last_chapter or 0,
+                'last_page': progress.last_page or 0,
                 'last_read_at': progress.last_read_at,
+                'has_progress': True,
                 'description': descriptions.get(progress.comic_name, ''),
+                'banner_url': spotlight['banner_url'] if spotlight and progress.comic_name == spotlight['comic_name']
+                    else get_home_banner_url(progress.comic_name, queue_upscale=False),
             })
 
     # Fresh library items not in recent
@@ -134,6 +138,7 @@ def index():
     return render_template(
         'index.html',
         spotlight=spotlight,
+        hero_comics=recent or ([spotlight] if spotlight else []),
         recent_comics=recent,
         latest_comics=latest,
         group_rails=group_rails,
