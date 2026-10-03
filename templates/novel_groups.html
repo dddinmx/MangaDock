@@ -3,12 +3,13 @@
 {% block title %}小说分组管理 - MangaDock{% endblock %}
 
 {% block content %}
+<div class="md-comic-groups-page">
 <div class="mb-8 flex flex-wrap items-end justify-between gap-3">
     <div>
-        <h1 class="md-page-title">小说分组管理</h1>
+        <h1 class="md-page-title">分组管理</h1>
         <p class="md-page-sub">新建分组后，勾选多本小说批量移动</p>
     </div>
-    <a href="{{ url_for('novels_list', group='全部') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-arrow-left mr-2"></i>返回小说书架</a>
+    <a href="{{ url_for('novels_list', group='全部') }}" class="md-comic-groups-back action-press" data-app-loader="true"><i class="fa fa-arrow-left" aria-hidden="true"></i><span>书架</span></a>
 </div>
 
 {% with messages = get_flashed_messages() %}
@@ -28,7 +29,7 @@
     </div>
     <form method="post" action="{{ url_for('create_novel_group') }}" class="md-novel-group-create">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="text" name="group_name" class="md-input" maxlength="50" placeholder="输入新分组名称" required>
+        <input type="text" name="group_name" class="md-input" maxlength="50" placeholder="输入新分组名称" aria-label="新分组名称" required>
         <button type="submit" class="md-btn-primary action-press"><i class="fa fa-plus mr-2"></i>新建分组</button>
     </form>
     <div class="md-novel-group-list">
@@ -55,7 +56,7 @@
     <div class="md-novel-batch-toolbar">
         <div class="md-novel-batch-search">
             <i class="fa fa-search"></i>
-            <input id="novel-group-search" type="search" class="md-input" placeholder="搜索书名、作者或当前分组" aria-label="搜索小说">
+            <input id="novel-group-search" type="search" class="md-input" placeholder="搜索书名、作者或当前分组" aria-label="筛选待分组小说">
         </div>
         <button type="button" class="md-chip action-press" onclick="selectVisibleNovels(true)">全选当前结果</button>
         <button type="button" class="md-chip action-press" onclick="selectVisibleNovels(false)">清空选择</button>
@@ -88,6 +89,7 @@
     <div class="md-empty mt-5">暂未扫描到 EPUB 小说。</div>
     {% endif %}
 </form>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -115,7 +117,7 @@
 
     function selectVisibleNovels(checked) {
         novelItems.forEach((item) => {
-            if (!item.hidden) item.querySelector('input[type="checkbox"]').checked = checked;
+            if (!checked || !item.hidden) item.querySelector('input[type="checkbox"]').checked = checked;
         });
         syncNovelSelection();
     }

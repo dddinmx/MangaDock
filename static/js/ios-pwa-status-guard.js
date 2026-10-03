@@ -2,6 +2,9 @@
 (() => {
     const viewport = document.querySelector('meta[name="viewport"]');
     if (!viewport || !/viewport-fit\s*=\s*cover/i.test(viewport.content)) return;
+    // Keep edge-to-edge content when the page deliberately uses a translucent status bar.
+    const statusBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (statusBar?.content === 'black-translucent') return;
     const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent || '')
         || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches

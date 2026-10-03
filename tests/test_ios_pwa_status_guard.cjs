@@ -7,14 +7,14 @@ const source = fs.readFileSync(
     path.join(__dirname, '../static/js/ios-pwa-status-guard.js'), 'utf8',
 );
 
-function run({standalone = true, safeTop = 62, safeBottom = 34, height = 956} = {}) {
+function run({standalone = true, safeTop = 62, safeBottom = 34, height = 956, statusBar = 'black'} = {}) {
     const properties = new Map();
     let probeAdded = false;
     const viewport = {content: 'width=device-width, initial-scale=1.0, viewport-fit=cover'};
     const probe = {style: {}, setAttribute() {}, remove() { probeAdded = false; }};
     const document = {
         hidden: false,
-        querySelector: () => viewport,
+        querySelector: (selector) => selector === 'meta[name="viewport"]' ? viewport : {content: statusBar},
         createElement: () => probe,
         body: {appendChild() { probeAdded = true; }},
         documentElement: {style: {setProperty: (name, value) => properties.set(name, value)}},
@@ -46,3 +46,8 @@ for (const options of [{safeTop: 0}, {height: 700}, {standalone: false}]) {
     assert.match(normal.viewport.content, /viewport-fit=cover/);
     assert.equal(normal.properties.size, 0);
 }
+
+const coverPage = run({statusBar: 'black-translucent'});
+assert.match(coverPage.viewport.content, /viewport-fit=cover/);
+assert.equal(coverPage.probeAdded, false);
+assert.equal(coverPage.properties.size, 0);

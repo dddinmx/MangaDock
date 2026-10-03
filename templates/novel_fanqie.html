@@ -33,7 +33,7 @@
                 </div>
             </div>
             <form method="get" class="md-fanqie-form" role="search">
-                <input type="search" name="q" value="{{ query }}" placeholder="例如：十日终焉" required class="md-fanqie-input">
+                <input type="search" name="q" value="{{ query }}" placeholder="例如：十日终焉" aria-label="搜索番茄小说" required class="md-fanqie-input">
                 <button class="md-btn-primary" type="submit"><i class="fa fa-search"></i><span>搜索</span></button>
             </form>
         </section>
@@ -49,7 +49,7 @@
             </div>
             <form method="post" action="{{ url_for('fanqie_novel_download') }}" class="md-fanqie-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="text" name="target" placeholder="粘贴番茄小说链接或作品 ID" required class="md-fanqie-input">
+                <input type="text" name="target" placeholder="粘贴番茄小说链接或作品 ID" aria-label="番茄小说链接或作品 ID" required class="md-fanqie-input">
                 <button class="md-btn-ghost" type="submit"><i class="fa fa-download"></i><span>直接下载</span></button>
             </form>
         </section>

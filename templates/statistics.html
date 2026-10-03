@@ -88,7 +88,7 @@
 {% block content %}
 <main class="stats-page">
     <header class="stats-page-head">
-        <h1 class="stats-page-title">Statistics</h1>
+        <h1 class="stats-page-title">阅读统计</h1>
         <div class="stats-year">{{ stats_year }} 年</div>
     </header>
 
@@ -116,7 +116,7 @@
                 </div>
                 <div class="stats-rank-cover">
                     <span class="stats-rank-cover-placeholder"><i class="fa fa-book"></i></span>
-                    {% if item.cover_url %}<img src="{{ item.cover_url }}" alt="{{ item.title }}封面" width="78" height="104" data-fallback="{{ asset_url('default-comic-cover.jpg') }}">{% endif %}
+                    {% if item.cover_url %}<img src="{{ item.cover_url }}" alt="{{ item.title }}封面" width="78" height="104" loading="lazy" decoding="async" data-fallback="{{ asset_url('default-comic-cover.jpg') }}">{% endif %}
                 </div>
                 <div class="stats-rank-main">
                     <div class="stats-rank-line">
@@ -152,7 +152,7 @@
 
     <section class="stats-card">
         <div class="stats-card-head"><h2 class="stats-card-title">阅读热力图</h2><span class="stats-card-note">最长单日 {{ display_reading_minutes(max_daily_duration) }}</span></div>
-        <div class="heatmap-scroll" style="--heatmap-week-count: {{ heatmap_weeks|length }}">
+        <div class="heatmap-scroll" tabindex="0" role="region" aria-label="每日阅读热力图，可左右滚动" style="--heatmap-week-count: {{ heatmap_weeks|length }}">
             <div class="heatmap-months">{% for label in heatmap_month_labels %}<div class="heatmap-month-label">{{ label }}</div>{% endfor %}</div>
             <div class="heatmap-layout">
                 <div class="heatmap-weekdays"><div class="heatmap-weekday">一</div><div></div><div class="heatmap-weekday">三</div><div></div><div class="heatmap-weekday">五</div><div></div><div class="heatmap-weekday">日</div></div>

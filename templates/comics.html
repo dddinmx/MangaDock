@@ -49,7 +49,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="page-shell comics-shell" data-page-shell="comics">
+<div class="page-shell comics-shell page-shell-ready" data-page-shell="comics">
     <div class="page-shell-skeleton comics-skeleton" aria-hidden="true">
         <div class="skeleton-block h-10 w-40 mb-6"></div>
         <div class="skeleton-block h-6 w-28 mb-4"></div>
@@ -79,9 +79,9 @@
         {% endwith %}
 
         {% set hidden_toggle_available = can_manage_library and (hidden_library_count > 0 or show_hidden_library) %}
-        <div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+        <div class="md-library-heading mb-8 flex flex-wrap items-end justify-between gap-3">
             <div>
-                <h1 class="md-page-title">Library</h1>
+                <h1 class="md-page-title">漫画书架</h1>
                 <p class="md-page-sub">共 {{ pagination.total_items }} 本</p>
             </div>
             <div class="md-lib-toolbar comics-library-toolbar flex flex-wrap items-center gap-2">
@@ -148,7 +148,7 @@
                             {% endif %}
                             <img src="{{ cover_image_url(task.comic_name) }}"
                                  alt="{{ task.comic_name }}封面"
-                                 decoding="async"
+                                 decoding="async" loading="{{ 'eager' if loop.index <= 4 else 'lazy' }}"
                                  data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
                         </div>
                     </div>

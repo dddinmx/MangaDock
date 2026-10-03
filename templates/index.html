@@ -77,13 +77,14 @@
                         aria-controls="hero-comic-description"
                         hidden>展开简介</button>
                 <div class="md-hero-actions">
-                    <a href="{{ url_for('comic_detail', task_id=spotlight.comic_name) }}" class="md-btn-ghost action-press md-home-detail-link" data-app-loader="true" data-loading-label="正在打开漫画详情…">
-                        <span class="md-home-detail-idle">详情</span>
-                        <span class="md-home-detail-pending" aria-hidden="true">打开中…</span>
-                    </a>
                     <a href="{{ url_for('comic_reader', task_id=spotlight.comic_name) }}" class="md-btn-primary action-press" data-hero-reader-link data-loading-label="正在打开阅读器…">
                         <span class="md-play" aria-hidden="true"></span><span data-hero-reader-label>{% if spotlight.has_progress %}继续阅读{% else %}开始阅读{% endif %}</span>
                         <span class="md-home-reader-pending" aria-hidden="true">打开中…</span>
+                    </a>
+                    <a href="{{ url_for('comic_detail', task_id=spotlight.comic_name) }}" class="md-btn-ghost action-press md-home-detail-link" data-app-loader="true" data-loading-label="正在打开漫画详情…">
+                        <span class="md-home-detail-idle">详情</span>
+                        <i class="fa fa-angle-right md-home-detail-arrow" aria-hidden="true"></i>
+                        <span class="md-home-detail-pending" aria-hidden="true">打开中…</span>
                     </a>
                 </div>
             </div>
@@ -233,6 +234,10 @@
     var hero = document.querySelector('.md-hero--figma');
     var banner = hero && hero.querySelector('.md-hero-banner-art img');
     var background = hero && hero.querySelector('.md-hero-media-img');
+    var art = hero && hero.querySelector('.md-hero-art');
+    if (art && background) {
+        art.style.setProperty('--md-cover-blend', 'url(' + JSON.stringify(background.dataset.coverSrc) + ')');
+    }
     if (!banner) return;
 
     var syncBannerFit = function () {
@@ -302,4 +307,6 @@
 </script>
 <script data-home-init defer src="{{ asset_url('js/home-hero-native.js') }}"></script>
 <script data-home-init defer src="{{ asset_url('js/home-hero-carousel.js') }}"></script>
+<script data-home-init defer src="{{ asset_url('js/home-hero-title.js') }}"></script>
+<script data-home-init defer src="{{ asset_url('js/home-hero-pull.js') }}"></script>
 {% endblock %}

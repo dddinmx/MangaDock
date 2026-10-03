@@ -112,6 +112,20 @@ frames[1]();
 assert.equal(location.href, '/comic/1?return_to=/comics');
 
 handlers.resetReaderBackButtons();
+let returned = 0;
+context.window.returnReaderToDetail = url => {
+    assert.equal(url, mobile.href);
+    returned++;
+    return true;
+};
+location.href = '/reader';
+frames.length = 0;
+handlers.leaveReaderViaBackButton(mobile);
+frames[0](); frames[1]();
+assert.equal(returned, 1);
+assert.equal(location.href, '/reader', 'A verified history return avoids a full detail load');
+
+handlers.resetReaderBackButtons();
 assert.equal(handlers.leaving, false);
 assert.equal(mobile.classList.contains('is-leaving'), false);
 assert.equal(mobile.attrs['aria-busy'], null);

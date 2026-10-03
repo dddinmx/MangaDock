@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <script defer src="{{ asset_url('js/ios-pwa-status-guard.js') }}"></script>
+    <script defer src="{{ asset_url('js/reader-detail-return.js') }}"></script>
     <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
     <title>{{ task.comic_name }} - 阅读</title>
@@ -43,7 +45,7 @@
             min-height: 100vh;
             background-color: #0b0b0f;
             position: relative;
-            padding-top: calc(65px + env(safe-area-inset-top, 0px)); /* 为顶部标题栏及安全区留空间 */
+            padding-top: calc(68px + env(safe-area-inset-top, 0px)); /* 为顶部标题栏及安全区留空间 */
             padding-bottom: calc(120px + max(8px, var(--md-safe-bottom))); /* 为底部工具栏及安全区留空间 */
         }
         
@@ -173,8 +175,8 @@
             align-items: center;
             justify-content: space-between;
             z-index: 101;
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+            transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.18s ease-out;
+            box-shadow: none;
         }
         
         .mobile-header.hidden {
@@ -218,8 +220,8 @@
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 10px 12px;
-            box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.35);
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            box-shadow: none;
+            transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.18s ease-out;
         }
 
         .floating-controls.with-anilist {
@@ -251,7 +253,7 @@
             border-radius: 0;
             padding: 0;
             box-shadow: none;
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.18s ease-out;
         }
 
         .reading-progress.hidden {
@@ -368,7 +370,7 @@
             padding: 0;
             cursor: pointer;
             font-size: 11px;
-            transition: all 0.2s ease;
+            transition: background-color 0.16s ease, color 0.16s ease;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -431,10 +433,10 @@
             padding: 14px 16px;
             background: rgba(0, 0, 0, 0.96);
             border-top: 1px solid rgba(107, 114, 128, 0.45);
-            border-radius: 20px;
+            border-radius: 12px;
             width: auto;
             margin-top: 0;
-            box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
             z-index: 103;
         }
 
@@ -453,9 +455,9 @@
             padding: 14px 16px;
             background: rgba(0, 0, 0, 0.96);
             border-top: 1px solid rgba(107, 114, 128, 0.45);
-            border-radius: 20px;
+            border-radius: 12px;
             width: auto;
-            box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
             z-index: 103;
         }
 
@@ -666,8 +668,8 @@
             background-color: transparent;
             color: white;
             border: none;
-            width: 40px;
-            height: 40px;
+            width: 44px;
+            height: 44px;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -761,6 +763,10 @@
             }
         }
         
+        @media (prefers-reduced-motion: reduce) {
+            .mobile-header, .floating-controls, .reading-progress { transition: none; }
+        }
+
         /* 屏幕点击区域 */
         .screen-click-trigger {
             position: fixed;
@@ -796,13 +802,13 @@
                 backdrop-filter: blur(12px);
                 -webkit-backdrop-filter: blur(12px);
                 border: 1px solid rgba(107, 114, 128, 0.5);
-                border-radius: 24px;
+                border-radius: 14px;
                 padding: 14px 16px 16px;
                 width: min(680px, calc(100vw - 48px));
                 justify-content: center;
                 flex-wrap: wrap;
                 max-width: none;
-                box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
             }
 
             .floating-controls::before {
@@ -1516,6 +1522,7 @@
             const targetUrl = btn.getAttribute('href');
             window.requestAnimationFrame(() => {
                 window.requestAnimationFrame(() => {
+                    if (window.returnReaderToDetail?.(targetUrl)) return;
                     window.location.href = targetUrl;
                 });
             });
@@ -2572,12 +2579,6 @@
 
         syncProgressUi(0);
         syncAutoScrollSpeedUi();
-
-        // 页面关闭时保存进度与阅读时间
-        window.addEventListener('beforeunload', () => {
-            flushVisibleReadingTime();
-            submitProgressSnapshot({ keepalive: true, includeReadingTime: true });
-        });
 
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {

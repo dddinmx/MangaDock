@@ -1,3 +1,5 @@
+    const chapterSearchEntries = new WeakMap();
+
     function resetReaderEntryButtons() {
         const readerEntryButtons = document.querySelectorAll('[data-reader-entry]');
 
@@ -16,8 +18,8 @@
     }
 
     function bindComicSynopsisToggle() {
-        const description = document.getElementById('comic-detail-description');
-        const toggle = document.querySelector('[data-comic-synopsis-toggle]');
+        const description = document.querySelector('#comic-detail-description, #novel-detail-description');
+        const toggle = document.querySelector('[data-comic-synopsis-toggle], [data-novel-synopsis-toggle]');
         if (!description || !toggle || toggle.dataset.detailBound === 'true') return;
         toggle.dataset.detailBound = 'true';
 
@@ -113,16 +115,17 @@
     function searchChapters() {
         const searchInput = document.getElementById('chapter-search');
         const searchTerm = searchInput.value.toLowerCase();
-        const chapterItems = document.querySelectorAll('.chapter-item');
-
-        chapterItems.forEach(item => {
-            const titleEl = item.querySelector('.chapter-title');
-            const chapterTitle = (titleEl ? titleEl.textContent : '').toLowerCase();
-            if (chapterTitle.includes(searchTerm)) {
-                item.style.display = 'flex';
-            } else {
-                item.style.display = 'none';
-            }
+        const chapterList = document.getElementById('chapter-list');
+        let entries = chapterSearchEntries.get(chapterList);
+        if (!entries) {
+            entries = Array.from(chapterList.querySelectorAll('.chapter-item'), item => ({
+                item, title: (item.querySelector('.chapter-title')?.textContent || '').toLowerCase(),
+            }));
+            chapterSearchEntries.set(chapterList, entries);
+        }
+        entries.forEach(({item, title}) => {
+            const display = title.includes(searchTerm) ? 'flex' : 'none';
+            if (item.style.display !== display) item.style.display = display;
         });
     }
 
@@ -203,8 +206,8 @@
     });
 
     function refreshComicSynopsisLayout() {
-        const description = document.getElementById('comic-detail-description');
-        const toggle = document.querySelector('[data-comic-synopsis-toggle]');
+        const description = document.querySelector('#comic-detail-description, #novel-detail-description');
+        const toggle = document.querySelector('[data-comic-synopsis-toggle], [data-novel-synopsis-toggle]');
         if (description && toggle && !description.classList.contains('is-expanded')) {
             toggle.hidden = description.scrollHeight <= description.clientHeight + 1;
         }

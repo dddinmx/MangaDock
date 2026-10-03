@@ -34,8 +34,8 @@
     const artLoads = new Map();
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const mobileArt = window.matchMedia('(max-width: 767px)').matches;
-    const slideDuration = mobileArt ? 260 : 420;
-    const slideEasing = mobileArt ? 'cubic-bezier(0.22, 1, 0.36, 1)' : 'cubic-bezier(0.25, 0.1, 0.25, 1)';
+    const slideDuration = mobileArt ? 260 : 360;
+    const slideEasing = 'cubic-bezier(0.22, 1, 0.36, 1)';
     let nextBackground = null;
     if (!mobileArt) {
         // Blend two already decoded covers; never animate the expensive blur filter.
@@ -154,7 +154,7 @@
         activeIndex = index;
         fillCopy(copy, slide);
         if (updateImage) syncCopyToggle(copy);
-        description.dispatchEvent(new Event('md-home-hero-change'));
+        description.dispatchEvent(new Event('md-home-hero-change', {bubbles: true}));
 
         if (updateImage) setArtSource(art, artUrl);
         art.alt = slide.name;
@@ -193,7 +193,7 @@
             background.style.transition = nextBackground.style.transition = 'none';
             background.style.opacity = '';
             nextBackground.style.opacity = '0.001';
-            nextBackground.src = imageUrl;
+            if (nextBackground.getAttribute('src') !== imageUrl) nextBackground.src = imageUrl;
         }
         if (stagedIndex !== index) {
             fillCopy(nextCopy, slides[index]);
@@ -284,15 +284,19 @@
             const parts = movingParts();
             const starts = parts.map(part => part.style.transform || 'translate3d(0, 0, 0)');
             parts.forEach(part => { part.style.transition = 'none'; });
-            setProgress(direction, committed ? 1 : 0);
+            const progress = committed ? 1 : 0;
+            const current = -direction * progress * 100;
+            const incoming = direction * (1 - progress) * 100;
+            const ends = [`translate3d(${current}%, 0, 0)`, `translate3d(${incoming}%, 0, 0)`,
+                `translate3d(${current}vw, 0, 0)`, `translate3d(${incoming}vw, 0, 0)`];
             const animations = parts.map((part, position) => part.animate([
-                {transform: starts[position]}, {transform: part.style.transform}
+                {transform: starts[position]}, {transform: ends[position]}
             ], {duration, easing: slideEasing, fill: 'both'}));
             if (nextBackground) {
                 for (const [node, opacity] of [[background, committed ? '0' : '0.9'],
                         [nextBackground, committed ? '0.9' : '0.001']]) {
                     animations.push(node.animate([
-                        {opacity: getComputedStyle(node).opacity}, {opacity}
+                        {opacity: node === background ? '0.9' : '0.001'}, {opacity}
                     ], {duration, easing: 'ease', fill: 'both'}));
                 }
             }

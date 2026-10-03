@@ -55,7 +55,7 @@
     </section>
     {% endif %}
 
-    <h1 class="md-setting-page-title">Setting</h1>
+    <h1 class="md-setting-page-title">我的</h1>
     <header class="md-setting-profile">
         <div class="md-setting-profile__avatar" aria-hidden="true">{{ current_user.username[:1]|upper }}</div>
         <div class="md-setting-profile__text">
@@ -94,14 +94,14 @@
 
     <section class="md-setting-group">
         <h2 class="md-setting-group__title">外观</h2>
-        <div class="md-setting-list">
+        <div class="md-setting-list md-setting-list--appearance">
             <button type="button" data-theme-toggle class="md-setting-row">
                 <span class="md-setting-row__icon"><svg class="md-ui-icon" aria-hidden="true" focusable="false"><use data-theme-toggle-icon href="#md-icon-moon"></use></svg></span>
                 <span class="md-setting-row__title">外观主题</span>
                 <span class="md-setting-row__value" data-theme-toggle-state>浅色模式</span>
                 {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </button>
-            <div class="md-setting-row md-setting-row--static">
+            <div class="md-setting-row md-setting-row--static md-setting-row--appearance">
                 <span class="md-setting-row__icon">{{ md_icon('palette') }}</span>
                 <span class="md-setting-row__title">强调色</span>
                 <span class="md-setting-colors" role="radiogroup" aria-label="强调色">
@@ -112,7 +112,7 @@
                     <button type="button" class="md-setting-color" data-accent-option="red" style="--accent-color:#e11d48" role="radio" aria-label="红色"></button>
                 </span>
             </div>
-            <div class="md-setting-row md-setting-row--static">
+            <div class="md-setting-row md-setting-row--static md-setting-row--appearance">
                 <span class="md-setting-row__icon">{{ md_icon('grid') }}</span>
                 <span class="md-setting-row__title">书架列数</span>
                 <span class="md-setting-segments" role="radiogroup" aria-label="手机书架列数">
@@ -121,7 +121,7 @@
                     <button type="button" class="md-setting-segment" data-shelf-columns="3" role="radio" aria-checked="false">3 列</button>
                 </span>
             </div>
-            <div class="md-setting-row md-setting-row--static">
+            <div class="md-setting-row md-setting-row--static md-setting-row--appearance">
                 <span class="md-setting-row__icon">{{ md_icon('menu') }}</span>
                 <span class="md-setting-row__title">底部 Dock 栏</span>
                 <span class="md-setting-segments" role="radiogroup" aria-label="移动版底部 Dock 栏">
@@ -129,8 +129,14 @@
                     <button type="button" class="md-setting-segment" data-dock-option="on" role="radio" aria-checked="false">开启</button>
                 </span>
             </div>
+            <button type="button" class="md-setting-row" data-cover-motion-toggle role="switch" aria-checked="false" aria-describedby="cover-motion-note">
+                <span class="md-setting-row__icon">{{ md_icon('refresh') }}</span>
+                <span class="md-setting-row__title">封面动效</span>
+                <span class="settings-switch" aria-hidden="true"></span>
+            </button>
         </div>
-        <p class="md-setting-group__note">「书架列数」只作用于手机窄屏（漫画与小说书架）；桌面保持自适应列数，选「自动」即恢复默认。「底部 Dock 栏」只作用于手机窄屏，默认关闭，导航使用顶部栏。</p>
+        <p class="md-setting-group__note">手机书架可自选列数，桌面自动排列。开启 Dock 后，手机底部会显示导航栏。</p>
+        <p class="md-setting-group__note" id="cover-motion-note">封面动效默认关闭。开启后，首页封面下拉时会放大，松手后回弹。</p>
     </section>
 
     <section class="md-setting-group">

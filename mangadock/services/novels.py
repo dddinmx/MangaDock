@@ -80,12 +80,24 @@ def _read_epub_entry(epub, name, max_bytes):
 
 
 def _read_package(epub):
-    container = ET.fromstring(_read_epub_entry(epub, 'META-INF/container.xml', MAX_EPUB_METADATA_BYTES))
+    container_path = 'META-INF/container.xml'
+    if container_path not in epub.namelist():
+        candidates = [
+            name for name in epub.namelist()
+            if name.endswith('/' + container_path)
+            and not any(part.startswith('._') or part == '__MACOSX' for part in name.split('/'))
+        ]
+        if len(candidates) != 1:
+            raise ValueError('EPUB 入口文件缺失或不唯一')
+        container_path = candidates[0]
+    # full-path 相对于 EPUB 根目录；有些文件打包时额外套了外层目录。
+    epub_root = container_path[:-len('META-INF/container.xml')]
+    container = ET.fromstring(_read_epub_entry(epub, container_path, MAX_EPUB_METADATA_BYTES))
     rootfile = next(
         element for element in container.iter()
         if _local_name(element.tag) == 'rootfile'
     )
-    package_path = rootfile.attrib['full-path']
+    package_path = posixpath.normpath(posixpath.join(epub_root, rootfile.attrib['full-path']))
     package = ET.fromstring(_read_epub_entry(epub, package_path, MAX_EPUB_METADATA_BYTES))
     return package_path, package
 

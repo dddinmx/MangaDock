@@ -2,7 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
     <!-- 引入Font Awesome（可选：本地引用更稳定，此处先使用CDN确保图标显示） -->
@@ -13,8 +15,7 @@
         (() => {
             try {
                 const savedTheme = localStorage.getItem('mangadock-theme');
-                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+                if (savedTheme !== 'light') {
                     document.documentElement.classList.add('theme-dark');
                 }
             } catch (error) {
@@ -603,13 +604,14 @@
     </style>
     <link rel="stylesheet" href="{{ asset_url('css/interaction-feedback.css') }}">
     <script defer src="{{ asset_url('js/interaction-feedback.js') }}"></script>
+    <link rel="stylesheet" href="{{ asset_url('css/ui-polish.css') }}">
 </head>
-<body>
+<body class="md-auth-page">
     <div class="login-cover-scene" aria-hidden="true">
         <div class="login-cover-wall">
             {% for item in login_wall %}
                 <div class="login-cover-tile">
-                    <img src="{{ item.url }}" alt="" decoding="async"
+                    <img src="{{ item.url }}" alt="" decoding="async" loading="{{ 'eager' if loop.index <= 8 else 'lazy' }}" fetchpriority="low"
                          data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
                 </div>
             {% endfor %}

@@ -500,6 +500,34 @@
         imgElement.src = imageUrl;
     }
 
+    let renderedLogEntries = null;
+    function updateTaskLogs(entries) {
+        const logs = entries || [];
+        const container = document.getElementById('log-container');
+        if (renderedLogEntries && logs.length === renderedLogEntries.length && logs.every((entry, i) => entry === renderedLogEntries[i])) return;
+        const followEnd = renderedLogEntries === null || container.scrollHeight - container.clientHeight - container.scrollTop < 32;
+        const previousTop = container.scrollTop;
+        const canAppend = renderedLogEntries && renderedLogEntries.length > 0 && logs.length >= renderedLogEntries.length && renderedLogEntries.every((entry, i) => entry === logs[i]);
+        const first = canAppend ? renderedLogEntries.length : 0;
+        if (!canAppend) container.replaceChildren();
+        const fragment = document.createDocumentFragment();
+        logs.slice(first).forEach(entry => {
+            const line = document.createElement('div');
+            line.className = 'md-log-line';
+            line.textContent = entry;
+            fragment.appendChild(line);
+        });
+        if (!logs.length) {
+            const empty = document.createElement('div');
+            empty.className = 'md-log-empty';
+            empty.textContent = '等待任务开始...';
+            fragment.appendChild(empty);
+        }
+        container.appendChild(fragment);
+        renderedLogEntries = logs.slice();
+        container.scrollTop = followEnd ? container.scrollHeight : previousTop;
+    }
+
     // 添加日志条目
     function addLogEntry(message) {
         const logContainer = document.getElementById('log-container');
@@ -507,6 +535,7 @@
         logElement.className = 'md-log-line';
         logElement.textContent = message;
         logContainer.appendChild(logElement);
+        renderedLogEntries = null;
         logContainer.scrollTop = logContainer.scrollHeight;
     }
 
@@ -530,24 +559,7 @@
             element.textContent = `${data.comic_name}`;
         }
 
-        const logContainer = document.getElementById('log-container');
-        logContainer.innerHTML = '';
-
-        if (data.log && data.log.length > 0) {
-            data.log.forEach(logEntry => {
-                const logElement = document.createElement('div');
-                logElement.className = 'md-log-line';
-                logElement.textContent = logEntry;
-                logContainer.appendChild(logElement);
-            });
-        } else {
-            const emptyLogElement = document.createElement('div');
-            emptyLogElement.className = 'md-log-empty';
-            emptyLogElement.textContent = '等待任务开始...';
-            logContainer.appendChild(emptyLogElement);
-        }
-
-        logContainer.scrollTop = logContainer.scrollHeight;
+        updateTaskLogs(data.log);
     }
 
     // 获取状态文本

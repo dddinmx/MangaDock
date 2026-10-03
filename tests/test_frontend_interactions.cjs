@@ -43,6 +43,23 @@ assert.deepEqual(items.map((item) => item.checkbox.checked), [false, false]);
 assert.equal(count.textContent, 0);
 assert.equal(submit.disabled, true);
 
+// Novel selection must also clear books hidden by a later filter.
+const novelTemplate = fs.readFileSync(path.join(root, 'templates/novel_groups.html'), 'utf8');
+const novelScript = novelTemplate.match(/\{% block extra_scripts %\}\s*<script>([\s\S]*?)<\/script>/)[1];
+const novelContext = vm.createContext({document: {
+    querySelectorAll: () => items,
+    getElementById(id) { return {'novel-group-search': search, 'novel-selected-count': count, 'novel-batch-submit': submit, 'novel-group-empty': empty}[id]; }
+}});
+vm.runInContext(novelScript, novelContext);
+search.value = 'alpha';
+vm.runInContext('filterNovelItems(); selectVisibleNovels(true)', novelContext);
+assert.equal(items[0].checkbox.checked, true);
+search.value = 'beta';
+vm.runInContext('filterNovelItems(); selectVisibleNovels(false)', novelContext);
+assert.deepEqual(items.map(item => item.checkbox.checked), [false, false]);
+assert.equal(count.textContent, 0);
+assert.equal(submit.disabled, true);
+
 // An old image retry must not overwrite a newer source or reload a successful image.
 const coverScript = fs.readFileSync(path.join(root, 'static/js/cover-retry.js'), 'utf8');
 const listeners = new Map();

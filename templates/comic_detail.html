@@ -54,7 +54,7 @@
     {# 氛围底图（方案 C） #}
     <div class="md-detail-hero-media" aria-hidden="true">
         <picture>
-        <source media="(max-width: 767px)" srcset="{{ cover_hero_image_url(task.comic_name) }}">
+        <source media="(max-width: 767px)" srcset="{{ cover_hero_mobile_image_url(task.comic_name) }}">
         <img
             src="{{ cover_hero_image_url(task.comic_name) }}"
             alt=""
@@ -63,7 +63,7 @@
         >
         </picture>
         <picture>
-        <source media="(max-width: 767px)" srcset="{{ cover_hero_image_url(task.comic_name) }}">
+        <source media="(max-width: 767px)" srcset="{{ cover_hero_mobile_image_url(task.comic_name) }}">
         <img
             class="md-detail-hero-soft"
             src="{{ cover_hero_image_url(task.comic_name) }}"
@@ -165,7 +165,7 @@
                 <span class="md-badge-adult" title="18+ 源漫画">18+</span>
                 {% endif %}
                 <picture>
-                <source media="(max-width: 767px)" srcset="{{ cover_hero_image_url(task.comic_name) }}">
+                <source media="(max-width: 767px)" srcset="{{ cover_hero_mobile_image_url(task.comic_name) }}">
                 <img
                     src="{{ cover_hero_image_url(task.comic_name) }}"
                     alt="{{ task.comic_name }}封面"
@@ -177,7 +177,7 @@
             <div class="md-detail-meta">
                 <h1 class="md-detail-title">{{ task.comic_name }}</h1>
 
-                <p class="md-detail-sub">
+                <p class="md-detail-sub" data-detail-progress="summary">
                     {% if reading_time > 0 %}
                         累计阅读 {{ display_reading_minutes(reading_time) }}
                     {% else %}
@@ -223,7 +223,7 @@
                     </a>
                 </div>
 
-                <div class="md-detail-read-cta">
+                <div class="md-detail-read-cta" data-detail-progress="primary">
                     {% if progress %}
                     <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
                        class="md-btn-primary reader-entry-btn action-press md-detail-read-btn"
@@ -234,6 +234,25 @@
                     {% else %}
                     <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
                        class="md-btn-primary reader-entry-btn action-press md-detail-read-btn"
+                       data-reader-entry="true">
+                        <span class="btn-label">开始阅读</span>
+                        <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
+                    </a>
+                    {% endif %}
+                </div>
+
+                {# 桌面端阅读入口与移动端一样，位于简介之前。 #}
+                <div class="md-detail-desktop-cta" data-detail-progress="desktop">
+                    {% if progress %}
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
+                       class="md-btn-primary reader-entry-btn action-press md-detail-desktop-read-btn"
+                       data-reader-entry="true">
+                        <span class="btn-label">继续阅读 {{ chapters[progress.last_chapter].title if progress.last_chapter >= 0 and progress.last_chapter < chapters|length else '第 %s 章' % (progress.last_chapter + 1) }}</span>
+                        <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
+                    </a>
+                    {% else %}
+                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
+                       class="md-btn-primary reader-entry-btn action-press md-detail-desktop-read-btn"
                        data-reader-entry="true">
                         <span class="btn-label">开始阅读</span>
                         <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
@@ -279,24 +298,6 @@
                 </div>
                 {% endif %}
 
-                {# 桌面端主按钮（移动端用吸底） #}
-                <div class="md-detail-desktop-cta">
-                    {% if progress %}
-                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
-                       class="md-btn-primary reader-entry-btn action-press md-detail-desktop-read-btn"
-                       data-reader-entry="true">
-                        <span class="btn-label">继续阅读 {{ chapters[progress.last_chapter].title if progress.last_chapter >= 0 and progress.last_chapter < chapters|length else '第 %s 章' % (progress.last_chapter + 1) }}</span>
-                        <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
-                    </a>
-                    {% else %}
-                    <a href="{{ url_for('comic_reader', task_id=task.comic_name, return_to=library_return_url|default('')) }}"
-                       class="md-btn-primary reader-entry-btn action-press md-detail-desktop-read-btn"
-                       data-reader-entry="true">
-                        <span class="btn-label">开始阅读</span>
-                        <span class="btn-loading"><i class="fa fa-spinner fa-spin"></i>进入中...</span>
-                    </a>
-                    {% endif %}
-                </div>
             </div>
         </header>
 

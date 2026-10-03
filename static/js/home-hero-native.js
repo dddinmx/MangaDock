@@ -21,9 +21,11 @@
     const panels = [];
     const images = [];
     const loads = new Map();
+    const decodes = new Map();
     const dots = [...hero.querySelectorAll('.md-hero-indicator')];
     const cards = [...hero.querySelectorAll('.md-home-rail__card')];
     let active = 0;
+    let updatedIndex = -1;
     let preparedIndex = -1;
     let viewportWidth = 0;
     let settleTimer = 0;
@@ -53,6 +55,7 @@
     slides.forEach((slide, index) => {
         const panel = document.createElement('div');
         panel.className = 'md-hero-native-panel';
+        panel.style.setProperty('--md-cover-blend', `url(${JSON.stringify(slide.cover)})`);
         const imageBox = document.createElement('div');
         imageBox.className = 'md-hero-native-art';
         const image = index === 0 ? originalArt : new Image();
@@ -67,10 +70,9 @@
         image.decoding = 'async';
         image.draggable = false;
         if (index > 0) {
-            // Native lazy loading anticipates pages during continuous scrolling.
-            image.loading = 'lazy';
+            // Assign src through warm(): early iOS 15 ignores native lazy loading
+            // and would otherwise fetch every large cover on initial render.
             image.fetchPriority = 'low';
-            image.src = slide.artMobile || slide.art || slide.cover;
         }
         imageBox.appendChild(image);
         panel.appendChild(imageBox);
@@ -100,21 +102,25 @@
     hero.dataset.nativeCarousel = 'true';
     hero.classList.add('md-hero--native');
 
-    const measureCopy = (index) => {
-        const description = panels[index].querySelector('.md-hero-desc');
-        const toggle = panels[index].querySelector('[data-hero-description-toggle]');
-        toggle.hidden = !description.classList.contains('is-expanded')
-            && description.scrollHeight <= description.clientHeight + 1;
+    const measureCopies = (indices) => {
+        const measurements = indices.map(index => {
+            const description = panels[index].querySelector('.md-hero-desc');
+            return {
+                toggle: panels[index].querySelector('[data-hero-description-toggle]'),
+                hidden: !description.classList.contains('is-expanded')
+                    && description.scrollHeight <= description.clientHeight + 1,
+            };
+        });
+        measurements.forEach(({toggle, hidden}) => {
+            if (toggle.hidden !== hidden) toggle.hidden = hidden;
+        });
     };
     const load = (index) => {
         if (loads.has(index)) return loads.get(index);
         const image = images[index];
         image.loading = 'eager';
         const promise = new Promise((resolve) => {
-            const finish = () => {
-                if (image.decode) image.decode().catch(() => {}).then(resolve);
-                else resolve();
-            };
+            const finish = () => resolve();
             image.addEventListener('load', finish, {once: true});
             let fallbackAttempted = false;
             image.onerror = () => {
@@ -135,24 +141,54 @@
         if (preparedIndex === index) return;
         const direction = preparedIndex < 0 || index >= preparedIndex ? 1 : -1;
         preparedIndex = index;
+        // Refresh at page boundaries, not on every frame or only after scroll settles.
+        prepareSurfaces(index);
         // Prioritize the visible page, then upcoming pages. Never clear a loaded src:
         // native scrolling can return before another request finishes.
         [0, direction, -direction, direction * 2, -direction * 2, direction * 3]
             .map((offset) => index + offset)
             .filter((target) => target >= 0 && target < slides.length)
             .forEach(load);
-        panels.forEach((panel, n) => panel.classList.toggle('is-near', Math.abs(n - index) <= 1));
+        const near = new Set([index - 1, index, index + 1]
+            .filter(target => target >= 0 && target < slides.length));
+        for (const target of decodes.keys()) if (!near.has(target)) decodes.delete(target);
+        near.forEach(target => {
+            if (decodes.has(target)) return;
+            // A cached download is not a decoded surface: prepare it again on return.
+            const promise = load(target).then(() => {
+                if (decodes.get(target) !== promise) return;
+                const image = images[target];
+                if (image.naturalWidth > 0 && image.decode) return image.decode().catch(() => {
+                    // A temporary decoder failure must not stay cached as ready.
+                    if (decodes.get(target) === promise) decodes.delete(target);
+                });
+            });
+            decodes.set(target, promise);
+        });
+    };
+    const prepareSurfaces = (index, retainActive = false) => {
+        panels.forEach((panel, n) => panel.classList.toggle('is-near',
+            Math.abs(n - index) <= 1 || (retainActive && Math.abs(n - active) <= 1)));
     };
     const update = (index) => {
+        if (updatedIndex === index) return;
+        updatedIndex = index;
         active = index;
+        // Finalize selection after settling; visible surfaces were already prepared.
+        prepareSurfaces(index);
         dots.forEach((dot, n) => {
             dot.classList.toggle('is-active', n === index);
             dot.setAttribute('aria-current', String(n === index));
         });
         cards.forEach((card, n) => card.classList.toggle('is-current', n === index));
-        panels.forEach((panel, n) => { panel.inert = n !== index; });
-        measureCopy(index);
+        panels.forEach((panel, n) => {
+            // Keep selectors correct even before Safari supported the inert property.
+            panel.toggleAttribute('inert', n !== index);
+            panel.setAttribute('aria-hidden', String(n !== index));
+        });
+        measureCopies([index]);
         warm(index);
+        hero.dispatchEvent(new Event('md-home-hero-change', {bubbles: true}));
     };
     const settle = () => {
         busy = false;
@@ -168,6 +204,7 @@
     const go = (index) => {
         index = Math.max(0, Math.min(slides.length - 1, index));
         warm(index);
+        prepareSurfaces(index, true);
         viewport.scrollTo({left: index * viewport.clientWidth, behavior: reduced.matches ? 'auto' : 'smooth'});
     };
     // Scrolling stays native. Advance preloading only when crossing into a new page.
@@ -191,13 +228,13 @@
         viewportWidth = viewport.clientWidth;
         if (busy) { pendingIndex = active; return; }
         viewport.scrollTo({left: active * viewport.clientWidth, behavior: 'auto'});
-        panels.forEach((_, index) => measureCopy(index));
+        measureCopies(panels.map((_, index) => index));
     };
     window.addEventListener('resize', resize, {passive: true});
-    if (document.fonts?.ready) document.fonts.ready.then(() => panels.forEach((_, index) => measureCopy(index)));
+    if (document.fonts?.ready) document.fonts.ready.then(() => measureCopies(panels.map((_, index) => index)));
     window.requestAnimationFrame(() => {
         viewportWidth = viewport.clientWidth;
-        panels.forEach((_, index) => measureCopy(index));
+        measureCopies(panels.map((_, index) => index));
         update(0);
     });
 })();

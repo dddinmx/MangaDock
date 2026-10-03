@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}MangaDock - 小说首页{% endblock %}
-{% block body_class %}md-body min-h-screen{% endblock %}
+{% block body_class %}md-body md-novel-home-page min-h-screen{% endblock %}
 
 {% block main_wrapper %}
 <div class="md-main--flush app-main-content">
@@ -38,7 +38,7 @@
                         {{ '继续阅读' if spotlight.progress else '开始阅读' }}
                     </a>
                     <a href="{{ url_for('novel_detail', novel_id=spotlight.novel_id) }}" class="md-btn-ghost action-press" data-app-loader="true">详情</a>
-                    <span class="md-chapter-pill"><i class="fa fa-bookmark"></i>{{ spotlight.author }}</span>
+                    <span class="md-chapter-pill"><i class="fa fa-bookmark"></i><span class="md-hero-author">{{ spotlight.author }}</span></span>
                 </div>
             </div>
             <div class="md-hero-art">
@@ -60,37 +60,27 @@
     {% endif %}
 
     <div class="md-main md-home-sections">
-        <section class="md-section !py-8">
-            <div class="md-fanqie-panel md-fanqie-home-panel rounded-2xl p-5 md:flex md:items-center md:justify-between md:gap-6">
-                <div>
-                    <h2 class="md-fanqie-title text-xl font-semibold">从番茄小说添加</h2>
-                    <p class="md-fanqie-muted mt-2 text-sm">搜索书名或作者，也可以粘贴番茄链接。</p>
+        <section class="md-section md-novel-home-reading !py-8">
+            <div class="md-novel-home-library-head">
+                <h2 class="md-section-title !mb-0">最近阅读</h2>
+                <div class="md-novel-home-library-actions">
+                    <a href="{{ url_for('fanqie_novel_search') }}" class="md-fanqie-home-search action-press" aria-label="搜索番茄小说，支持书名、作者或番茄链接" data-app-loader="true"><i class="fa fa-search" aria-hidden="true"></i><span>番茄搜索</span></a>
+                    <a href="{{ url_for('novels_list', group='全部') }}" data-app-loader="true">全部书架</a>
                 </div>
-                {# 移动端由 CSS 收成圆形图标按钮（只留放大镜），所以补 aria-label 保住可访问名 #}
-                <a href="{{ url_for('fanqie_novel_search') }}" class="md-btn-primary md-fanqie-home-action" aria-label="搜索与下载" data-app-loader="true"><i class="fa fa-search" aria-hidden="true"></i><span>搜索与下载</span></a>
             </div>
-        </section>
-        {% if latest_novels %}
-        <section class="md-section !py-8">
-            <div class="mb-5 flex items-end justify-between gap-3">
-                <h2 class="md-section-title !mb-0">最近入库</h2>
-                <a href="{{ url_for('novels_list', group='全部') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">全部书架</a>
-            </div>
-            <div class="md-cover-grid">
-                {% for novel in latest_novels %}
-                <a href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" class="md-cover-card" data-app-loader="true">
-                    <div class="md-book">
-                        <div class="md-book__spine" aria-hidden="true"></div>
-                        <div class="md-book__pages" aria-hidden="true"></div>
-                        <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="{{ novel.title }}" decoding="async"></div>
-                    </div>
-                    <div class="md-cover-card__title">{{ novel.title }}</div>
-                    <div class="md-cover-card__meta">{{ novel.author }}</div>
+            {% if recent_novels %}
+            <div class="md-home-rail__track" tabindex="0" role="region" aria-label="最近阅读的小说">
+                {% for novel in recent_novels %}
+                <a href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" class="md-home-rail__card" data-app-loader="true">
+                    <img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="{{ novel.title }}" loading="lazy" decoding="async">
+                    <span class="md-home-rail__cap">{{ novel.title }}</span>
                 </a>
                 {% endfor %}
             </div>
+            {% else %}
+            <p class="md-novel-home-reading-empty">还没有阅读记录，打开一本小说开始阅读吧。</p>
+            {% endif %}
         </section>
-        {% endif %}
     </div>
 </div>
 {% endblock %}

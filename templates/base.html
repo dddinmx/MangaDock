@@ -11,7 +11,7 @@
     <meta id="theme-color-meta" name="theme-color" content="#0B0B0F">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="MangaDock">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>{% block title %}MangaDock{% endblock %}</title>
     <script>
         (() => {
@@ -53,6 +53,8 @@
                 // 移动版底部 Dock 栏开关（「我的 → 外观」）：默认关闭（隐藏 dock）。
                 document.documentElement.dataset.mobileDock =
                     localStorage.getItem('mangadock-mobile-dock') === 'on' ? 'on' : 'off';
+                document.documentElement.dataset.coverMotion =
+                    localStorage.getItem('mangadock-cover-motion') === 'on' ? 'on' : 'off';
 
                 // 默认深色（贴参考图）；仅当用户明确选 light 时用浅色
                 if (savedTheme === 'light') {
@@ -102,6 +104,7 @@
     <link href="{{ asset_url('css/md-theme.css') }}" rel="stylesheet">
     <link href="{{ asset_url('css/comic-detail.css') }}" rel="stylesheet">
     <script defer src="{{ asset_url('js/comic-detail.js') }}"></script>
+    <script defer src="{{ asset_url('js/reader-detail-return.js') }}"></script>
     <script defer src="{{ asset_url('js/home-detail-navigation.js') }}"></script>
     {% if request.endpoint != 'settings' %}<link href="{{ asset_url('css/font-awesome.min.css') }}" rel="stylesheet">{% endif %}
     <style>
@@ -972,6 +975,7 @@
         }
     </style>
     {% block extra_head %}{% endblock %}
+    <link rel="stylesheet" href="{{ asset_url('css/ui-polish.css') }}">
     <link rel="stylesheet" href="{{ asset_url('css/interaction-feedback.css') }}">
     <script defer src="{{ asset_url('js/interaction-feedback.js') }}"></script>
 </head>
@@ -1052,7 +1056,7 @@
 
             <div class="ml-auto flex items-center gap-2">
                 <div class="md-user-menu" id="user-menu">
-                    <button type="button" class="md-user-btn action-press" id="user-menu-toggle" aria-expanded="false" aria-haspopup="true">
+                    <button type="button" class="md-user-btn action-press" id="user-menu-toggle" aria-label="账号与设置" aria-expanded="false" aria-haspopup="true">
                         {{ md_icon('user') }}
                         <span class="hidden max-w-[7rem] truncate sm:inline">{{ current_user.username if current_user else session.get('username', '') }}</span>
                         {% if is_admin_user %}<span class="md-user-role rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-bold text-brand-soft">Admin</span>{% endif %}
@@ -1311,6 +1315,28 @@
             document.querySelectorAll('[data-dock-option]').forEach((button) => {
                 button.addEventListener('click', () => setMobileDock(button.dataset.dockOption));
             });
+
+            const coverMotionToggle = document.querySelector('[data-cover-motion-toggle]');
+            const syncCoverMotion = () => {
+                const isOn = document.documentElement.dataset.coverMotion === 'on';
+                if (!coverMotionToggle) return;
+                coverMotionToggle.setAttribute('aria-checked', isOn ? 'true' : 'false');
+                coverMotionToggle.querySelector('.settings-switch').classList.toggle('is-on', isOn);
+            };
+            syncCoverMotion();
+            if (coverMotionToggle) {
+                coverMotionToggle.addEventListener('click', () => {
+                    const value = document.documentElement.dataset.coverMotion === 'on' ? 'off' : 'on';
+                    document.documentElement.dataset.coverMotion = value;
+                    try {
+                        localStorage.setItem('mangadock-cover-motion', value);
+                    } catch (error) {
+                        console.warn('Failed to persist cover motion preference', error);
+                    }
+                    syncCoverMotion();
+                    window.dispatchEvent(new Event('md-cover-motion-change'));
+                });
+            }
 
             if (groupMenuBtn && groupMenuDropdown) {
                 groupMenuBtn.addEventListener('click', () => {

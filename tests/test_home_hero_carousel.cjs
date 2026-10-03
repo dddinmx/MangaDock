@@ -184,9 +184,9 @@ async function check() {
     assert.equal(copy.nextCopy.querySelector('[data-hero-title-text]').textContent, '漫画 1');
     assert.equal(copy.nextCopy.querySelector('.md-hero-desc').textContent, '简介 1');
     assert.equal(copy.nextCopy.querySelector('[data-hero-description-toggle]').hidden, false);
+    assert.equal(copy.style.transform.includes('translate3d(-'), true);
     assert.equal(nodes.get('[data-hero-description-toggle]').hidden, false);
     assert.equal(hero.querySelector('.md-hero-art-next').src, '/hero-mobile/0.jpg');
-    assert.equal(copy.style.transform.includes('translate3d(-'), true);
     zone.listeners.get('touchend')({changedTouches: [{identifier: 1, clientX: 160, clientY: 104}]});
     assert.equal(nodes.get('[data-hero-title-text]').textContent, '漫画 1');
     assert.equal(hero.classList.contains('is-sliding'), false);

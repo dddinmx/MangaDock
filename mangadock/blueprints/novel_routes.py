@@ -67,23 +67,25 @@ def _novel_with_progress(novel, progress):
 def novel_index():
     novels = get_novels()
     progresses = _novel_progress_lookup(session.get('user_id'))
-    spotlight = None
+    novel_lookup = {novel['novel_id']: novel for novel in novels}
+    recent = []
     for novel_id, progress in sorted(
         progresses.items(), key=lambda item: item[1].last_read_at, reverse=True
     ):
-        novel = next((item for item in novels if item['novel_id'] == novel_id), None)
+        novel = novel_lookup.get(novel_id)
         if novel:
-            spotlight = _novel_with_progress(novel, progress)
+            recent.append(_novel_with_progress(novel, progress))
+        if len(recent) == 18:
             break
+    spotlight = recent[0] if recent else None
     if not spotlight and novels:
         spotlight = _novel_with_progress(novels[0], None)
 
-    latest = [_novel_with_progress(novel, progresses.get(novel['novel_id'])) for novel in novels[:10]]
     return render_template(
         'novel_index.html',
         library_mode='novel',
         spotlight=spotlight,
-        latest_novels=latest,
+        recent_novels=recent,
         novels=novels,
         current_user=get_current_user(),
     )

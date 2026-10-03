@@ -2,10 +2,10 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta id="reader-theme-color-meta" name="theme-color" content="#0b0b0f">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>{{ novel.title }} - 阅读</title>
     <link rel="icon" href="{{ asset_url('favicon.png') }}" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="{{ asset_url('apple-touch-icon.png') }}" sizes="180x180">
@@ -96,8 +96,9 @@
     </style>
     <link rel="stylesheet" href="{{ asset_url('css/interaction-feedback.css') }}">
     <script defer src="{{ asset_url('js/interaction-feedback.js') }}"></script>
+    <link rel="stylesheet" href="{{ asset_url('css/ui-polish.css') }}">
 </head>
-<body>
+<body class="md-novel-reader">
     <header class="novel-reader-header is-hidden" id="reader-header">
         <a class="novel-reader-back" href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" aria-label="返回详情"><i class="fa fa-arrow-left"></i></a>
         <div class="novel-reader-heading"><div class="novel-reader-book">{{ novel.title }}</div><div class="novel-reader-chapter" id="reader-chapter-label">{{ chapter.title }} · {{ chapter.index + 1 }} / {{ chapter.total_chapters }}</div></div>
@@ -171,14 +172,14 @@
     </div>
 
     <nav class="novel-reader-controls is-hidden" id="reader-controls" aria-label="阅读工具">
-        <a class="novel-control{% if chapter.index <= 0 %} is-disabled{% endif %}" id="previous-chapter" href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index - 1) }}" data-reader-nav data-reader-chapter="{{ chapter.index - 1 }}"><i class="fa fa-angle-left"></i><span>上一章</span></a>
-        <a class="novel-control" href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}"><i class="fa fa-list"></i><span>目录</span></a>
+        <a class="novel-control{% if chapter.index <= 0 %} is-disabled{% endif %}" id="previous-chapter" aria-label="上一章" href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index - 1) }}" data-reader-nav data-reader-chapter="{{ chapter.index - 1 }}"><i class="fa fa-angle-left"></i><span>上一章</span></a>
+        <a class="novel-control" href="{{ url_for('novel_detail', novel_id=novel.novel_id) }}" aria-label="小说目录"><i class="fa fa-list"></i><span>目录</span></a>
         <button class="novel-control" type="button" id="font-smaller" aria-label="缩小字号">A−</button>
         <button class="novel-control" type="button" id="font-larger" aria-label="放大字号">A+</button>
         <button class="novel-control" type="button" id="font-toggle" aria-label="选择阅读字体"><i class="fa fa-font"></i><span>字体</span></button>
         <button class="novel-control" type="button" id="background-toggle" aria-label="设置阅读背景"><i class="fa fa-paint-brush"></i><span>背景</span></button>
         <button class="novel-control" type="button" id="mode-toggle" aria-label="选择阅读模式"><i class="fa fa-book"></i><span>模式</span></button>
-        <a class="novel-control is-primary{% if chapter.index + 1 >= chapter.total_chapters %} is-disabled{% endif %}" id="next-chapter" href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index + 1) }}" data-reader-nav data-reader-chapter="{{ chapter.index + 1 }}"><span>下一章</span><i class="fa fa-angle-right"></i></a>
+        <a class="novel-control is-primary{% if chapter.index + 1 >= chapter.total_chapters %} is-disabled{% endif %}" id="next-chapter" aria-label="下一章" href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index + 1) }}" data-reader-nav data-reader-chapter="{{ chapter.index + 1 }}"><span>下一章</span><i class="fa fa-angle-right"></i></a>
     </nav>
 
     <script>

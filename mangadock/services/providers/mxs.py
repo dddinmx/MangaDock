@@ -509,4 +509,3 @@ def download_mxs_chapter(source, chapter, folder, comic_format, task_id):
     except Exception as exc:
         shutil.rmtree(save_dir, ignore_errors=True)
         return False, f"章节 {chapter['title']} 下载失败: {exc}"
-

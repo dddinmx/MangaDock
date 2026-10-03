@@ -62,10 +62,11 @@
     <header class="md-setting-header">
         <h1 class="md-setting-header__title">任务列表</h1>
         <p class="md-setting-header__sub">
-            下载和更新任务的历史记录与当前状态{% if tasks %}（共 {{ tasks|length }} 条）{% endif %}
+            下载和更新任务的历史记录与当前状态{% if tasks %}（共 <span id="task-record-count">{{ tasks|length }}</span> 条）{% endif %}
         </p>
     </header>
 
+    <div id="task-records" data-count="{{ tasks|length }}" data-active="{{ 'true' if active_task_count > 0 else 'false' }}" data-deletable-count="{{ deletable_task_count }}" data-active-count="{{ active_task_count }}">
     {% if tasks %}
     {% set status_labels = {'running': '进行中', 'completed': '已完成', 'error': '出错', 'cancelled': '已取消'} %}
     {% set status_classes = {'running': 'is-running', 'completed': 'is-completed', 'error': 'is-error', 'cancelled': 'is-cancelled'} %}
@@ -132,6 +133,7 @@
         </div>
     </section>
     {% endif %}
+    </div>
 </div>
 {% endblock %}
 
@@ -139,9 +141,9 @@
 <script src="{{ asset_url('js/api_v1.js') }}"></script>
 <script>
     const csrfToken = "{{ csrf_token() }}";
-    const hasActiveTasks = {{ 'true' if tasks|selectattr('status', 'in', ['pending', 'running'])|list|length else 'false' }};
-    const deletableTaskCount = {{ deletable_task_count|default(0) }};
-    const activeTaskCount = {{ active_task_count|default(0) }};
+    let hasActiveTasks = {{ 'true' if tasks|selectattr('status', 'in', ['pending', 'running'])|list|length else 'false' }};
+    let deletableTaskCount = {{ deletable_task_count|default(0) }};
+    let activeTaskCount = {{ active_task_count|default(0) }};
     let autoRefreshTimer = null;
     let isMutatingTasks = false;
 
@@ -213,19 +215,53 @@
             });
     }
 
-    function startTasksAutoRefresh() {
-        if (!hasActiveTasks || autoRefreshTimer) {
-            return;
-        }
+    let refreshPending = false;
+    let taskPageActive = true;
 
-        autoRefreshTimer = window.setInterval(() => {
-            if (document.hidden || isMutatingTasks) {
-                return;
-            }
-            window.location.reload();
-        }, 4000);
+    async function refreshTaskRecords() {
+        if (document.hidden || !taskPageActive || isMutatingTasks || refreshPending) return;
+        refreshPending = true;
+        try {
+            const response = await fetch(window.location.href, {cache: 'no-store'});
+            if (!response.ok) return;
+            const html = await response.text();
+            if (!taskPageActive || document.hidden || isMutatingTasks) return;
+            const next = new DOMParser().parseFromString(html, 'text/html').getElementById('task-records');
+            const current = document.getElementById('task-records');
+            if (!next || !current || current.contains(document.activeElement)) return;
+            if (current.innerHTML !== next.innerHTML) current.innerHTML = next.innerHTML;
+            const count = document.getElementById('task-record-count');
+            if (count) count.textContent = next.dataset.count;
+            hasActiveTasks = next.dataset.active === 'true';
+            deletableTaskCount = Number(next.dataset.deletableCount);
+            activeTaskCount = Number(next.dataset.activeCount);
+            if (!hasActiveTasks) stopTasksAutoRefresh();
+            else startTasksAutoRefresh();
+        } catch (error) {
+            console.warn('任务状态暂时无法更新', error);
+        } finally {
+            refreshPending = false;
+        }
     }
 
+    function stopTasksAutoRefresh() {
+        window.clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+    }
+    function startTasksAutoRefresh() {
+        if (!hasActiveTasks || autoRefreshTimer || document.hidden || !taskPageActive) return;
+        autoRefreshTimer = window.setInterval(refreshTaskRecords, 4000);
+    }
     document.addEventListener('DOMContentLoaded', startTasksAutoRefresh);
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) stopTasksAutoRefresh();
+        else { refreshTaskRecords(); startTasksAutoRefresh(); }
+    });
+    window.addEventListener('pagehide', () => { taskPageActive = false; stopTasksAutoRefresh(); });
+    window.addEventListener('pageshow', (event) => {
+        taskPageActive = true;
+        if (event.persisted) refreshTaskRecords();
+        startTasksAutoRefresh();
+    });
 </script>
 {% endblock %}

@@ -83,7 +83,7 @@
                         {% if not scan_path.is_default %}
                         <form method="post" action="{{ url_for('delete_scan_path', scan_path_id=scan_path.id) }}" data-api-v1="scan-delete" data-scan-id="{{ scan_path.id }}" data-api-confirm="确定移除该扫盘路径吗？">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="rounded-lg border border-rose-400/30 bg-rose-500/10 text-rose-300 px-3 py-1.5 text-xs font-semibold action-press whitespace-nowrap">
+                            <button type="submit" class="md-scan-remove rounded-lg border border-rose-400/30 bg-rose-500/10 text-rose-300 px-3 py-1.5 text-xs font-semibold action-press whitespace-nowrap">
                                 <i class="fa fa-trash" style="margin-right:0.25rem"></i>移除
                             </button>
                         </form>

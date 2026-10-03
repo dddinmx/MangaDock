@@ -3,9 +3,9 @@
 {% block title %}{% if query %}搜索：{{ query }}{% else %}搜索{% endif %} - MangaDock{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+<div class="md-search-results-head mb-8 flex flex-wrap items-end justify-between gap-3">
     <div>
-        <h1 class="text-2xl font-bold text-white md:text-3xl">搜索结果</h1>
+        <h1 class="md-page-title">搜索结果</h1>
         {% if query %}
         <p class="mt-2 text-sm text-ink-300">
             「{{ query }}」共 <span class="font-semibold text-white">{{ result_count }}</span> 个结果
@@ -14,7 +14,7 @@
         <p class="mt-2 text-sm text-ink-300">在顶部搜索栏输入漫画名称，在本地书库中查找</p>
         {% endif %}
     </div>
-    <a href="{{ url_for('comics_list', group='全部') }}" class="text-sm text-ink-300 hover:text-white" data-app-loader="true">返回书架</a>
+    <a href="{{ url_for('comics_list', group='全部') }}" class="md-btn-ghost" data-app-loader="true">返回书架</a>
 </div>
 
 {% if query and comics %}
@@ -26,7 +26,7 @@
             <div class="md-book__pages" aria-hidden="true"></div>
             <div class="md-book__cover">
                 <img src="{{ cover_image_url(comic.comic_name) }}" alt="{{ comic.comic_name }}"
-                     decoding="async"
+                     decoding="async" loading="{{ 'eager' if loop.index <= 4 else 'lazy' }}"
                      data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
             </div>
         </div>

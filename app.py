@@ -13,6 +13,13 @@ import sys
 import threading
 import time
 
+# libobjc reads this setting at process startup, so direct macOS launches must
+# exec once before importing the app and forking Gunicorn's web workers.
+if (__name__ == '__main__' and sys.platform == 'darwin'
+        and os.environ.get('OBJC_DISABLE_INITIALIZE_FORK_SAFETY') != 'YES'):
+    os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
 from mangadock import app
 from mangadock.services.workers import (
     requeue_orphan_running_tasks,

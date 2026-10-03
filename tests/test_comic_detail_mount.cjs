@@ -10,7 +10,8 @@ const context = {
     document: {
         addEventListener: (name, fn) => listeners.set(name, fn),
         getElementById: name => name === 'comic-detail-description' ? description : null,
-        querySelector: selector => selector === '[data-comic-synopsis-toggle]' ? toggle : null,
+        querySelector: selector => selector === '#comic-detail-description, #novel-detail-description' ? description
+            : selector === '[data-comic-synopsis-toggle], [data-novel-synopsis-toggle]' ? toggle : null,
         querySelectorAll: selector => selector === '[data-reader-entry]' ? [reader]
             : selector === '.comic-detail form:not([data-api-v1])' ? [form] : [],
     },

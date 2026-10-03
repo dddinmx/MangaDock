@@ -15,26 +15,31 @@ const parts = [0, 100, 0, 100].map(x => ({
         return animation;
     },
 }));
+const background = {animate: parts[0].animate};
+const nextBackground = {animate: parts[0].animate};
 let finished = 0;
-vm.runInNewContext(source.slice(start, end) + '\nsettleSlide(1, "/cover.jpg", true, 7, 1, 420);', {
-    mobileArt: false, nextArt: parts[1], nextBackground: null, movingParts: () => parts,
+vm.runInNewContext(source.slice(start, end) + '\nsettleSlide(1, "/cover.jpg", true, 7, 1, 360);', {
+    mobileArt: false, nextArt: parts[1], background, nextBackground, movingParts: () => parts,
+    getComputedStyle: () => {throw Error('Animation startup must not read computed styles');},
     slideEasing: 'ease', Promise,
-    setProgress: () => parts.forEach((part, index) => {part.style.transform = `translateX(${index % 2 ? 0 : -100}%)`;}),
+    setProgress: () => {throw Error('Browser animation must not write end transforms before starting');},
     finishSlide: (index, url, committed, token) => {
         assert.equal(index, 1); assert.equal(committed, true); assert.equal(token, 7); finished++;
     },
 });
-assert.equal(animations.length, 4, 'Covers and copy must all have explicit animations');
+assert.equal(animations.length, 6, 'Covers, copy and blurred backgrounds animate together');
+assert.equal(animations[4].frames[0].opacity, '0.9');
+assert.equal(animations[5].frames[0].opacity, '0.001');
 assert.equal(finished, 0, 'Slide must wait for actual animation completion');
 animations.forEach(animation => {
-    assert.equal(animation.options.duration, 420);
-    assert.notEqual(animation.frames[0].transform, animation.frames[1].transform);
+    assert.equal(animation.options.duration, 360);
+    if (animation.frames[0].transform) assert.notEqual(animation.frames[0].transform, animation.frames[1].transform);
     animation.resolve();
 });
 setImmediate(() => {
     assert.equal(finished, 1);
     assert(animations.every(animation => animation.cancelled));
-    console.log('Desktop hero animates all layers and settles after animation completion');
+    console.log('Desktop animation starts without style reads or endpoint writes, then settles all six layers');
 });
 
 async function checkMotionPreference() {
@@ -54,3 +59,13 @@ async function checkMotionPreference() {
     }
 }
 checkMotionPreference().catch(error => {console.error(error); process.exitCode = 1;});
+
+// Clicking a cover already staged during idle must not reset its blurred image source.
+const stage = source.slice(source.indexOf('    const stageSlide ='), source.indexOf('    const prepareSlide ='));
+let sourceWrites = 0;
+const standby = {style: {}, getAttribute: () => '/cover.jpg', set src(_) {sourceWrites++;}};
+vm.runInNewContext(stage + '\nstageSlide(1, "/cover.jpg", 1);', {
+    background: {style: {}}, nextBackground: standby, stagedIndex: 1,
+    movingParts: () => parts, setProgress() {},
+});
+assert.equal(sourceWrites, 0, 'Prepared blurred cover source is reused on click');

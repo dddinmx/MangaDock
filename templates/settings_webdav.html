@@ -100,11 +100,15 @@
     const label = document.getElementById('webdav-sync-progress');
     if (!label) return;
     const button = document.querySelector('form[action="{{ url_for("sync_webdav") }}"] button');
+    let timer = null, pending = false, pageActive = true;
     async function poll() {
+        if (document.hidden || !pageActive || pending) return;
+        pending = true;
         try {
             const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
-            if (response.ok) {
+            if (response.ok && !document.hidden && pageActive) {
                 const data = await response.json(), p = data.progress;
+                if (document.hidden || !pageActive) return;
                 const active = ['pending', 'running'].includes(data.status);
                 if (button) button.disabled = active;
                 document.getElementById('webdav-sync-controls').hidden = !active;
@@ -120,9 +124,15 @@
                     data.status === 'running' ? `正在同步 ${p.done || 0}/${p.total || 0} 部，已索引 ${p.added || 0} 部，跳过 ${p.skipped || 0} 部，失败 ${p.failed || 0} 部${p.current ? ' · ' + p.current : ''}。可以离开此页` :
                     data.message || '';
             }
-        } catch (_) {}
-        setTimeout(poll, 2000);
+        } catch (_) {} finally {
+            pending = false;
+            if (!document.hidden && pageActive) timer = setTimeout(poll, 2000);
+        }
     }
+    function stop() { clearTimeout(timer); timer = null; }
+    document.addEventListener('visibilitychange', () => { stop(); if (!document.hidden) poll(); });
+    window.addEventListener('pagehide', () => { pageActive = false; stop(); });
+    window.addEventListener('pageshow', () => { pageActive = true; stop(); poll(); });
     poll();
 })();
 </script>

@@ -3,24 +3,27 @@
 {% block title %}小说书架 - MangaDock{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex flex-wrap items-end justify-between gap-3">
+<div class="md-library-heading mb-8 flex flex-wrap items-end justify-between gap-3">
     <div>
         <h1 class="md-page-title">小说书架</h1>
-        <p class="md-page-sub">{% if selected_group == '全部' %}全部分组{% else %}{{ selected_group }}{% endif %} · 共 {{ pagination.total_items }} 本</p>
+        <p class="md-page-sub">共 {{ pagination.total_items }} 本</p>
     </div>
-    <div class="md-lib-toolbar flex flex-wrap items-center gap-2">
+    <div class="md-lib-toolbar comics-library-toolbar novels-library-toolbar flex flex-wrap items-center gap-2">
         {% if groups %}
-        <select class="md-lib-select" aria-label="切换小说分组" onchange="window.location.href=this.value">
+        <div class="comics-group-picker">
+        <span aria-hidden="true">{{ '全部分组' if selected_group == '全部' else selected_group }}</span>
+        <select class="comics-group-select" aria-label="切换小说分组" onchange="window.location.href=this.value">
             <option value="{{ url_for('novels_list', group='全部') }}" {% if selected_group == '全部' %}selected{% endif %}>全部分组</option>
             {% for group_name in groups %}
             <option value="{{ url_for('novels_list', group=group_name) }}" {% if selected_group == group_name %}selected{% endif %}>{{ group_name }}（{{ group_counts.get(group_name, 0) }}）</option>
             {% endfor %}
         </select>
+        </div>
         {% endif %}
         {% if can_manage_library %}
-        <a href="{{ url_for('novel_group_manager') }}" class="md-btn-ghost action-press" data-app-loader="true"><i class="fa fa-folder-open mr-2"></i>管理分组</a>
+        <a href="{{ url_for('novel_group_manager') }}" class="comics-library-manage action-press" data-app-loader="true" aria-label="管理分组"><i class="fa fa-folder-open" aria-hidden="true"></i><span>管理分组</span></a>
         {% endif %}
-        <a href="{{ url_for('fanqie_novel_search') }}" class="md-btn-primary" data-app-loader="true"><i class="fa fa-plus mr-2"></i>添加番茄小说</a>
+        <a href="{{ url_for('fanqie_novel_search') }}" class="comics-library-manage novels-library-add action-press" data-app-loader="true" aria-label="添加番茄小说"><i class="fa fa-plus" aria-hidden="true"></i><span>添加小说</span></a>
     </div>
 </div>
 
@@ -31,7 +34,7 @@
         <div class="md-book">
             <div class="md-book__spine" aria-hidden="true"></div>
             <div class="md-book__pages" aria-hidden="true"></div>
-            <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="{{ novel.title }}" decoding="async"></div>
+            <div class="md-book__cover"><img src="{{ url_for('novel_cover', novel_id=novel.novel_id, v=novel.cover_version) }}" alt="{{ novel.title }}" decoding="async" loading="{{ 'eager' if loop.index <= 4 else 'lazy' }}"></div>
         </div>
         <div class="md-cover-card__title">{{ novel.title }}</div>
         <div class="md-cover-card__meta">

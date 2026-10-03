@@ -387,8 +387,8 @@ def refresh_update_checks(force=False, async_refresh=False):
                 local_total = len(local_bases)
                 pending_items = [
                     chapter for chapter in remote_chapters
-                    if not is_existing_local_chapter(chapter, local_match_bases)
-                    or chapter_match_keys(chapter) & incomplete_bases
+                    if (not is_existing_local_chapter(chapter, local_match_bases)
+                        or chapter_match_keys(chapter) & incomplete_bases)
                 ]
                 pending_chapters = len(pending_items)
                 has_updates = pending_chapters > 0
