@@ -247,11 +247,11 @@
         .login-cover-scene {
             position: fixed;
             z-index: -3;
-            top: -5vh;
-            left: -17vw;
-            width: max(138vw, 250vh);
-            height: 140vh;
-            transform: rotate(-8deg);
+            top: 50%;
+            left: 50%;
+            width: max(138vw, 325vh);
+            height: auto;
+            transform: translate(-50%, -50%) rotate(-8deg);
             transform-origin: center;
             pointer-events: none;
         }
@@ -260,7 +260,7 @@
             /* 48 格 = 12 列 × 4 行；行高由封面宽度决定，保持 3:4 比例。 */
             grid-template-columns: repeat(12, minmax(84px, 1fr));
             grid-template-rows: repeat(4, max-content);
-            height: 100%;
+            height: auto;
             align-content: start;
             gap: clamp(7px, .7vw, 12px);
         }
@@ -487,8 +487,8 @@
                 background: linear-gradient(180deg, rgba(4, 4, 7, .5), rgba(4, 4, 7, .78) 44%, rgba(4, 4, 7, .94));
             }
             .login-cover-scene {
-                top: -5vh;
-                left: -60vw;
+                top: 50%;
+                left: 50%;
                 width: max(130vw, 130vh);
             }
             .login-cover-wall {
@@ -579,10 +579,10 @@
         }
         @media (max-width: 900px) {
             .login-cover-scene {
-                top: -5vh;
-                left: -56vw;
+                top: 50%;
+                left: 50%;
                 width: max(130vw, 130vh);
-                height: 120vh;
+                height: auto;
             }
             .login-cover-wall {
                 grid-template-columns: repeat(8, minmax(80px, 1fr));

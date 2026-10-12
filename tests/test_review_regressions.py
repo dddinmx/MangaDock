@@ -804,7 +804,7 @@ class ReviewRegressions(unittest.TestCase):
         for name in ('comics.html', 'settings_webdav.html'):
             poll = (root / name).read_text().split('async function poll()', 1)[1]
             self.assertNotIn('if (!response.ok) return', poll)
-            self.assertIn('if (response.ok)', poll)
+            self.assertRegex(poll, r'if \(response\.ok(?:\s*&&|\))')
             if name == 'comics.html':
                 self.assertIn('finally {', poll)
                 self.assertIn('schedulePoll(nextDelay);', poll)

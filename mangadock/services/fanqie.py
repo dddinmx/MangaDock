@@ -205,7 +205,9 @@ def execute_fanqie_task(task_id: str) -> bool:
         if existing:
             destination = Path(existing["file_path"])
         else:
-            destination = Path(NOVEL_ROOT) / f"{sanitize_filename(f'{title}_{author}')}.epub"
+            destination = Path(NOVEL_ROOT) / f"{sanitize_filename(f'{title}_{author}')}_{book_id}.epub"
+            if destination.exists():
+                raise RuntimeError("目标 EPUB 已存在且无法确认书籍身份，未覆盖原文件")
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(f".{destination.stem}.{task_id}.part.epub")
         client.download_artifact(api_job, temporary)

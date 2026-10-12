@@ -215,48 +215,25 @@ def record_reading_time(comic_name, duration_seconds, user_id, session_key=None)
 
         delta_seconds = normalized_seconds
         if session_key:
+            # 每次先执行 upsert，取得 SQLite 写锁后再读取基线。
+            # 即使会话已存在，去重基线和本次时长也在同一写事务内串行提交。
+            now = datetime.now(china_tz)
+            insert_stmt = sqlite_insert(ReadingSessionState).values(
+                user_id=user_id,
+                comic_name=comic_name,
+                session_key=session_key,
+                last_reported_seconds=0,
+                created_at=now,
+                updated_at=now,
+            ).on_conflict_do_nothing(
+                index_elements=['user_id', 'comic_name', 'session_key']
+            )
+            db.session.execute(insert_stmt)
             session_state = ReadingSessionState.query.filter_by(
                 user_id=user_id,
                 comic_name=comic_name,
                 session_key=session_key
-            ).first()
-
-            if not session_state:
-                # code review P1：并发两请求同读 None 再各 insert 会撞 UNIQUE 约束
-                # (user_id, comic_name, session_key)，原 flush() 触发 IntegrityError 被
-                # 外层 except 吞成 400，进度静默丢失。改用 upsert（INSERT … ON CONFLICT
-                # DO NOTHING）保证该行存在，再由下方统一 re-query 取回状态；do_nothing 会
-                # 保留并发方已写入的 baseline，不会互相覆盖丢进度。delta 计算依赖读回的值，
-                # 故此处只用 do_nothing 建行、不在此更新业务字段。
-                now = datetime.now(china_tz)
-                insert_stmt = sqlite_insert(ReadingSessionState).values(
-                    user_id=user_id,
-                    comic_name=comic_name,
-                    session_key=session_key,
-                    last_reported_seconds=0,
-                    created_at=now,
-                    updated_at=now,
-                ).on_conflict_do_nothing(
-                    index_elements=['user_id', 'comic_name', 'session_key']
-                )
-                db.session.execute(insert_stmt)
-                db.session.flush()
-
-                session_state = ReadingSessionState.query.filter_by(
-                    user_id=user_id,
-                    comic_name=comic_name,
-                    session_key=session_key
-                ).first()
-                if not session_state:
-                    # 极端兜底（如并发删除该行）：显式 ORM 插入一次
-                    session_state = ReadingSessionState(
-                        user_id=user_id,
-                        comic_name=comic_name,
-                        session_key=session_key,
-                        last_reported_seconds=0
-                    )
-                    db.session.add(session_state)
-                    db.session.flush()
+            ).populate_existing().first()
 
             delta_seconds = normalized_seconds - max(session_state.last_reported_seconds or 0, 0)
             if delta_seconds <= 0:

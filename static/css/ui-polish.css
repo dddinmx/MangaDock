@@ -150,7 +150,7 @@
 }
 html:not(.theme-dark) .md-auth-page .login-brand { color: #15151e; text-shadow: none; }
 @media (max-width: 768px) {
-    .md-auth-page .login-cover-scene { left: -42vw; width: max(110vw, 100vh); }
+    .md-auth-page .login-cover-scene { left: 50%; width: max(130vw, 130vh); }
     .md-auth-page .login-cover-wall { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(3, max-content); }
     .md-auth-page .login-cover-tile:nth-child(n + 13) { display: none; }
 }
@@ -325,6 +325,7 @@ html .md-fanqie-tool-secondary { background: transparent; }
 .md-novel-home-library-actions a { display: inline-flex; align-items: center; min-height: 44px; gap: .4rem; color: var(--md-muted); font-size: .8125rem; line-height: 1.4; white-space: nowrap; text-decoration: none; }
 .md-fanqie-home-search .fa { color: var(--md-brand-soft); font-size: .8rem; }
 .md-novel-home-page .md-home-sections { padding-bottom: 0; }
+.md-novel-home-page .md-hero-art img { width: auto; max-width: 100%; }
 .md-novel-home-reading { --fig-card-w: clamp(128px, 11vw, 168px); --fig-card-gap: 12px; padding-bottom: 1rem; }
 .md-novel-home-reading .md-home-rail__card { width: var(--fig-card-w); height: calc(var(--fig-card-w) * 1.298245614); }
 .md-novel-home-reading .md-home-rail__track { padding: 10px 0 .75rem; margin-top: -10px; scroll-padding-inline: 0; }

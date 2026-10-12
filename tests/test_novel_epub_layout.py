@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from zipfile import ZipFile
+from urllib.parse import quote
 
 from PIL import Image
 
@@ -57,7 +58,7 @@ class NovelEpubLayoutTests(unittest.TestCase):
         self.assertEqual(novels[0]['chapter_count'], 1)
         self.assertEqual(self.service.get_novel_chapters('book')[0]['title'], '第一章')
         self.assertEqual(self.service.get_novel_chapter('book', 0)['paragraphs'], ['章节正文'])
-        cover_path, mimetype = self.service.get_novel_cover_file('book')
+        cover_path, mimetype = self.service.get_novel_cover_file('book', enhanced=False)
         self.assertEqual(mimetype, 'image/jpeg')
         with Image.open(cover_path) as cover:
             self.assertEqual(cover.size, (20, 30))
@@ -82,6 +83,32 @@ class NovelEpubLayoutTests(unittest.TestCase):
     def test_ambiguous_nested_books_are_not_selected_arbitrarily(self):
         self.write_book('one/', ('two/META-INF/container.xml',))
         self.assertEqual(self.service.get_novels(), [])
+
+    def rewrite_chapter_reference(self, filename, missing=False):
+        path = self.write_book()
+        with ZipFile(path) as epub:
+            entries = {name: epub.read(name) for name in epub.namelist()}
+        encoded = quote(filename, safe='')
+        entries['OPS/book.opf'] = entries['OPS/book.opf'].replace(b'text/chapter.xhtml', f'text/{encoded}'.encode())
+        entries['OPS/nav.xhtml'] = f'<a href="text/{encoded}">第一章</a>'.encode()
+        content = entries.pop('OPS/text/chapter.xhtml')
+        if not missing:
+            entries[f'OPS/text/{filename}'] = content
+        with ZipFile(path, 'w') as epub:
+            for name, content in entries.items():
+                epub.writestr(name, content)
+
+    def test_percent_encoded_chapter_paths_are_readable(self):
+        self.rewrite_chapter_reference('第一 章.xhtml')
+        self.assert_book_readable()
+
+    def test_encoded_hash_is_part_of_the_filename(self):
+        self.rewrite_chapter_reference('chapter#1.xhtml')
+        self.assert_book_readable()
+
+    def test_missing_chapter_returns_none_instead_of_raising(self):
+        self.rewrite_chapter_reference('missing.xhtml', missing=True)
+        self.assertIsNone(self.service.get_novel_chapter('book', 0))
 
 
 if __name__ == '__main__':

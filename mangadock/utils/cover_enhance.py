@@ -392,7 +392,7 @@ def _stepwise_resize(image, new_size):
             return current
         factor = max(new_size[0] / float(width), new_size[1] / float(height))
         if factor <= 1.02:
-            return current
+            return current if current.size == new_size else current.resize(new_size, _resample_filter())
         step = min(factor, 2.0)
         step_size = (
             max(1, int(round(width * step))),

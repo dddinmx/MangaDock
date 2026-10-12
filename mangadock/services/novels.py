@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 """Read the local EPUB novel library without adding an EPUB dependency."""
 import html
+import hashlib
 import logging
 import os
 import posixpath
 import re
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from io import BytesIO
-from threading import get_ident
+from threading import Lock, get_ident
 from zipfile import BadZipFile, ZipFile
+from urllib.parse import unquote
 import xml.etree.ElementTree as ET
 
 from bs4 import BeautifulSoup
@@ -21,7 +24,10 @@ from mangadock.settings import NOVEL_COVER_ROOT, NOVEL_ROOT, china_tz
 logger = logging.getLogger(__name__)
 
 NOVEL_PROGRESS_PREFIX = "novel:"
-NOVEL_COVER_CACHE_VERSION = 1
+NOVEL_COVER_CACHE_VERSION = 2
+_cover_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='novel-cover-upscale')
+_cover_pending = set()
+_cover_lock = Lock()
 MAX_EPUB_METADATA_BYTES = 2 * 1024 * 1024
 MAX_EPUB_CHAPTER_BYTES = 16 * 1024 * 1024
 MAX_EPUB_COVER_BYTES = 8 * 1024 * 1024
@@ -65,7 +71,7 @@ def _clean_text(value, limit=2000):
 
 
 def _resolve_epub_path(base_path, href):
-    return posixpath.normpath(posixpath.join(posixpath.dirname(base_path), href.split('#', 1)[0]))
+    return posixpath.normpath(posixpath.join(posixpath.dirname(base_path), unquote(href.split('#', 1)[0])))
 
 
 def _read_epub_entry(epub, name, max_bytes):
@@ -196,9 +202,20 @@ def get_novels():
         if metadata is METADATA_UNREADABLE:
             continue
         file_stem = os.path.splitext(filename)[0]
-        fallback_title, _, fallback_author = file_stem.rpartition('_')
+        book_id = _fanqie_book_id(metadata)
+        fallback_stem = file_stem.removesuffix(f'_{book_id}') if book_id else file_stem
+        fallback_title, _, fallback_author = fallback_stem.rpartition('_')
         custom_cover_path = os.path.join(NOVEL_COVER_ROOT, f'{file_stem}.jpg')
         cover_source_path = custom_cover_path if os.path.isfile(custom_cover_path) else file_path
+        cover_stat = os.stat(cover_source_path)
+        source_version = (f'{NOVEL_COVER_CACHE_VERSION}-{cover_stat.st_mtime_ns}-'
+                          f'{cover_stat.st_size}-'
+                          f'{"custom" if cover_source_path == custom_cover_path else "epub"}')
+        enhanced_path = _novel_upscaled_cover_path(file_stem, source_version)
+        try:
+            enhanced_version = os.stat(enhanced_path).st_mtime_ns
+        except OSError:
+            enhanced_version = None
         novels.append({
             'novel_id': file_stem,
             'title': metadata['title'] or fallback_title or file_stem,
@@ -208,9 +225,11 @@ def get_novels():
             'language': metadata['language'],
             'chapter_count': len(metadata['spine']),
             'file_path': file_path,
-            'fanqie_book_id': _fanqie_book_id(metadata),
+            'fanqie_book_id': book_id,
             'created_at': datetime.fromtimestamp(file_stat.st_mtime, tz=china_tz),
-            'cover_version': f'{NOVEL_COVER_CACHE_VERSION}-{os.stat(cover_source_path).st_mtime_ns}',
+            'cover_source_version': source_version,
+            'cover_version': (f'{source_version}-{enhanced_version}-sr'
+                              if enhanced_version is not None else source_version + '-source'),
         })
     return sorted(novels, key=lambda item: item['created_at'], reverse=True)
 
@@ -291,7 +310,7 @@ def get_novel_chapter(novel_id, chapter_index):
     try:
         with ZipFile(novel['file_path']) as epub:
             content = _read_epub_entry(epub, chapter_path, MAX_EPUB_CHAPTER_BYTES)
-    except ValueError:
+    except (KeyError, ValueError, OSError, BadZipFile):
         return None
     soup = BeautifulSoup(content, 'html.parser')
     for unwanted in soup(['script', 'style', 'noscript', 'svg']):
@@ -317,11 +336,9 @@ def get_novel_chapter(novel_id, chapter_index):
     }
 
 
-def get_novel_cover_file(novel_id):
+def _get_novel_source_cover_file(novel):
     """Return a local cover file, extracting the EPUB cover only when needed."""
-    novel = get_novel(novel_id)
-    if not novel:
-        return None
+    novel_id = novel['novel_id']
     custom_cover_path = os.path.join(NOVEL_COVER_ROOT, f'{novel_id}.jpg')
     if os.path.isfile(custom_cover_path):
         return custom_cover_path, 'image/jpeg'
@@ -351,7 +368,10 @@ def get_novel_cover_file(novel_id):
     try:
         image = Image.open(BytesIO(content))
         if image.width * image.height > 20_000_000:
-            return None
+            # Large JPEG covers can be decoded at reduced resolution safely.
+            image.draft('RGB', (1920, 1920))
+            if image.width * image.height > 20_000_000:
+                return None
         image.load()
         if image.mode in {'RGBA', 'LA'}:
             canvas = Image.new('RGB', image.size, 'white')
@@ -360,10 +380,6 @@ def get_novel_cover_file(novel_id):
             image = canvas
         elif image.mode != 'RGB':
             image = image.convert('RGB')
-
-        if image.width > 720 or image.height > 1080:
-            resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS')
-            image.thumbnail((720, 1080), resample)
 
         os.makedirs(generated_root, exist_ok=True)
         temporary_path = f'{generated_cover_path}.{os.getpid()}.{get_ident()}.tmp'
@@ -383,6 +399,77 @@ def get_novel_cover_file(novel_id):
         return None
 
     return generated_cover_path, 'image/jpeg'
+
+
+def _novel_upscaled_cover_path(novel_id, source_version):
+    key = hashlib.sha256(f'{novel_id}\0{source_version}'.encode('utf-8')).hexdigest()
+    return os.path.join(NOVEL_COVER_ROOT, 'upscaled', f'{key}.jpg')
+
+
+def _upscale_novel_cover(source_path, target_path):
+    from mangadock.utils.cover_enhance import (
+        _CROSS_LOCK_UNAVAILABLE, _cross_process_lock, _release_lock, enhance_cover_file,
+    )
+
+    handle = _cross_process_lock(f'novel:{target_path}')
+    if handle is None:
+        return target_path if os.path.isfile(target_path) else None
+    try:
+        if os.path.isfile(target_path):
+            return target_path
+        return enhance_cover_file(
+            source_path, target_path, force_pillow=(handle is _CROSS_LOCK_UNAVAILABLE),
+        )
+    finally:
+        if handle is not _CROSS_LOCK_UNAVAILABLE:
+            _release_lock(handle)
+
+
+def _request_novel_cover_upscale(source_path, target_path):
+    def worker():
+        try:
+            _upscale_novel_cover(source_path, target_path)
+        except Exception:
+            logger.exception('小说封面超分失败：%s', source_path)
+        finally:
+            with _cover_lock:
+                _cover_pending.discard(target_path)
+
+    with _cover_lock:
+        if target_path in _cover_pending or os.path.isfile(target_path):
+            return
+        _cover_pending.add(target_path)
+        try:
+            _cover_pool.submit(worker)
+        except Exception:
+            _cover_pending.discard(target_path)
+            logger.exception('小说封面超分排队失败：%s', source_path)
+
+
+def get_novel_cover_file(novel_id, enhanced=True):
+    """Prefer the enhanced cache; queue missing covers without delaying the request."""
+    novel = get_novel(novel_id)
+    if not novel:
+        return None
+    target = _novel_upscaled_cover_path(novel_id, novel['cover_source_version'])
+    if enhanced and os.path.isfile(target):
+        return target, 'image/jpeg'
+    source = _get_novel_source_cover_file(novel)
+    if source and enhanced:
+        _request_novel_cover_upscale(source[0], target)
+    return source
+
+
+def ensure_novel_cover(novel_id):
+    """Synchronously enhance an existing cover for the backfill tool."""
+    novel = get_novel(novel_id)
+    if not novel:
+        return None
+    target = _novel_upscaled_cover_path(novel_id, novel['cover_source_version'])
+    if os.path.isfile(target):
+        return target
+    source = _get_novel_source_cover_file(novel)
+    return _upscale_novel_cover(source[0], target) if source else None
 
 
 def get_novel_cover(novel_id):
@@ -423,4 +510,5 @@ def save_novel_cover(novel_id, file_storage):
     os.makedirs(NOVEL_COVER_ROOT, exist_ok=True)
     cover_path = os.path.join(NOVEL_COVER_ROOT, f'{novel_id}.jpg')
     image.save(cover_path, 'JPEG', quality=92, optimize=True)
+    get_novel_cover_file(novel_id)
     return cover_path

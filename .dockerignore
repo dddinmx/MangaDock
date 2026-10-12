@@ -35,6 +35,7 @@ scripts/
 tools/*
 !tools/cover_sr_worker.py
 !tools/refresh_hero_covers.py
+!tools/refresh_novel_covers.py
 !tools/models
 !tools/models/*.onnx
 

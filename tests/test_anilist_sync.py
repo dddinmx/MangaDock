@@ -358,7 +358,7 @@ class AniListSyncTests(unittest.TestCase):
                  'id': 123, 'title': {'userPreferred': 'Remote Manga'}, 'chapters': 20,
                  'siteUrl': 'https://anilist.co/manga/123',
              }]):
-            response = client.get('/anilist/match/Local%20Manga')
+            response = client.get('/anilist/match/Local%20Manga?q=Local%20Manga')
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'Remote Manga', response.data)
 

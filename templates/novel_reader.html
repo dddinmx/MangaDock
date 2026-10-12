@@ -189,7 +189,8 @@
         const totalChapters = {{ chapter.total_chapters }};
         const serverSavedPage = {{ saved_page or 0 }};
         const serverProgressMs = {{ server_progress_ms|tojson }};
-        const browserProgressKey = `mangadock-novel-progress:${progressKey}`;
+        const readerUserId = {{ reader_user_id|tojson }};
+        const browserProgressKey = `mangadock-novel-progress:${readerUserId}:${progressKey}`;
         function loadBrowserProgress() {
             try {
                 const saved = JSON.parse(localStorage.getItem(browserProgressKey));

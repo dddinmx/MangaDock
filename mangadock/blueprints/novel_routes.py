@@ -379,6 +379,7 @@ def novel_reader(novel_id):
         saved_anchor_paragraph=progress.anchor_paragraph if progress and progress.last_chapter == chapter_index else None,
         saved_anchor_offset=progress.anchor_offset if progress and progress.last_chapter == chapter_index else None,
         progress_key=novel_progress_key(novel_id),
+        reader_user_id=session.get('user_id'),
         chapter_api_base_url=url_for('novel_chapter_data', novel_id=novel_id, chapter_index=0).rsplit('/', 1)[0],
         reader_base_url=url_for('novel_reader', novel_id=novel_id),
     )
@@ -409,17 +410,20 @@ def novel_cover(novel_id):
         resp.headers['Cache-Control'] = 'no-cache, max-age=0'
         return resp
     cover_path, mimetype = cover
+    enhanced = 'upscaled' in cover_path.replace('\\', '/').split('/')
     response = send_file(
         cover_path,
         mimetype=mimetype,
         conditional=True,
         etag=True,
-        max_age=31536000,
+        max_age=31536000 if enhanced else 0,
         download_name=f'{novel_id}.jpg',
     )
     response.cache_control.public = False
     response.cache_control.private = True
-    response.cache_control.immutable = True
+    response.cache_control.immutable = enhanced
+    if not enhanced:
+        response.cache_control.no_cache = True
     return response
 
 
