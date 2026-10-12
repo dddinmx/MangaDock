@@ -8,15 +8,35 @@
 - Chromium 浏览器：2 项通过；原版登录、阅读器翻页、进度写入/刷新恢复、EPUB 脚本隔离、手机登录布局。
 - Python 迁移：19 项通过；包含复用的 18 项漫画/SQLite 迁移测试以及新的 WAL 一致备份/小说清单测试。
 - GitHub CI：[首个测试运行](https://github.com/dddinmx/MangaDock/actions/runs/38276989040) 32 项测试通过；后续增加兼容哈希测试后 [33 项测试运行](https://github.com/dddinmx/MangaDock/actions/runs/38279001621) 通过。
+- [最新 CI](https://github.com/dddinmx/MangaDock/actions/runs/38284821000)：`45d1b27` 的构建、TypeScript 和全部 35 项测试通过。
 - 真实番茄云服务：注册、搜索《三国演义》（罗贯中）、解析 124 个章节成功；通过本地 workerd + 配置的出网代理适配，登录 → 创建来源作业 → 流式存储到本地 R2 → 读取 → D1 保存进度已通过。EPUB 大小 `3,345,550` bytes，SHA-256 `097aa09c3f9bde6efc453e6542b189d4d253397efd4fe67d2cd0675c8a095c1b`。来源返回的 EPUB 以实际产物为准，不能仅凭请求的 chapter_ids 声称只下载了一章。
 
 上述“本地 R2”是 Miniflare 的存储实现；它验证协议和行为，**不能作为真实 Cloudflare R2 部署或 CPU 限额的证明**。测试登录耗时约 875 ms 是 wall time；600k 密码计算已移入单独 Durable Object，不是 HTTP Worker CPU 指标。
 
-## 尚待验证
+## Cloudflare 线上闭环已通过
 
-Cloudflare staging 完整部署、真实云端 R2 + Queue、线上真实书籍浏览器阅读、普通 Worker CPU ≤10 ms 和 Durable Object CPU ≤30 s。现有 workflow 会在部署后执行来源 smoke、浏览器进度恢复、CPU 报告，并上传不含密码/Token 的结果。CPU 查询权限不足、缺数据或 API schema 不符时返回 `verified:false`，不得视为通过。
+测试地址：https://mangadock-novel-staging.dddinmx.workers.dev ，管理员 `admin`，密码仅由 CI Secret 提供。
 
-首轮发布因新增的 16 字符密码检查提前停止；已恢复原项目 6 字符规则，保留强哈希和频率限制。之后来源注册遇到 HTTP 530，用户确认番茄服务当时宕机，并已要求服务恢复后重试；正在重新部署。最终实际部署结果需结合最新 GitHub Actions 运行更新本记录。
+- [成功部署与真实闭环运行](https://github.com/dddinmx/MangaDock/actions/runs/38281279808)：2026-10-12 17:13:58 UTC 发布完成；17:15:29 UTC 真实来源下载、R2 读取、D1 进度写入通过；17:15:37 UTC Chromium 真实书籍阅读与刷新后进度恢复通过。
+- [后续发布](https://github.com/dddinmx/MangaDock/actions/runs/38283342282)：`b6b13fa` 再次部署成功，说明现有来源 Worker Secrets 与已下载书籍可在发布之间保留。
+- [最新发布与浏览器验证](https://github.com/dddinmx/MangaDock/actions/runs/38284815734)：`45d1b27` 全部通过；复用已下载书籍验证 R2 读取与进度恢复，不把重复发布说成又下载了一本新书。
+- 线上 Artifact `deployment-staging` 包含 deployment.json、live-results.json、live-browser-results.json、CPU 报告和阅读器截图；不含 Token、密码或 Cookie。
+- HTTP `/api/health` 已从当前环境核对 200；未携带用户名/密码的登录请求返回正常校验错误 400，说明 Worker 路由可用。
+
+### 免费 CPU 实测
+
+上述最新发布的 GitHub Check Run `114930524958` 的 CPU notice 已通过 API 核对，报告 `verified:true`。Cloudflare GraphQL 统计窗口为 2026-10-12 17:03:12.772–17:33:12 UTC，Worker 为 `mangadock-novel-staging`：
+
+| outcome | 请求数 | errors | CPU p50 | CPU p90 | CPU p99 | CPU max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| success | 260 | 0 | 1.488 ms | 3.287 ms | 8.908 ms | 9.181 ms |
+| clientDisconnected | 4 | 0 | 0.682 ms | 0.841 ms | 0.841 ms | 0.841 ms |
+
+264 次记录中未出现 CPU 超限 outcome；最高 9.181 ms，低于 HTTP Worker Free 10 ms。此窗口覆盖已通过的来源/R2 闭环与后续浏览器验证，但 GraphQL 按脚本/outcome 聚合，不能单独归因到每个 API 路由。4 次客户端断开不能记为成功请求。9.181 ms 的余量较小，新增功能、32 MB 极限文件和压力测试仍需重测；本次不是完整功能或所有负载的免费承诺。
+
+GraphQL 原始单位为 microseconds；上述表已换算成 ms。密码计算所在 Durable Object 的 CPU 不包含在这份 HTTP Worker 报告中；线上登录成功，独立 30 s CPU 的分位数/峰值尚未采集。CI 步骤成功本身也不等于 `verified:true`：查询权限不足、缺数据或 API schema 不符时会输出 `verified:false`。完整正式切流前继续执行架构文档中的扩展验收。
+
+首轮发布因新增密码长度检查停止，已恢复原项目规则。来源曾因服务宕机返回 HTTP 530；恢复后重新部署通过。新 Worker 首次发布的路由曾短暂返回 404，已增加就绪检查。上述故障已修复；不把故障期间测试计入成功闭环。
 
 ## 仍未迁移
 

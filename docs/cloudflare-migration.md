@@ -72,4 +72,4 @@
 
 ## 当前验收状态
 
-真实结果请以本分支测试记录与最终报告为准。部署授权、GitHub 连接或免费 CPU 数据不足时明确标为未验证；不得把本地 R2 模拟环境称为已部署到真实 Cloudflare R2。
+小说试点已部署至 https://mangadock-novel-staging.dddinmx.workers.dev ，35 项自动测试与线上真实番茄下载/R2/阅读/进度恢复通过。Cloudflare 实测窗口 264 次请求中 HTTP Worker CPU 最大 9.181 ms，低于 Free 10 ms；仍需扩展压力、边界文件和 Durable Object CPU 采样。完整功能、权限和全库导入尚未完成，不正式切换旧站域名。详见 [验证记录](cloudflare-validation.md)。
