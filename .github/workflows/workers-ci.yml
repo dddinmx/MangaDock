@@ -1,0 +1,31 @@
+name: Workers tests
+on:
+  pull_request:
+    paths: ['workers/**', 'templates/login.html', 'templates/novel_reader.html', 'static/**', '.github/workflows/workers-*']
+  push:
+    branches: ['main', 'migration/cloudflare-workers']
+    paths: ['workers/**', 'templates/login.html', 'templates/novel_reader.html', 'static/**', '.github/workflows/workers-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: workers/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: workers-test-reports
+          path: workers/test-results/

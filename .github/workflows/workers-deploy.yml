@@ -1,0 +1,70 @@
+name: Deploy Workers (free plan)
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: Deployment environment
+        options: [staging, production]
+        default: staging
+      source_book_id:
+        description: Optional real Fanqie book ID (default 三国演义 first chapter)
+        required: false
+      source_chapter_ids:
+        description: Optional comma-separated real chapter IDs
+        required: false
+  push:
+    branches: ['migration/cloudflare-workers']
+    paths: ['workers/**', '.github/workflows/workers-*']
+permissions:
+  contents: read
+concurrency:
+  group: workers-deploy-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'staging' }}
+    defaults:
+      run:
+        working-directory: workers
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
+      FANQIE_API_TOKEN: ${{ secrets.FANQIE_API_TOKEN }}
+      FANQIE_INSTANCE_ID: ${{ secrets.FANQIE_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: workers/package-lock.json
+      - name: Check configured secrets
+        run: |
+          node --input-type=module -e "for (const key of ['CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','MANGADOCK_ADMIN_PASSWORD']) if (!process.env[key]) throw new Error(key+' Secret is missing');"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify
+      - name: Provision and deploy without upgrading plan
+        env:
+          DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
+        run: npm run bootstrap -- "$DEPLOY_TARGET"
+      - name: Deployed login, library and progress smoke test
+        env:
+          SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
+          SOURCE_CHAPTER_IDS: ${{ inputs.source_chapter_ids || (!inputs.source_book_id && '6838937005267616264') || '' }}
+        run: npm run test:live
+      - name: Report real Cloudflare CPU (never treat wall time as CPU)
+        if: success()
+        run: node scripts/cpu-report.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-${{ inputs.environment || 'staging' }}
+          path: |
+            workers/deployment.json
+            workers/live-results.json
+            workers/cpu-results.json
+          if-no-files-found: ignore

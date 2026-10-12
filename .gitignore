@@ -45,3 +45,15 @@ fanqie-api/
 # Local browser verification artifacts
 .playwright-cli/
 output/playwright/
+
+# Cloudflare migration build, local secrets and test reports
+workers/.dev.vars*
+workers/.wrangler/
+workers/public/
+workers/test-results/
+workers/playwright-report/
+workers/wrangler.*.generated.json
+workers/migration-output/
+workers/deployment.json
+workers/live-results.json
+workers/cpu-results.json

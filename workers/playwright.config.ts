@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'./test/browser',workers:1,use:{baseURL:'http://localhost:8787',headless:true,launchOptions:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:undefined},webServer:{command:'node scripts/test-server.mjs',url:'http://localhost:8787/api/health',reuseExistingServer:false,timeout:120000},reporter:'list'});

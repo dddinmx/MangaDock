@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN" class="theme-dark" data-accent="red"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>小说书架 · MangaDock</title><link rel="icon" href="/static/favicon.png"><link rel="stylesheet" href="/static/css/app.generated.css"><link rel="stylesheet" href="/static/css/md-theme.css"><link rel="stylesheet" href="/static/css/ui-polish.css"><link rel="stylesheet" href="/library.css"></head><body>
+<header><a class="brand" href="/"><img src="/static/logo-192.png" alt="">Manga<span>Dock</span></a><nav><a href="#books">小说书架</a><a href="#download">番茄搜索</a><button id="logout">退出</button></nav></header>
+<main><section class="intro"><p>YOUR PRIVATE LIBRARY</p><h1>下一页故事，正在等你。</h1></section>
+<p id="error" role="alert" hidden></p>
+<section id="download"><h2>番茄小说</h2><form id="search-form"><input name="q" placeholder="搜索书名或作者" aria-label="书名或作者" required maxlength="100"><button>搜索</button></form><div id="search-results"></div><form id="download-form"><input name="book_id" placeholder="番茄书籍 ID" aria-label="番茄书籍 ID" pattern="[0-9]{8,24}" required><button>下载到书架</button></form><div id="jobs" aria-live="polite"></div></section>
+<section id="books"><h2>我的书架</h2><div id="library" class="library"></div></section></main><script type="module" src="/library.js"></script></body></html>

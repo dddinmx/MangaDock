@@ -156,3 +156,7 @@ https://raw.githubusercontent.com/dddinmx/MangaDock/main/static/ext-repo/index.m
 - 作者不对使用本工具造成的损失或纠纷承担责任。
 
 问题与建议请提交 [Issue](https://github.com/dddinmx/MangaDock/issues) 或 Discussion。
+
+## Cloudflare Workers 迁移（开发中）
+
+独立实现位于 [`workers/`](workers/README.md)，架构、免费额度、功能差异和数据迁移方案见 [`docs/cloudflare-migration.md`](docs/cloudflare-migration.md)。此阶段仅验证番茄小说闭环，原 Flask/Docker 版本保持可用；不代表旧功能已全部迁移。

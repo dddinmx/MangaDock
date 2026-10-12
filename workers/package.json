@@ -1,0 +1,33 @@
+{
+  "name": "mangadock-workers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "npm run build && wrangler dev",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "verify": "npm run build && npm run check && npm test && npm run test:e2e && npm run test:migration",
+    "deploy:staging": "npm run build && wrangler deploy --env staging",
+    "deploy:production": "npm run build && wrangler deploy --env production",
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "source:register": "node scripts/register-source.mjs",
+    "test:live": "node scripts/live-smoke.mjs",
+    "test:migration": "python3 -m unittest discover -s test -p \"*_test.py\" && python3 -m unittest discover -s ../tools/cf -p \"test_*.py\""
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.10.0",
+    "@cloudflare/workers-types": "latest",
+    "@playwright/test": "latest",
+    "esbuild": "^0.28.2",
+    "miniflare": "^4.20251011.1",
+    "nunjucks": "^3.2.4",
+    "typescript": "latest",
+    "vitest": "~3.2.0",
+    "wrangler": "latest"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.0.1"
+  }
+}
