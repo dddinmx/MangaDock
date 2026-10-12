@@ -30,9 +30,9 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 当前已验证镜像：[`dddinmx/mangadock:2.11.28`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.28` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.29`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.29` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
-源码 v2.11.29 接入小说封面后台超分与批量补算工具，并修复登录页封面背景缺口、小说首页大封面留白、同名小说下载覆盖、阅读时长重复累计、账号间浏览器阅读进度串用和 EPUB 编码路径读取问题，以及超分输出尺寸。Docker v2.11.29 上传尚未完成，当前公开镜像仍为 v2.11.28；使用这些新功能需要按下方「本地构建」步骤从源码构建。
+本版接入小说封面自动超分，已有小说会在封面访问时后台生成高清缓存，也可在容器内运行 `python tools/refresh_novel_covers.py --apply` 批量补算。修复登录页封面背景缺口、小说首页大封面留白、同名小说下载覆盖、阅读时长重复累计、账号间浏览器阅读进度串用和 EPUB 编码路径读取问题，并限制超分输出尺寸。
 
 ### 1. 准备目录
 
