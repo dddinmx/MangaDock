@@ -151,6 +151,18 @@ async function route(request: Request, env: Env): Promise<Response> {
     const user = await identity(request, env);
     if (path === '/api/v1/auth/me' && method === 'GET') return json({ok:true,data:{id:user.user_id,username:user.username,role:user.role,csrf_token:user.csrf}});
     if (path === '/api/v1/auth/logout' && method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(user.token_hash).run(); return json({ok:true},200,{'Set-Cookie':'md_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'}); }
+    if (path === '/api/source/register' && method === 'POST') {
+      if (user.role!=='admin') throw new HttpError(403,'仅管理员可初始化来源');
+      if (env.FANQIE_API_TOKEN) throw new HttpError(409,'来源已配置');
+      const data=await body(request);
+      if(typeof data.instance!=='string'||!/^[a-zA-Z0-9_-]{8,64}$/.test(data.instance)||typeof data.registration!=='string'||!/^fqr_[a-zA-Z0-9_-]{32,128}$/.test(data.registration)) throw new HttpError(400,'来源初始化凭据格式无效');
+      const base=new URL(env.FANQIE_API_URL);if(base.protocol!=='https:') throw new HttpError(503,'来源必须使用 HTTPS');
+      const response=await fetch(new URL('/v1/register',base),{method:'POST',redirect:'manual',signal:AbortSignal.timeout(25000),headers:{'X-MangaDock-Instance-ID':data.instance,'X-MangaDock-Registration-Key':data.registration,'X-MangaDock-Version':'5.0','X-MangaDock-System':'Cloudflare/Workers','Accept':'application/json','User-Agent':'MangaDock/5.0 Fanqie-Client/1.1'}});
+      if(!response.ok){await response.body?.cancel();throw new HttpError(502,`来源边缘注册 HTTP ${response.status}`);}
+      const payload=await response.json() as {ok:boolean;data?:{token?:string}};
+      if(!payload.ok||!/^fqk_[a-zA-Z0-9_-]{32,128}$/.test(payload.data?.token||''))throw new HttpError(502,'来源注册响应无效');
+      return json({ok:true,data:{token:payload.data!.token}});
+    }
     if (path === '/api/books' && method === 'GET') return json({ok:true,data:(await env.DB.prepare('SELECT id,title,author,size,created_at FROM books ORDER BY created_at DESC LIMIT 200').all()).results});
     if (path === '/api/search' && method === 'GET') {
       const q = url.searchParams.get('q')?.trim() ?? '';
@@ -166,7 +178,7 @@ async function route(request: Request, env: Env): Promise<Response> {
       if (await env.DB.prepare('SELECT id FROM books WHERE source_id=?').bind(sourceId).first()) throw new HttpError(409, '作品已入库；更新下载待下一阶段迁移');
       if (await env.DB.prepare("SELECT id FROM jobs WHERE source_id=? AND state IN ('queued','submitting','running')").bind(sourceId).first()) throw new HttpError(409, '已有进行中的下载');
       const id = crypto.randomUUID();
-      try { await env.DB.prepare('INSERT INTO jobs (id,user_id,source_id,chapter_ids,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(id,user.user_id,sourceId,JSON.stringify(ids),now(),now()).run(); } catch { throw new HttpError(409, '下载已存在或暂时无法创建，请刷新任务列表'); }
+      try { const created=await env.DB.prepare('INSERT INTO jobs (id,user_id,source_id,chapter_ids,created_at,updated_at) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM books WHERE source_id=?) RETURNING id').bind(id,user.user_id,sourceId,JSON.stringify(ids),now(),now(),sourceId).first(); if(!created)throw new Error('Already in library'); } catch { throw new HttpError(409, '下载已存在或暂时无法创建，请刷新任务列表'); }
       // D1 row is the outbox. Cron recovers if publishing to Queue fails.
       try { await env.DOWNLOADS.send({id}); } catch { /* durable outbox remains */ }
       return json({ok:true,data:{id}},202);

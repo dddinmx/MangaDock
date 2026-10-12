@@ -23,26 +23,34 @@ const filename=`wrangler.${target}.generated.json`;await writeFile(filename,JSON
 const migrate=spawnSync('npx',['wrangler','d1','migrations','apply',prefix,'--remote','--config',filename],{stdio:'inherit',env:{...process.env,CI:'true'}});if(migrate.status!==0)throw new Error('D1 migrations 失败');
 const salt=randomBytes(16).toString('hex'),encoded=`pbkdf2:sha256:600000$${salt}$${pbkdf2Sync(password,salt,600000,32,'sha256').toString('hex')}`;
 await cf(`/d1/database/${db.uuid}/query`,'POST',{sql:"INSERT INTO users(id,username,password_hash,role) VALUES ('admin','admin',?,'admin') ON CONFLICT(username) DO NOTHING",params:[encoded]});
-// Worker Secrets survive deployments. Enrol only once; registration uses random high-entropy material.
+// Preserve established Worker Secrets across releases. Only first enrolment generates new source credentials.
 const existingSecrets=await cf(`/workers/scripts/${config.name}/secrets`,'GET',undefined,true)||[];
 const hasSource=existingSecrets.some(secret=>secret.name==='FANQIE_API_TOKEN')&&existingSecrets.some(secret=>secret.name==='FANQIE_INSTANCE_ID');
 let sourceToken=process.env.FANQIE_API_TOKEN,instance=process.env.FANQIE_INSTANCE_ID;
 if(sourceToken&&!instance)throw new Error('FANQIE_API_TOKEN and FANQIE_INSTANCE_ID must be configured together');
-if(!sourceToken&&!hasSource){
- instance='mdcf-'+randomBytes(16).toString('hex');
- const registration='fqr_'+randomBytes(32).toString('base64url');
- const response=await fetch('https://fanqie.dddinmx.cn/v1/register',{method:'POST',headers:{'X-MangaDock-Instance-ID':instance,'X-MangaDock-Registration-Key':registration,'X-MangaDock-Version':'5.0','X-MangaDock-System':'Cloudflare/Workers'},signal:AbortSignal.timeout(25000)});
- if(!response.ok)throw new Error(`来源注册 HTTP ${response.status}；请配置 FANQIE_API_TOKEN/FANQIE_INSTANCE_ID Secrets`);
- const payload=await response.json();sourceToken=payload.data?.token;
- if(!payload.ok||!/^fqk_[A-Za-z0-9_-]{32,128}$/.test(sourceToken||''))throw new Error('来源注册响应无效');
-}
-// Keep secrets on stdin, never in config files, command arguments or artifacts.
 const deploy=spawnSync('npx',['wrangler','deploy','--config',filename],{stdio:'inherit'});if(deploy.status!==0)throw new Error('Worker 部署失败');
-if(sourceToken){
- const secrets=spawnSync('npx',['wrangler','secret','bulk','--config',filename],{input:JSON.stringify({FANQIE_API_TOKEN:sourceToken,FANQIE_INSTANCE_ID:instance}),stdio:['pipe','inherit','inherit']});if(secrets.status!==0)throw new Error('Worker Secret 配置失败');
-}
 const subdomain=await cf('/workers/subdomain');
 const url=`https://${config.name}.${subdomain.subdomain}.workers.dev`;
 await writeFile('deployment.json',JSON.stringify({url,environment:target,database_id:db.uuid,bucket:prefix,queue:prefix},null,2));
+if(!sourceToken&&!hasSource){
+ instance=randomBytes(16).toString('hex');
+ const registration='fqr_'+randomBytes(32).toString('base64url');
+ const headers={'X-MangaDock-Instance-ID':instance,'X-MangaDock-Registration-Key':registration,'X-MangaDock-Version':'5.0','X-MangaDock-System':'Cloudflare/Workers','Accept':'application/json','User-Agent':'MangaDock/5.0 Fanqie-Client/1.1'};
+ const response=await fetch('https://fanqie.dddinmx.cn/v1/register',{method:'POST',headers,signal:AbortSignal.timeout(25000)});
+ if(response.ok){const payload=await response.json();if(!payload.ok)throw new Error('来源注册响应无效');sourceToken=payload.data?.token;}
+ else{
+  // The GitHub runner and Cloudflare edge may take different origin routes. Keep the source server unchanged.
+  await response.body?.cancel();console.log(`GitHub 来源注册 HTTP ${response.status}; 尝试从已部署 Worker 初始化。`);
+  const login=await fetch(url+'/api/v1/auth/login',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password}),signal:AbortSignal.timeout(30000)});
+  if(!login.ok)throw new Error(`边缘初始化登录 HTTP ${login.status}`);
+  const cookie=login.headers.get('set-cookie')?.split(';')[0],csrf=(await login.json()).data?.csrf_token;
+  const edge=await fetch(url+'/api/source/register',{method:'POST',headers:{Origin:url,Cookie:cookie,'X-CSRFToken':csrf,'Content-Type':'application/json'},body:JSON.stringify({instance,registration}),signal:AbortSignal.timeout(30000)});
+  if(!edge.ok)throw new Error(`来源 Worker 边缘初始化 HTTP ${edge.status}`);
+  sourceToken=(await edge.json()).data?.token;
+ }
+ if(!/^fqk_[A-Za-z0-9_-]{32,128}$/.test(sourceToken||''))throw new Error('来源注册 Token 格式无效');
+}
+// Credentials travel only on stdin into Worker Secrets, never command arguments, repo or artifacts.
+if(sourceToken){const secrets=spawnSync('npx',['wrangler','secret','bulk','--config',filename],{input:JSON.stringify({FANQIE_API_TOKEN:sourceToken,FANQIE_INSTANCE_ID:instance}),stdio:['pipe','inherit','inherit']});if(secrets.status!==0)throw new Error('Worker Secret 配置失败');}
 if(process.env.GITHUB_STEP_SUMMARY)await import('node:fs/promises').then(fs=>fs.appendFile(process.env.GITHUB_STEP_SUMMARY,`部署地址：${url}\n\n管理员用户名：admin；密码来自 MANGADOCK_ADMIN_PASSWORD Secret。\n`));
 console.log(`部署地址：${url}`);

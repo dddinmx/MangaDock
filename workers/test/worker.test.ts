@@ -1,6 +1,6 @@
 import {env, SELF, fetchMock, applyD1Migrations} from 'cloudflare:test';
 import {beforeAll,beforeEach,afterEach,describe,it,expect} from 'vitest';
-import {processJob,verifyPassword} from '../src/index';
+import worker,{processJob,verifyPassword} from '../src/index';
 import type {Env} from '../src/index';
 const bindings=env as unknown as Env & {TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1]};
 const origin='https://mangadock.test',password='test-password-strong-2026';
@@ -30,6 +30,8 @@ describe('authentication and access',()=>{
   expect((await SELF.fetch(origin+'/api/books',{headers:{Cookie:cookie}})).status).toBe(401);
  });
  it('verifies legacy 260k and new 600k passwords in the Durable Object',async()=>{for(const key of ['TEST_LEGACY_HASH','TEST_STRONG_HASH']){await bindings.DB.prepare('UPDATE users SET password_hash=? WHERE id=?').bind((env as any)[key],'admin').run();expect((await login()).response.status).toBe(200);}});
+ it('creates durable downloads and rejects active or already stored duplicates',async()=>{const {cookie,payload}=await login(),sent:any[]=[];const testEnv={...bindings,DOWNLOADS:{send:async(body:any)=>{sent.push(body);}} as any};const create=()=>worker.fetch(new Request(origin+'/api/jobs',{method:'POST',headers:auth(cookie,payload.data.csrf_token),body:JSON.stringify({book_id:'123456789'})}),testEnv);expect((await create()).status).toBe(202);expect(sent).toHaveLength(1);expect((await create()).status).toBe(409);await bindings.DB.prepare("UPDATE jobs SET state='error'").run();await bindings.DB.prepare("INSERT INTO books VALUES ('123456789','123456789','stored','author','file',4,?,?)").bind('0'.repeat(64),Math.floor(Date.now()/1000)).run();expect((await create()).status).toBe(409);expect(sent).toHaveLength(1);});
+ it('protects one-time source initialization and stores no credential in D1',async()=>{const {cookie,payload}=await login();const request=()=>new Request(origin+'/api/source/register',{method:'POST',headers:auth(cookie,payload.data.csrf_token),body:JSON.stringify({instance:'edge-instance',registration:'fqr_'+'r'.repeat(43)})});expect((await worker.fetch(request(),bindings)).status).toBe(409);const fakeToken='fqk_'+'a'.repeat(43);mock('/v1/register',{token:fakeToken},'POST');const response=await worker.fetch(request(),{...bindings,FANQIE_API_TOKEN:undefined});expect(response.status).toBe(200);expect((await response.json() as any).data.token).toBe(fakeToken);});
  it('rate limits in D1',async()=>{for(let i=0;i<5;i++)expect((await login('admin','wrong')).response.status).toBe(401);expect((await login()).response.status).toBe(429);});
  it('restricts download to admin',async()=>{await bindings.DB.prepare("INSERT INTO users VALUES ('reader','reader',?,'user')").bind(encoded).run();const {cookie,payload}=await login('reader');expect((await SELF.fetch(origin+'/api/jobs',{method:'POST',headers:auth(cookie,payload.data.csrf_token),body:JSON.stringify({book_id:'123456789'})})).status).toBe(403);});
 });
