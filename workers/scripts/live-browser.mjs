@@ -1,7 +1,7 @@
 import {chromium,expect} from '@playwright/test';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 const {url}=JSON.parse(await readFile('deployment.json','utf8')),id=process.env.SOURCE_BOOK_ID||'6838936284967209991';
-const browser=await chromium.launch({headless:true}),page=await browser.newPage({viewport:{width:1280,height:900}});
+const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE||undefined}),page=await browser.newPage({viewport:{width:1280,height:900}});
 const errors=[];page.on('pageerror',error=>errors.push(error.message));
 try{
  await page.goto(url+'/login');

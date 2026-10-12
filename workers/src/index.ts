@@ -130,9 +130,11 @@ async function route(request: Request, env: Env): Promise<Response> {
     const data = await body(request);
     if (typeof data.username !== 'string' || typeof data.password !== 'string' || data.username.length > 80 || data.password.length > 512) throw new HttpError(400, '用户名或密码无效');
     // Count every attempt before expensive password work; D1 makes the budget shared across isolates.
-    const key = await hash(`${request.headers.get('CF-Connecting-IP') || 'local'}:${data.username}`), window = Math.floor(now()/900);
-    const attempt = await env.DB.prepare('INSERT INTO login_attempts(key, attempts, window) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN window=excluded.window THEN attempts+1 ELSE 1 END, window=excluded.window RETURNING attempts').bind(key, window).first<{attempts:number}>();
-    if (!attempt || attempt.attempts > 5) throw new HttpError(429, '登录尝试过多，请 15 分钟后再试');
+    const key=await hash(`user:${data.username}`), ipKey=await hash(`ip:${request.headers.get('CF-Connecting-IP')||'local'}`), window=Math.floor(now()/900);
+    for (const [budgetKey,limit] of [[key,5],[ipKey,30]] as const) {
+      const attempt=await env.DB.prepare('INSERT INTO login_attempts(key, attempts, window) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN window=excluded.window THEN attempts+1 ELSE 1 END, window=excluded.window RETURNING attempts').bind(budgetKey,window).first<{attempts:number}>();
+      if (!attempt||attempt.attempts>limit) throw new HttpError(429,'登录尝试过多，请 15 分钟后再试');
+    }
     const user = await env.DB.prepare('SELECT * FROM users WHERE username=?').bind(data.username).first<{id:string;password_hash:string;username:string;role:string}>();
     if (!user) throw new HttpError(401, '用户名或密码错误');
     const verifier=env.AUTH_SERVICE.get(env.AUTH_SERVICE.idFromName(user.id));
@@ -141,7 +143,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     const token = hex(crypto.getRandomValues(new Uint8Array(32)).buffer), csrf = crypto.randomUUID();
     await env.DB.batch([
       env.DB.prepare('INSERT INTO sessions VALUES (?,?,?,?)').bind(await hash(token), user.id, csrf, now()+604800),
-      env.DB.prepare('DELETE FROM login_attempts WHERE key=?').bind(key)
+      env.DB.prepare('DELETE FROM login_attempts WHERE key IN (?,?)').bind(key,ipKey)
     ]);
     return json({ok:true, data:{username:user.username, csrf_token:csrf, next_url:'/'}}, 200, {'Set-Cookie':`md_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`});
   }

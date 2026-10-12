@@ -34,10 +34,10 @@ Repository Secrets：
 | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | 目标账号的 Workers Scripts、D1、R2、Queues 编辑权限及 Account Settings 读取权限 |
 | `CLOUDFLARE_ACCOUNT_ID` | 目标账号 ID |
-| `MANGADOCK_ADMIN_PASSWORD` | 首次初始化 `admin`，至少 16 字符。后续部署不会重设密码 |
+| `MANGADOCK_ADMIN_PASSWORD` | 首次初始化 `admin`，至少 6 字符（沿用原项目规则）。后续部署不会重设密码 |
 | `FANQIE_API_TOKEN` / `FANQIE_INSTANCE_ID` | 可选，复用来源服务现有凭据；两者应一起设置 |
 
-没有来源凭据时，部署脚本使用单独稳定的 Cloudflare 实例 ID 自动注册来源服务，沿用仓库现有注册协议；注册密钥从管理员 Secret 派生，绝不放入仓库或日志。以后轮换管理员 Secret 前，应先设置独立的来源 Token / Instance ID，以免来源服务的稳定注册密钥变动。
+没有来源凭据时，首次部署使用随机实例 ID 和随机 256-bit 注册密钥向现有来源服务注册；把 Token / Instance ID 写入 Worker Secrets，后续部署保留这些 Secrets，不重复注册，也不从用户密码派生服务密钥。注册密钥不进入仓库或日志。若 Worker Secrets 丢失，可重新注册独立实例或提供显式来源凭据。
 
 推送迁移分支自动运行测试、部署 staging。正式发布：在 GitHub Actions 中手动运行 **Deploy Workers (free plan)**，选择 `production`，选择已验证的提交。可给 GitHub `production` environment 设置 required reviewers。staging/production 使用不同 D1、R2 和 Queue。不要在公开 PR/分叉工作流中注入 Secrets。
 
