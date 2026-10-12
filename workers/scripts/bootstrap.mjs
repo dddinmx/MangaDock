@@ -1,5 +1,5 @@
 import {writeFile,readFile} from 'node:fs/promises';
-import {pbkdf2Sync,randomBytes} from 'node:crypto';
+import {pbkdf2Sync,randomBytes,randomUUID} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 process.on('uncaughtException',error=>{console.error('::error::'+String(error.message).replaceAll('%','%25').replaceAll('\n','%0A').replaceAll('\r','%0D'));process.exit(1);});
 const target=process.argv[2]||'staging';
@@ -32,8 +32,15 @@ const deploy=spawnSync('npx',['wrangler','deploy','--config',filename],{stdio:'i
 const subdomain=await cf('/workers/subdomain');
 const url=`https://${config.name}.${subdomain.subdomain}.workers.dev`;
 await writeFile('deployment.json',JSON.stringify({url,environment:target,database_id:db.uuid,bucket:prefix,queue:prefix},null,2));
+for(let attempt=0;attempt<12;attempt++){
+ const health=await fetch(url+'/api/health',{signal:AbortSignal.timeout(10000)});
+ if(health.ok&&(await health.json()).version==='workers-0.1')break;
+ await health.body?.cancel();
+ if(attempt===11)throw new Error('Worker 路由尚未就绪，请稍后重试');
+ await new Promise(resolve=>setTimeout(resolve,5000));
+}
 if(!sourceToken&&!hasSource){
- instance=randomBytes(16).toString('hex');
+ instance=randomUUID().replaceAll('-','');
  const registration='fqr_'+randomBytes(32).toString('base64url');
  const headers={'X-MangaDock-Instance-ID':instance,'X-MangaDock-Registration-Key':registration,'X-MangaDock-Version':'5.0','X-MangaDock-System':'Cloudflare/Workers','Accept':'application/json','User-Agent':'MangaDock/5.0 Fanqie-Client/1.1'};
  const response=await fetch('https://fanqie.dddinmx.cn/v1/register',{method:'POST',headers,signal:AbortSignal.timeout(25000)});
