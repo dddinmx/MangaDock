@@ -56,6 +56,10 @@ jobs:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
           SOURCE_CHAPTER_IDS: ${{ inputs.source_chapter_ids || (!inputs.source_book_id && '6838937005267616264') || '' }}
         run: npm run test:live
+      - name: Read real-source EPUB in deployed browser and restore progress
+        env:
+          SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
+        run: node scripts/live-browser.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
         if: success()
         run: node scripts/cpu-report.mjs
@@ -67,4 +71,6 @@ jobs:
             workers/deployment.json
             workers/live-results.json
             workers/cpu-results.json
+            workers/live-browser-results.json
+            workers/test-results/live-reader.png
           if-no-files-found: ignore

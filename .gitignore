@@ -57,3 +57,4 @@ workers/migration-output/
 workers/deployment.json
 workers/live-results.json
 workers/cpu-results.json
+workers/live-browser-results.json

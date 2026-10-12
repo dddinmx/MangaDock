@@ -1,6 +1,7 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
+process.on('uncaughtException',error=>{console.error('::error::'+String(error.message).replaceAll('%','%25').replaceAll('\n','%0A').replaceAll('\r','%0D'));process.exit(1);});
 const target=process.env.MANGADOCK_URL||(JSON.parse(await readFile('deployment.json','utf8'))).url;
 const password=process.env.MANGADOCK_ADMIN_PASSWORD;
 if(!password)throw new Error('MANGADOCK_ADMIN_PASSWORD is required');

@@ -1,6 +1,7 @@
 import {writeFile,readFile} from 'node:fs/promises';
 import {pbkdf2Sync,randomBytes,createHash,createHmac} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
+process.on('uncaughtException',error=>{console.error('::error::'+String(error.message).replaceAll('%','%25').replaceAll('\n','%0A').replaceAll('\r','%0D'));process.exit(1);});
 const target=process.argv[2]||'staging';
 if(!['staging','production'].includes(target))throw new Error('只允许 staging 或 production');
 const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,password=process.env.MANGADOCK_ADMIN_PASSWORD;

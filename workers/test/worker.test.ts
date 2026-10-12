@@ -29,6 +29,7 @@ describe('authentication and access',()=>{
   expect((await SELF.fetch(origin+'/api/v1/auth/logout',{method:'POST',headers:auth(cookie,payload.data.csrf_token),body:'{}'})).status).toBe(200);
   expect((await SELF.fetch(origin+'/api/books',{headers:{Cookie:cookie}})).status).toBe(401);
  });
+ it('verifies legacy 260k and new 600k passwords in the Durable Object',async()=>{for(const key of ['TEST_LEGACY_HASH','TEST_STRONG_HASH']){await bindings.DB.prepare('UPDATE users SET password_hash=? WHERE id=?').bind((env as any)[key],'admin').run();expect((await login()).response.status).toBe(200);}});
  it('rate limits in D1',async()=>{for(let i=0;i<5;i++)expect((await login('admin','wrong')).response.status).toBe(401);expect((await login()).response.status).toBe(429);});
  it('restricts download to admin',async()=>{await bindings.DB.prepare("INSERT INTO users VALUES ('reader','reader',?,'user')").bind(encoded).run();const {cookie,payload}=await login('reader');expect((await SELF.fetch(origin+'/api/jobs',{method:'POST',headers:auth(cookie,payload.data.csrf_token),body:JSON.stringify({book_id:'123456789'})})).status).toBe(403);});
 });
