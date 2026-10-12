@@ -1,0 +1,41 @@
+// MangaDock on Cloudflare Workers. IDs below are placeholders; CI substitutes
+// nothing secret here — real database_id values are not secrets but are
+// account-specific, so set them after `wrangler d1 create` (see docs/cloudflare-migration.md).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mangadock",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": false },
+  "observability": { "enabled": true },
+  "vars": { "PBKDF2_ITERATIONS": "100000", "MAX_CHAPTERS_PER_TASK": "0", "PAGES_PER_MESSAGE": "20" },
+  "d1_databases": [{ "binding": "DB", "database_name": "mangadock-dev", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "LIBRARY", "bucket_name": "mangadock-library-dev" }],
+  "queues": {
+    "producers": [{ "binding": "DOWNLOADS", "queue": "mangadock-downloads-dev" }],
+    "consumers": [{ "queue": "mangadock-downloads-dev", "max_batch_size": 1, "max_retries": 3 }]
+  },
+  "env": {
+    "staging": {
+      "name": "mangadock-staging",
+      "vars": { "PBKDF2_ITERATIONS": "100000", "MAX_CHAPTERS_PER_TASK": "0", "PAGES_PER_MESSAGE": "20" },
+      "d1_databases": [{ "binding": "DB", "database_name": "mangadock-staging", "database_id": "0d57dfbc-e04a-4995-a227-0102d4dda417", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "LIBRARY", "bucket_name": "mangadock-library-staging" }],
+      "queues": {
+        "producers": [{ "binding": "DOWNLOADS", "queue": "mangadock-downloads-staging" }],
+        "consumers": [{ "queue": "mangadock-downloads-staging", "max_batch_size": 1, "max_retries": 3 }]
+      }
+    },
+    "production": {
+      "name": "mangadock",
+      "vars": { "PBKDF2_ITERATIONS": "100000", "MAX_CHAPTERS_PER_TASK": "0", "PAGES_PER_MESSAGE": "20" },
+      "d1_databases": [{ "binding": "DB", "database_name": "mangadock-prod", "database_id": "REPLACE_WITH_PROD_D1_ID", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "LIBRARY", "bucket_name": "mangadock-library" }],
+      "queues": {
+        "producers": [{ "binding": "DOWNLOADS", "queue": "mangadock-downloads" }],
+        "consumers": [{ "queue": "mangadock-downloads", "max_batch_size": 1, "max_retries": 3 }]
+      }
+    }
+  }
+}

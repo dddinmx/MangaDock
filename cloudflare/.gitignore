@@ -1,0 +1,6 @@
+node_modules/
+public/
+.wrangler/
+.dev.vars
+*.local.sql
+worker-configuration.d.ts
