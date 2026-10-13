@@ -11,6 +11,8 @@
 
 未验收/剩余：逐来源真实漫画与番茄漫画、用户真实 AniList/WebDAV、超大文件与高并发、旧任务历史/图片目录/加密凭据导入、整个账号 R2 账单用量和完整 DO CPU 指标。未正式切换旧域名。
 
+GitHub CI：代码提交 `22810f8` 的[推送检查](https://github.com/dddinmx/MangaDock/actions/runs/38343181004)与 [PR 检查](https://github.com/dddinmx/MangaDock/actions/runs/38343188575)均通过，64 项检查包括 35 个运行时测试、6 个浏览器测试、21 个 Python 检查和 2 个预算检查。全部使用本地 Miniflare/测试数据，不访问线上 D1 执行 SQL。
+
 ## D1 配额事故与暂停（2026-10-13，北京时间）
 
 Cloudflare 部署日志错误 code 7500 明确为 **daily row read limit**。管理/Analytics API 读取到完整迁移库当日 `rowsRead=13,107,900`、`rowsWritten=16,799`，并非写入 100,000 行已用尽。遗漏漫画任务父子索引、重复查重/统计和重试放大读取，说明上线前缺少行数预算验收；不能把只通过 CPU 和小库功能测试视为 Free 配额验收。
