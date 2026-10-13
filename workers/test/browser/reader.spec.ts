@@ -19,12 +19,32 @@ test("original login and reader templates: read, paginate, save progress and res
   expect(
     await page.evaluate(() => Boolean((window as any).EPUB_INJECTED)),
   ).toBe(false);
-  await page.keyboard.press("ArrowRight");
+  // The server-rendered title appears before the reader's first layout.
+  // Wait for pagination instead of sending a key while pageCount is still 1.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
   await expect
-    .poll(async () => {
-      const result = await page.request.get("/api/books/123456789/progress");
-      return (await result.json()).data?.page || 0;
-    })
+    .poll(
+      async () =>
+        Number(
+          (await page.locator("#reader-page-status").textContent())?.split(
+            "/",
+          )[1],
+        ),
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#reader-page-status")).toContainText("2 /");
+  await expect
+    .poll(
+      async () => {
+        const result = await page.request.get("/api/books/123456789/progress");
+        return (await result.json()).data?.page || 0;
+      },
+      { timeout: 15000 },
+    )
     .toBeGreaterThan(0);
   const before = (
     await (await page.request.get("/api/books/123456789/progress")).json()
@@ -44,10 +64,13 @@ test("original login and reader templates: read, paginate, save progress and res
     "第二章",
   );
   await expect
-    .poll(async () => {
-      const result = await page.request.get("/api/books/123456789/progress");
-      return (await result.json()).data?.chapter;
-    })
+    .poll(
+      async () => {
+        const result = await page.request.get("/api/books/123456789/progress");
+        return (await result.json()).data?.chapter;
+      },
+      { timeout: 15000 },
+    )
     .toBe(1);
   await page.reload();
   await expect(page.locator("#reader-flow .novel-reader-title")).toHaveText(
