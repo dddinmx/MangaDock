@@ -33,15 +33,39 @@ import {
 } from "./library";
 import {
   providerFor,
+  providerHosts,
   loadComic,
   chapterImages,
   UA,
   type SourceChapter,
 } from "./providers";
-import { remote } from "./security";
+import { safeFetch } from "./security";
 /** Hard cap on attempts per comic job; after this the job is dead ('error'). */
 export const MAX_JOB_ATTEMPTS = 5;
 export const MAX_REMOTE_POLLS = 30;
+/** Default chapters enqueued when max_chapters is missing, 0, or invalid. */
+export const DEFAULT_MAX_CHAPTERS = 20;
+/** Absolute cap on chapter jobs created by one source download. */
+export const HARD_MAX_CHAPTERS = 200;
+export function clampMaxChapters(value: unknown) {
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_CHAPTERS;
+  return Math.min(HARD_MAX_CHAPTERS, n);
+}
+export function selectSourceChapters(
+  chapters: SourceChapter[],
+  maxChapters: unknown,
+  isUpdate = false,
+  readyIds: Iterable<string> = [],
+) {
+  const cap = clampMaxChapters(maxChapters);
+  if (isUpdate) {
+    const ready = new Set(readyIds);
+    const pending = chapters.filter((chapter) => !ready.has(chapter.id));
+    return pending.slice(-cap);
+  }
+  return chapters.slice(0, cap);
+}
 /** Exponential backoff in seconds: 60, 120, 240, ... capped at 6 h. */
 export function retryDelay(attempts: number) {
   return Math.min(60 * 2 ** Math.max(0, attempts - 1), 21600);
@@ -134,7 +158,7 @@ export async function createDownload(env: Env, user: Identity, data: Row) {
     group,
     format,
     is_update: !!data.is_update,
-    max_chapters: Math.max(0, Math.min(10000, Number(data.max_chapters) || 0)),
+    max_chapters: clampMaxChapters(data.max_chapters),
   });
 }
 async function currentCreator(env: Env, job: Row) {
@@ -319,9 +343,21 @@ export async function runJob(env: Env, id: string) {
           )
         ).map((row) => row.chapter_id),
       );
-      const selected = data.max_chapters
-        ? source.chapters.slice(0, data.max_chapters)
-        : source.chapters;
+      const readyIds = data.is_update
+        ? (
+            await all(
+              env,
+              "SELECT source_id FROM chapters WHERE comic_id=? AND state='ready'",
+              comicId,
+            )
+          ).map((row) => String(row.source_id))
+        : [];
+      const selected = selectSourceChapters(
+        source.chapters,
+        data.max_chapters,
+        !!data.is_update,
+        readyIds,
+      );
       for (const chapter of selected) {
         await assertComicActive(env, job);
         const chapterId =
@@ -332,15 +368,20 @@ export async function runJob(env: Env, id: string) {
           chapterId,
         );
         if (local?.state === "ready") continue;
-        await run(
-          env,
-          "INSERT INTO chapters(id,comic_id,ordinal,title,source_id) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ordinal=excluded.ordinal,title=excluded.title",
-          chapterId,
-          comicId,
-          chapter.order,
-          chapter.title,
-          chapter.id,
-        );
+        await env.DB.batch([
+          env.DB.prepare(
+            "INSERT INTO chapters(id,comic_id,ordinal,title,source_id) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ordinal=excluded.ordinal,title=excluded.title",
+          ).bind(
+            chapterId,
+            comicId,
+            chapter.order,
+            chapter.title,
+            chapter.id,
+          ),
+          env.DB.prepare(
+            "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
+          ).bind(comicId, comicId),
+        ]);
         if (!queuedChapters.has(chapterId))
           await enqueue(
             env,
@@ -391,13 +432,14 @@ export async function runJob(env: Env, id: string) {
         ),
         "application/json",
       );
-      await run(
-        env,
-        "UPDATE chapters SET manifest_key=?,page_count=?,state='downloading' WHERE id=?",
-        manifestKey,
-        keys.length,
-        data.chapter_id,
-      );
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE chapters SET manifest_key=?,page_count=?,state='downloading' WHERE id=?",
+        ).bind(manifestKey, keys.length, data.chapter_id),
+        env.DB.prepare(
+          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
+        ).bind(comic.id, comic.id),
+      ]);
       await run(
         env,
         "UPDATE comic_jobs SET state='waiting',lease_until=0,message='图片下载中' WHERE id=?",
@@ -436,9 +478,11 @@ export async function runJob(env: Env, id: string) {
       if (!existing) {
         let response = data.fanqie
           ? await source(env, data.url)
-          : await remote(data.url, {
-              headers: { "User-Agent": UA, Referer: data.referer },
-            });
+          : await safeFetch(
+              data.url,
+              { headers: { "User-Agent": UA, Referer: data.referer } },
+              providerHosts(String(comic.provider || "")),
+            );
         if (!response.ok || !response.body) {
           await response.body?.cancel();
           throw new HttpError(502, `图片 HTTP ${response.status}`);
@@ -512,12 +556,14 @@ export async function runJob(env: Env, id: string) {
             "SELECT SUM(size) AS bytes FROM comic_jobs WHERE parent_id=?",
             job.parent_id,
           );
-          await run(
-            env,
-            "UPDATE chapters SET state='ready',size=? WHERE id=?",
-            aggregate?.bytes || 0,
-            data.chapter_id,
-          );
+          await env.DB.batch([
+            env.DB.prepare(
+              "UPDATE chapters SET state='ready',size=? WHERE id=?",
+            ).bind(aggregate?.bytes || 0, data.chapter_id),
+            env.DB.prepare(
+              "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
+            ).bind(comic.id, comic.id),
+          ]);
           if (data.format === 1) {
             const chapter = await one(
               env,
@@ -528,11 +574,14 @@ export async function runJob(env: Env, id: string) {
               chapter_id: data.chapter_id,
               parent_job: job.parent_id,
             });
-            await run(
-              env,
-              "UPDATE chapters SET state='converting' WHERE id=?",
-              data.chapter_id,
-            );
+            await env.DB.batch([
+              env.DB.prepare(
+                "UPDATE chapters SET state='converting' WHERE id=?",
+              ).bind(data.chapter_id),
+              env.DB.prepare(
+                "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
+              ).bind(comic.id, comic.id),
+            ]);
             return;
           }
           const parent = await one(
