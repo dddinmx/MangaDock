@@ -21,7 +21,8 @@ try {
     await page.getByLabel("用户名").fill("admin");
     await page.getByLabel("密码").fill(process.env.MANGADOCK_ADMIN_PASSWORD);
     await page.locator("#loginButton").click();
-    await expect(page.locator(".md-topnav")).toBeVisible();
+    await page.waitForURL(url+'/',{timeout:30000});
+    await expect(page.locator(".md-topnav")).toBeVisible({timeout:30000});
     await page.goto(url + "/reader/" + comic_id);
     await expect
       .poll(

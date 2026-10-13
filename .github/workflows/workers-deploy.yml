@@ -19,6 +19,10 @@ on:
         description: Maximum real comic chapters to verify
         options: ['1', '2']
         default: '1'
+      verify_only:
+        type: boolean
+        description: Check the existing deployment without provisioning or deploying again
+        default: false
       source_chapter_ids:
         description: Optional comma-separated real chapter IDs
         required: false
@@ -64,10 +68,25 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run verify
+        if: ${{ !inputs.verify_only }}
       - name: Provision and deploy without upgrading plan
+        if: ${{ !inputs.verify_only }}
         env:
           DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
         run: npm run bootstrap -- "$DEPLOY_TARGET"
+      - name: Resolve existing deployment without accessing D1
+        if: ${{ inputs.verify_only }}
+        env:
+          DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
+        run: |
+          node --input-type=module - <<'JS'
+          import {writeFile} from 'node:fs/promises';
+          const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/subdomain`,{headers:{Authorization:`Bearer ${process.env.CLOUDFLARE_API_TOKEN}`},signal:AbortSignal.timeout(15000)});
+          const result=await response.json();
+          if(!response.ok || !result.success)throw new Error('Cannot resolve deployed Worker URL');
+          const name='mangadock-turso-'+process.env.DEPLOY_TARGET;
+          await writeFile('deployment.json',JSON.stringify({url:`https://${name}.${result.result.subdomain}.workers.dev`,database_provider:'turso'}));
+          JS
       - name: Measure deployed Turso login and library latency
         run: node scripts/latency-report.mjs
       - name: Deployed login, library and progress smoke test
