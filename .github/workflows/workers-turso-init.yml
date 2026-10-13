@@ -1,0 +1,35 @@
+name: Initialize Turso staging
+on:
+  push:
+    branches: ['migration/turso']
+    paths: ['workers/**', '.github/workflows/workers-turso-init.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: turso-staging-initialization
+  cancel-in-progress: false
+jobs:
+  initialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    defaults:
+      run:
+        working-directory: workers
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_TOKEN || secrets.TURSO_AUTH_TOKEN }}
+      MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: workers/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test:database
+      - name: Initialize Turso schema and preserve existing administrator
+        run: npm run database:init

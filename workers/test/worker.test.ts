@@ -1,6 +1,6 @@
 import { env, SELF, fetchMock, applyD1Migrations } from "cloudflare:test";
 import { zipSync, strToU8, strFromU8, unzipSync, gunzipSync } from "fflate";
-import { runJob } from "../src/downloads";
+import { runJob, MAX_REMOTE_POLLS } from "../src/downloads";
 import { scanLibrary } from "../src/scans";
 import { indexNovel } from "../src/novels";
 import { decodeImages, providerFor, unpackManhuagui } from "../src/providers";
@@ -444,7 +444,50 @@ describe("source → streaming R2 → reading → D1 progress", () => {
       await bindings.DB.prepare(
         "SELECT state,lease_until,attempts FROM jobs",
       ).first(),
-    ).toMatchObject({ state: "running", lease_until: 0, attempts: 1 });
+    ).toMatchObject({ state: "running", attempts: 1 });
+    expect(
+      (await bindings.DB.prepare("SELECT lease_until FROM jobs").first<{
+        lease_until: number;
+      }>())!.lease_until,
+    ).toBeGreaterThanOrEqual(Math.floor(Date.now() / 1000) + 59);
+    // Duplicate delivery during the remote poll delay must not query upstream again.
+    await processJob(bindings, "job");
+    expect(
+      (await bindings.DB.prepare("SELECT attempts FROM jobs").first<{
+        attempts: number;
+      }>())!.attempts,
+    ).toBe(1);
+  });
+  it("stops pending novels after the remote poll cap instead of re-enqueueing forever", async () => {
+    await insertJob("running", "upstream-job");
+    await bindings.DB.prepare("UPDATE jobs SET attempts=? WHERE id='job'")
+      .bind(MAX_REMOTE_POLLS - 1)
+      .run();
+    mock("/v1/jobs/upstream-job", { id: "upstream-job", status: "running" });
+    let sent = 0;
+    await processJob(
+      {
+        ...bindings,
+        DOWNLOADS: {
+          send: async () => {
+            sent++;
+          },
+        } as unknown as Queue,
+      },
+      "job",
+    );
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state,attempts FROM jobs WHERE id='job'",
+      ).first(),
+    ).toMatchObject({ state: "error", attempts: MAX_REMOTE_POLLS });
+    expect(sent).toBe(0);
+    await processJob(bindings, "job");
+    expect(
+      (await bindings.DB.prepare(
+        "SELECT attempts FROM jobs WHERE id='job'",
+      ).first<{ attempts: number }>())!.attempts,
+    ).toBe(MAX_REMOTE_POLLS);
   });
   it("does not retry uncertain upstream submissions", async () => {
     await insertJob();
@@ -909,6 +952,88 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
       "bad",
     );
     expect(await bindings.LIBRARY.head("fixture/evil")).toBeNull();
+  });
+  it("bounds Fanqie comic polling independently of failed attempts and honours the poll lease", async () => {
+    await comicFixture();
+    const time = Math.floor(Date.now() / 1000);
+    const data = {
+      provider: "fanqie",
+      remote_id: "remote",
+      polls: 0,
+      chapter: { book_id: "12345678", id: "12345679" },
+    };
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,comic_id,kind,payload,created_at,updated_at) VALUES ('poll','admin','c_test','chapter',?,?,?)",
+    )
+      .bind(JSON.stringify(data), time, time)
+      .run();
+    let sent = 0;
+    const testEnv = {
+      ...bindings,
+      DOWNLOADS: {
+        send: async () => {
+          sent++;
+        },
+      } as unknown as Queue,
+    };
+    fetchMock
+      .get("https://fanqie.dddinmx.cn")
+      .intercept({ path: "/v1/jobs/remote" })
+      .reply(200, { ok: true, data: { status: "running" } });
+    await runJob(testEnv, "poll");
+    const row = await bindings.DB.prepare(
+      "SELECT * FROM comic_jobs WHERE id='poll'",
+    ).first<any>();
+    expect(row.attempts).toBe(0);
+    expect(JSON.parse(row.payload).polls).toBe(1);
+    expect(row.lease_until).toBeGreaterThanOrEqual(time + 59);
+    await runJob(testEnv, "poll");
+    expect(sent).toBe(1);
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET payload=?,lease_until=0 WHERE id='poll'",
+    )
+      .bind(JSON.stringify({ ...data, polls: MAX_REMOTE_POLLS - 1 }))
+      .run();
+    fetchMock
+      .get("https://fanqie.dddinmx.cn")
+      .intercept({ path: "/v1/jobs/remote" })
+      .reply(200, { ok: true, data: { status: "running" } });
+    await runJob(testEnv, "poll");
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='poll'",
+        ).first<any>()
+      ).state,
+    ).toBe("error");
+    expect(sent).toBe(1);
+  });
+  it("stops reclaiming a crashed compute job after three claims", async () => {
+    const { cookie, payload } = await login(),
+      headers = auth(cookie, payload.data.csrf_token);
+    await bindings.DB.prepare(
+      "INSERT INTO compute_jobs(id,kind,input_key,payload,state,attempts,created_at,updated_at) VALUES ('crashed','cover','fixture','{}','queued',2,0,0)",
+    ).run();
+    const claim = () =>
+      SELF.fetch(origin + "/api/admin/compute/jobs/crashed/claim", {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+    expect((await claim()).status).toBe(200);
+    await bindings.DB.prepare(
+      "UPDATE compute_jobs SET lease_until=0 WHERE id='crashed'",
+    ).run();
+    expect((await claim()).status).toBe(409);
+    const list = await SELF.fetch(origin + "/api/admin/compute/jobs", {
+      headers,
+    });
+    expect(list.status).toBe(200);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state,attempts FROM compute_jobs WHERE id='crashed'",
+      ).first<any>(),
+    ).toMatchObject({ state: "error", attempts: 3 });
   });
   it("claims cloud jobs once and rejects incomplete or stale cover outputs", async () => {
     await comicFixture();

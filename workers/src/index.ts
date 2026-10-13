@@ -1,14 +1,19 @@
-import { MAX_JOB_ATTEMPTS, retryDelay } from "./downloads";
+import { MAX_JOB_ATTEMPTS, MAX_REMOTE_POLLS, retryDelay } from "./downloads";
+import { DatabasePausedError } from "./database-budget";
 import { DurableObject } from "cloudflare:workers";
 import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { scheduleUpdates } from "./updates";
 import { publicUser } from "./public-user";
+import type { Database } from "./database";
 export { ApplicationService } from "./application";
 export interface Env {
   AUTH_SERVICE: DurableObjectNamespace;
   APPLICATION: DurableObjectNamespace;
-  DB: D1Database;
+  DB: Database;
+  DATABASE_PROVIDER?: "d1" | "turso";
+  TURSO_DATABASE_URL?: string;
+  TURSO_AUTH_TOKEN?: string;
   LIBRARY: R2Bucket;
   DOWNLOADS: Queue<{ id: string; kind?: string }>;
   ASSETS: Fetcher;
@@ -262,14 +267,14 @@ type Job = {
 };
 export async function processJob(env: Env, id: string) {
   const lease = await env.DB.prepare(
-    "UPDATE jobs SET lease_until=?, updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<? RETURNING *",
+    "UPDATE jobs SET lease_until=?, attempts=attempts+1, updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<? RETURNING *",
   )
     .bind(now() + 300, now(), id, now())
     .first<Job>();
   if (!lease) return;
   let job = lease;
   try {
-    if (now() - job.created_at > 10800 || job.attempts >= 180)
+    if (now() - job.created_at > 10800 || job.attempts > MAX_REMOTE_POLLS)
       throw new HttpError(502, "远端任务超时，请检查来源服务后重试");
     if (!job.remote_id) {
       // A crash after POST acceptance cannot be safely retried without upstream idempotency support.
@@ -301,12 +306,15 @@ export async function processJob(env: Env, id: string) {
     }
     const remote = await sourceJson(env, `/v1/jobs/${job.remote_id}`);
     if (["queued", "running"].includes(remote.status)) {
+      if (job.attempts >= MAX_REMOTE_POLLS)
+        throw new HttpError(504, "小说轮询次数已用尽，已停止访问来源");
+      const delay = Math.min(retryDelay(job.attempts), 300);
       await env.DB.prepare(
-        "UPDATE jobs SET attempts=attempts+1, state='running', lease_until=0, updated_at=?, message='来源服务生成 EPUB 中' WHERE id=?",
+        "UPDATE jobs SET state='running', lease_until=?, updated_at=?, message='来源服务生成 EPUB 中' WHERE id=?",
       )
-        .bind(now(), id)
+        .bind(now() + delay, now(), id)
         .run();
-      await env.DOWNLOADS.send({ id }, { delaySeconds: 60 });
+      await env.DOWNLOADS.send({ id }, { delaySeconds: delay });
       return;
     }
     if (remote.status !== "completed")
@@ -419,9 +427,7 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
   if (path === "/api/v1" || path === "/api/v1/")
     return json({ ok: true, data: { name: "MangaDock", version: "1" } });
   if (path === "/login" && method === "GET")
-    return env.APPLICATION.get(env.APPLICATION.idFromName("web")).fetch(
-      request,
-    );
+    return applicationStub(env, "web").fetch(request);
   if ((path === "/login" || path === "/api/auth/login") && method === "POST") {
     const data =
       path === "/login"
@@ -784,9 +790,7 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
         return json({ ok: true });
       }
     }
-    return env.APPLICATION.get(env.APPLICATION.idFromName("web")).fetch(
-      request,
-    );
+    return applicationStub(env, "web").fetch(request);
   }
   if (path === "/login")
     return env.ASSETS.fetch(new Request(new URL("/login.html", url), request));
@@ -806,7 +810,13 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
     path === "/reader-runtime.js"
   )
     return env.ASSETS.fetch(request);
-  return env.APPLICATION.get(env.APPLICATION.idFromName("web")).fetch(request);
+  return applicationStub(env, "web").fetch(request);
+}
+function applicationStub(env: Env, name: "web" | "jobs") {
+  return env.APPLICATION.get(
+    env.APPLICATION.idFromName(name),
+    env.DATABASE_PROVIDER === "turso" ? { locationHint: "apac" } : undefined,
+  );
 }
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -829,10 +839,7 @@ export default {
         )
       )
         response = await env.ASSETS.fetch(request);
-      else
-        response = await env.APPLICATION.get(
-          env.APPLICATION.idFromName("web"),
-        ).fetch(request);
+      else response = await applicationStub(env, "web").fetch(request);
     } catch (error) {
       if (!(error instanceof HttpError))
         console.error(
@@ -874,9 +881,7 @@ export default {
     for (const message of batch.messages) {
       let ok = false;
       try {
-        const result = await env.APPLICATION.get(
-          env.APPLICATION.idFromName("jobs"),
-        ).fetch(
+        const result = await applicationStub(env, "jobs").fetch(
           message.body.kind === "comic"
             ? "https://jobs.internal/run"
             : "https://jobs.internal/run-novel",
@@ -893,9 +898,10 @@ export default {
     }
   },
   async scheduled(_controller: ScheduledController, env: Env) {
-    const result = await env.APPLICATION.get(
-      env.APPLICATION.idFromName("jobs"),
-    ).fetch("https://jobs.internal/maintenance", { method: "POST" });
+    const result = await applicationStub(env, "jobs").fetch(
+      "https://jobs.internal/maintenance",
+      { method: "POST" },
+    );
     if (!result.ok) throw new Error("Maintenance failed");
   },
 };
@@ -986,10 +992,16 @@ export async function pilotRoute(
         ok: false,
         error: {
           message:
-            error instanceof HttpError ? error.message : "服务暂时不可用",
+            error instanceof HttpError || error instanceof DatabasePausedError
+              ? error.message
+              : "服务暂时不可用",
         },
       },
-      error instanceof HttpError ? error.status : 500,
+      error instanceof DatabasePausedError
+        ? 503
+        : error instanceof HttpError
+          ? error.status
+          : 500,
     );
   }
 }

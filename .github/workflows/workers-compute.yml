@@ -37,7 +37,7 @@ jobs:
           account=os.environ['CLOUDFLARE_ACCOUNT_ID']
           request=urllib.request.Request(f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/subdomain',headers={'Authorization':'Bearer '+os.environ['CLOUDFLARE_API_TOKEN']})
           with urllib.request.urlopen(request) as response:subdomain=json.load(response)['result']['subdomain']
-          name='mangadock-full-production' if os.environ['DEPLOY_TARGET']=='production' else 'mangadock-full-staging'
+          name='mangadock-turso-'+os.environ['DEPLOY_TARGET']
           with open(os.environ['GITHUB_ENV'],'a') as env:env.write(f'MANGADOCK_URL=https://{name}.{subdomain}.workers.dev\n')
           PY
       - run: pip install -r workers/scripts/cloud-compute-requirements.txt

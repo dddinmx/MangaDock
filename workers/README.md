@@ -1,5 +1,7 @@
 # MangaDock Cloudflare 迁移
 
+当前新增分支 `migration/turso`：业务数据库改用 Turso，Worker/R2/原界面保持原迁移方案。D1 测试站继续暂停；Turso 资源使用独立名称，定时任务不启用。配置与限额保护见 [Turso 迁移说明](../docs/turso-migration.md)。下文的 D1 部署记录是旧分支说明，不代表本分支会自动调用 D1。
+
 完整迁移开发分支：`migration/cloudflare-full`。原 Flask 代码、原 `templates/` 和 `static/` 没有改动，小说试点分支与测试站继续保留。这里的实现已接入原界面和主要后端模块，仍需完成真实来源、边界文件和全库验收，不能把本地测试当作正式切流完成。
 
 ## 原版界面

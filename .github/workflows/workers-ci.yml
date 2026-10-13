@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['workers/**', 'templates/**', 'static/**', '.github/workflows/workers-*']
   push:
-    branches: ['main', 'migration/cloudflare-full']
+    branches: ['main', 'migration/cloudflare-full', 'migration/turso']
     paths: ['workers/**', 'templates/**', 'static/**', '.github/workflows/workers-*']
   workflow_dispatch:
 permissions:

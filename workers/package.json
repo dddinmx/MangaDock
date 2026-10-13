@@ -8,7 +8,9 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "verify": "npm run build && npm run check && npm test && npm run test:e2e && npm run test:migration && node --test test/d1-budget.mjs",
+    "verify": "npm run build && npm run check && npm test && npm run test:e2e && npm run test:migration && node --test test/d1-budget.mjs && npm run test:database",
+    "test:database": "node --experimental-strip-types --test test/database*.mjs",
+    "database:init": "node --experimental-strip-types scripts/turso-migrate.mjs",
     "deploy:staging": "npm run build && node scripts/bootstrap.mjs staging",
     "deploy:production": "npm run build && node scripts/bootstrap.mjs production",
     "bootstrap": "node scripts/bootstrap.mjs",
@@ -29,6 +31,7 @@
     "wrangler": "latest"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "@noble/hashes": "^2.0.1",
     "fflate": "^0.8.3",
     "linkedom": "^0.18.13",

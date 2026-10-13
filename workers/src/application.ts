@@ -1,6 +1,8 @@
 import { checkUpdates } from "./updates";
 import { publicUser } from "./public-user";
 import { DurableObject } from "cloudflare:workers";
+import { databaseEnv } from "./database";
+import { DatabaseBudget, DatabasePausedError } from "./database-budget";
 import {
   HttpError,
   now,
@@ -81,6 +83,9 @@ const definitions = routes.map((route) => ({
   ),
 }));
 export class ApplicationService extends DurableObject<Env> {
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, databaseEnv(env, new DatabaseBudget(state.storage)));
+  }
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
@@ -189,9 +194,18 @@ export class ApplicationService extends DurableObject<Env> {
         return await this.get(request, user, endpoint, params);
       return await this.mutate(request, user, endpoint, params);
     } catch (error) {
-      const status = error instanceof HttpError ? error.status : 500;
+      const status =
+        error instanceof DatabasePausedError
+          ? 503
+          : error instanceof HttpError
+            ? error.status
+            : 500;
       const message =
-        error instanceof HttpError ? error.message : "服务暂时不可用";
+        error instanceof DatabasePausedError
+          ? error.message
+          : error instanceof HttpError
+            ? error.message
+            : "服务暂时不可用";
       if (!(error instanceof HttpError))
         console.error(
           JSON.stringify({

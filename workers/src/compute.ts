@@ -69,15 +69,22 @@ export async function computeApi(
         });
     return json({ ok: true });
   }
-  if (url.pathname === "/api/admin/compute/jobs" && request.method === "GET")
+  if (url.pathname === "/api/admin/compute/jobs" && request.method === "GET") {
+    await run(
+      env,
+      "UPDATE compute_jobs SET state='error',message='云端转换重试次数已用尽',updated_at=? WHERE state IN ('queued','running') AND attempts>=3 AND lease_until<?",
+      now(),
+      now(),
+    );
     return json({
       ok: true,
       data: await all(
         env,
-        "SELECT id,kind,payload,state FROM compute_jobs WHERE state='queued' OR state='running' AND lease_until<? ORDER BY created_at LIMIT 20",
+        "SELECT id,kind,payload,state FROM compute_jobs WHERE attempts<3 AND (state='queued' OR state='running' AND lease_until<?) ORDER BY created_at LIMIT 20",
         now(),
       ),
     });
+  }
   const match = url.pathname.match(
     /^\/api\/admin\/compute\/jobs\/([^/]+)\/(claim|input|pages\/(\d+)|output\/(hero|mobile|original|artifact|index|source|chapter\/\d+|page\/(\d+))|complete|fail)$/,
   );
@@ -89,7 +96,7 @@ export async function computeApi(
     action = match[2];
   if (action === "claim" && request.method === "POST") {
     const row = await env.DB.prepare(
-      "UPDATE compute_jobs SET state='running',lease_until=?,updated_at=? WHERE id=? AND (state='queued' OR state='running' AND lease_until<?) RETURNING id",
+      "UPDATE compute_jobs SET state='running',attempts=attempts+1,lease_until=?,updated_at=? WHERE id=? AND attempts<3 AND (state='queued' OR state='running' AND lease_until<?) RETURNING id",
     )
       .bind(now() + 1800, now(), id, now())
       .first();

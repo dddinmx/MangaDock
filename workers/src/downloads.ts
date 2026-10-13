@@ -34,6 +34,7 @@ import {
 import { remote } from "./security";
 /** Hard cap on attempts per comic job; after this the job is dead ('error'). */
 export const MAX_JOB_ATTEMPTS = 5;
+export const MAX_REMOTE_POLLS = 30;
 /** Exponential backoff in seconds: 60, 120, 240, ... capped at 6 h. */
 export function retryDelay(attempts: number) {
   return Math.min(60 * 2 ** Math.max(0, attempts - 1), 21600);
@@ -622,7 +623,7 @@ export async function runJob(env: Env, id: string) {
       job.attempts < MAX_JOB_ATTEMPTS &&
       !(
         error instanceof HttpError &&
-        [400, 403, 409, 413, 507].includes(error.status)
+        [400, 403, 409, 413, 504, 507].includes(error.status)
       );
     await run(
       env,
@@ -786,8 +787,11 @@ export async function taskAction(
 }
 
 async function fanqieChapter(env: Env, job: Row, data: Row) {
-  if (now() - job.created_at > 7200 || job.attempts >= 180)
-    throw new HttpError(502, "番茄漫画任务超时");
+  if (
+    now() - job.created_at > 7200 ||
+    Number(data.polls || 0) >= MAX_REMOTE_POLLS
+  )
+    throw new HttpError(504, "番茄漫画任务超时，已停止轮询");
   const remoteId = data.remote_id;
   if (!remoteId) {
     await run(
@@ -822,15 +826,21 @@ async function fanqieChapter(env: Env, job: Row, data: Row) {
   }
   const remote = await sourceJson(env, `/v1/jobs/${data.remote_id}`);
   if (["queued", "running"].includes(remote.status)) {
+    data.polls = Number(data.polls || 0) + 1;
+    if (data.polls >= MAX_REMOTE_POLLS)
+      throw new HttpError(504, "番茄漫画轮询次数已用尽");
+    const delay = Math.min(retryDelay(data.polls), 300);
     await run(
       env,
-      "UPDATE comic_jobs SET state='queued',lease_until=0,updated_at=?,message='番茄服务生成章节中' WHERE id=?",
+      "UPDATE comic_jobs SET state='queued',attempts=MAX(0,attempts-1),payload=?,lease_until=?,updated_at=?,message='番茄服务生成章节中' WHERE id=?",
+      JSON.stringify(data),
+      now() + delay,
       now(),
       job.id,
     );
     await env.DOWNLOADS.send(
       { id: job.id, kind: "comic" },
-      { delaySeconds: 60 },
+      { delaySeconds: delay },
     );
     return;
   }
