@@ -168,9 +168,10 @@ class Response(io.BytesIO):
     def __enter__(self):return self
     def __exit__(self,*args):self.close()
 def fake(request,timeout):
-    if request.get_method()=='PATCH':
-        calls.append(json.loads(request.data))
+    if request.get_method() in ('PATCH','PUT'):
+        calls.append({'method':request.get_method(),'url':request.full_url,'body':json.loads(request.data)})
         result={}
+    elif '/schedules' in request.full_url:result={'schedules':[{'cron':'*/5 * * * *'}]}
     else:result=[{'queue_name':'mangadock-full-staging','queue_id':'old'},{'queue_name':'mangadock-turso-staging','queue_id':'new'},{'queue_name':'mangadock-turso-production','queue_id':'prod'}]
     return Response(json.dumps({'success':True,'result':result}).encode())
 urllib.request.urlopen=fake
@@ -190,16 +191,26 @@ print(json.dumps(calls))`;
     assert.equal(result.status, 0, result.stderr);
     const calls = JSON.parse(result.stdout.trim().split("\n").at(-1));
     assert.deepEqual(
-      calls.map((call) => call.queue_name),
+      calls
+        .filter((call) => call.method === "PATCH")
+        .map((call) => call.body.queue_name),
       action === "pause"
         ? ["mangadock-full-staging", "mangadock-turso-staging"]
         : ["mangadock-turso-staging"],
     );
     assert.ok(
-      calls.every(
-        (call) => call.settings.delivery_paused === (action === "pause"),
-      ),
+      calls
+        .filter((call) => call.method === "PATCH")
+        .every(
+          (call) => call.body.settings.delivery_paused === (action === "pause"),
+        ),
     );
+    const timers = calls.filter((call) => call.method === "PUT");
+    assert.equal(timers.length, action === "pause" ? 1 : 0);
+    if (timers.length) {
+      assert.match(timers[0].url, /mangadock-full-staging\/schedules$/);
+      assert.deepEqual(timers[0].body, []);
+    }
   }
 });
 test("idle queue recovery runs only after reset and through the reviewed-ref guard", () => {
