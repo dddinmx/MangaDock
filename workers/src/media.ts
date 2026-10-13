@@ -282,21 +282,19 @@ export async function mediaApi(
           Number.parseInt(url.searchParams.get("page_size") || "50") || 50,
         ),
       );
+    const selected = items.slice((page - 1) * size, page * size);
+    const progress = selected.length
+      ? await all(
+          env,
+          `SELECT * FROM comic_progress WHERE user_id=? AND comic_id IN (${selected.map(() => "?").join(",")})`,
+          user.user_id,
+          ...selected.map((c) => c.id),
+        )
+      : [];
+    const byComic = new Map(progress.map((row) => [row.comic_id, row]));
     return json({
-      items: await Promise.all(
-        items
-          .slice((page - 1) * size, page * size)
-          .map(async (c) =>
-            apiComic(
-              c,
-              await one(
-                env,
-                "SELECT * FROM comic_progress WHERE user_id=? AND comic_id=?",
-                user.user_id,
-                c.id,
-              ),
-            ),
-          ),
+      items: selected.map((comic) =>
+        apiComic(comic, byComic.get(comic.id) || null),
       ),
       pagination: {
         page,

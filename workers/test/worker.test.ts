@@ -8,6 +8,7 @@ import { beforeAll, beforeEach, afterEach, describe, it, expect } from "vitest";
 import worker, { processJob, verifyPassword, pilotRoute } from "../src/index";
 import type { Env } from "../src/index";
 import { databaseEnv } from "../src/database";
+import { mediaApi } from "../src/media";
 import { DatabaseBudget, databasePaused } from "../src/database-budget";
 const bindings = env as unknown as Env & {
   TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
@@ -996,6 +997,38 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
     expect(pages.total_pages).toBe(2);
     const first = await fullGet(pages.pages[0].image_url, cookie);
     expect(new Uint8Array(await first.arrayBuffer())).toEqual(png);
+  });
+  it("loads a 50-comic page with a bounded number of progress queries", async () => {
+    await bindings.DB.batch(
+      Array.from({ length: 50 }, (_, i) =>
+        bindings.DB.prepare(
+          "INSERT INTO comics(id,name,provider,source_url,created_at,updated_at) VALUES (?,?,'import','',0,0)",
+        ).bind("batch-" + i, "Batch " + i),
+      ),
+    );
+    await bindings.DB.prepare(
+      "INSERT INTO comic_progress(user_id,comic_id,chapter,page,client_ms,updated_at) VALUES ('admin','batch-5',7,3,1,1)",
+    ).run();
+    let queries = 0;
+    const DB = {
+      prepare: (sql: string) => {
+        queries++;
+        return bindings.DB.prepare(sql);
+      },
+      batch: bindings.DB.batch.bind(bindings.DB),
+    };
+    const response = await mediaApi(
+      new Request(origin + "/api/comics?page_size=50"),
+      { ...bindings, DB },
+      { user_id: "admin", role: "admin" } as any,
+    );
+    const body = (await response!.json()) as any;
+    expect(body.items).toHaveLength(50);
+    expect(
+      body.items.find((item: any) => item.id === "batch-5").progress,
+    ).toMatchObject({ chapter_index: 7, page_index: 3 });
+    expect(body.items.filter((item: any) => item.progress)).toHaveLength(1);
+    expect(queries).toBeLessThan(6);
   });
   it("accepts only raster image bytes and leaves corrupt downloads unpublished", async () => {
     const now = Math.floor(Date.now() / 1000);

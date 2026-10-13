@@ -10,6 +10,15 @@ on:
       source_book_id:
         description: Optional real Fanqie book ID (default 三国演义 first chapter)
         required: false
+      test_novels:
+        type: boolean
+        description: Explicitly enable Fanqie registration and novel acceptance (API currently paused)
+        default: false
+      comic_chapters:
+        type: choice
+        description: Maximum real comic chapters to verify
+        options: ['1', '2']
+        default: '1'
       source_chapter_ids:
         description: Optional comma-separated real chapter IDs
         required: false
@@ -28,6 +37,8 @@ jobs:
         working-directory: workers
     env:
       DATABASE_PROVIDER: turso
+      ENABLE_FANQIE_SOURCE: ${{ inputs.test_novels && 'true' || 'false' }}
+      COMIC_MAX_CHAPTERS: ${{ inputs.comic_chapters || '1' }}
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_TOKEN || secrets.TURSO_AUTH_TOKEN }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -60,11 +71,13 @@ jobs:
       - name: Measure deployed Turso login and library latency
         run: node scripts/latency-report.mjs
       - name: Deployed login, library and progress smoke test
+        if: ${{ inputs.test_novels }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
           SOURCE_CHAPTER_IDS: ${{ inputs.source_chapter_ids || (!inputs.source_book_id && '6838937005267616264') || '' }}
         run: npm run test:live
       - name: Read real-source EPUB in deployed browser and restore progress
+        if: ${{ inputs.test_novels }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
         run: node scripts/live-browser.mjs
@@ -80,6 +93,12 @@ jobs:
       - name: Real comic source, private R2 pages and progress
         if: ${{ !cancelled() && steps.cloud_compute.conclusion == 'success' }}
         run: node scripts/live-comic.mjs
+      - name: Read real comic in the original browser reader and restore progress
+        if: ${{ success() }}
+        run: node scripts/live-comic-browser.mjs
+      - name: Measure real comic progress latency
+        if: ${{ success() }}
+        run: node scripts/latency-report.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
         if: ${{ !cancelled() && hashFiles('workers/deployment.json') != '' }}
         run: node scripts/cpu-report.mjs
@@ -94,6 +113,8 @@ jobs:
             workers/latency-results.json
             workers/live-browser-results.json
             workers/live-comic-results.json
+            workers/live-comic-browser-results.json
+            workers/test-results/live-comic-*.png
             workers/test-results/live-reader.png
             workers/test-results/parity-*.png
           if-no-files-found: ignore

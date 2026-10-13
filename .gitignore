@@ -59,6 +59,7 @@ workers/live-results.json
 workers/cpu-results.json
 workers/latency-results.json
 workers/live-comic-results.json
+workers/live-comic-browser-results.json
 workers/quota-control-results.json
 workers/live-browser-results.json
 

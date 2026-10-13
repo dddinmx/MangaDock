@@ -18,6 +18,7 @@ async function request(path, options = {}) {
   });
   const text = await response.text();
   samples.push({
+    method: options.method || "GET",
     path,
     status: response.status,
     wall_ms: Math.round(performance.now() - started),
@@ -39,12 +40,31 @@ try {
   });
   cookie = login.response.headers.get("set-cookie")?.split(";")[0];
   csrf = JSON.parse(login.text).data.csrf_token;
-  let books = [];
+  let books = [],
+    comics = [];
   for (let i = 0; i < 5; i++) {
     await request("/");
-    await request("/api/comics");
-    books = JSON.parse((await request("/api/books")).text).data;
+    comics = JSON.parse((await request("/api/comics")).text).items;
+    if (process.env.ENABLE_FANQIE_SOURCE === "true")
+      books = JSON.parse((await request("/api/books")).text).data;
   }
+  const comic = comics.find((item) => item.chapter_count > 0);
+  if (comic)
+    for (let i = 0; i < 3; i++) {
+      const path = `/api/comics/${comic.id}/progress`;
+      const current = JSON.parse((await request(path)).text).progress || {};
+      await request(path, {
+        method: "POST",
+        body: JSON.stringify({
+          chapter_index: current.chapter_index || 0,
+          page_index: current.page_index || 0,
+          scroll_position: current.scroll_position || 0,
+          total_chapters: current.total_chapters || 0,
+          total_pages: current.total_pages || 0,
+          client_progress_ms: Date.now(),
+        }),
+      });
+    }
   if (books.length) {
     const book = books[0];
     for (let i = 0; i < 3; i++) {
@@ -63,28 +83,30 @@ try {
     }
   }
   const summary = Object.fromEntries(
-    [...new Set(samples.map((item) => item.path))].map((path) => {
-      const times = samples
-        .filter((item) => item.path === path)
-        .map((item) => item.wall_ms)
-        .sort((a, b) => a - b);
-      return [
-        path,
-        {
-          count: times.length,
-          min_ms: times[0],
-          median_ms: times[Math.floor(times.length / 2)],
-          max_ms: times.at(-1),
-        },
-      ];
-    }),
+    [...new Set(samples.map((item) => item.method + " " + item.path))].map(
+      (path) => {
+        const times = samples
+          .filter((item) => item.method + " " + item.path === path)
+          .map((item) => item.wall_ms)
+          .sort((a, b) => a - b);
+        return [
+          path,
+          {
+            count: times.length,
+            min_ms: times[0],
+            median_ms: times[Math.floor(times.length / 2)],
+            max_ms: times.at(-1),
+          },
+        ];
+      },
+    ),
   );
   const result = {
     url,
     database_provider: "turso",
     samples,
     summary,
-    progress_tested: books.length > 0,
+    progress_tested: Boolean(comic) || books.length > 0,
     warning:
       "GitHub runner elapsed time including network and response body; not Workers CPU, not a D1 comparison or a China-client benchmark.",
   };

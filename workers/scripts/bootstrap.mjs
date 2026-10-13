@@ -274,7 +274,7 @@ for (let attempt = 0; attempt < 12; attempt++) {
   if (attempt === 11) throw new Error("Worker 路由尚未就绪，请稍后重试");
   await new Promise((resolve) => setTimeout(resolve, 5000));
 }
-if (!sourceToken && !hasSource) {
+if (process.env.ENABLE_FANQIE_SOURCE === "true" && !sourceToken && !hasSource) {
   try {
     instance = randomUUID().replaceAll("-", "");
     const registration = "fqr_" + randomBytes(32).toString("base64url");

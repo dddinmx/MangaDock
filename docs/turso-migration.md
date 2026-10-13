@@ -12,7 +12,7 @@
 
 推送新分支运行本地隔离测试及 **Initialize Turso staging**。初始化以事务顺序应用 `0001` 至 `0007`，记录 SHA-256 检查点；重复执行不会重复建表或覆盖管理员密码。Token 仅经环境和 stdin 传递，不放进命令参数、日志、提交或产物。
 
-通过 **Deploy Workers (free plan)** 手动选择该分支和 `staging` 发布。生成的配置使用 `DATABASE_PROVIDER=turso`，没有 D1 绑定，也不会执行 D1 预算查询、DDL 或 SQL。新 Worker、R2、Queue 使用 `mangadock-turso-staging`，已暂停的 `mangadock-full-staging` 不会被恢复。Cron 和定时 GitHub 转换继续关闭；下载仅在用户创建任务后运行。
+通过 **Deploy Workers (free plan)** 手动选择该分支和 `staging` 发布。用户已暂停小说 API，本轮默认只验收漫画，`test_novels=false` 且番茄自动注册关闭；恢复后须显式选择该输入才访问番茄服务。`comic_chapters` 可选择 1 或 2，补测第二章时复用已有章节，限制真实下载规模。生成的配置使用 `DATABASE_PROVIDER=turso`，没有 D1 绑定，也不会执行 D1 预算查询、DDL 或 SQL。新 Worker、R2、Queue 使用 `mangadock-turso-staging`，已暂停的 `mangadock-full-staging` 不会被恢复。Cron 和定时 GitHub 转换继续关闭；下载仅在用户创建任务后运行。
 
 正式发布使用独立 Turso 数据库，在 GitHub `production` Environment 配置同名 Secrets。部署脚本拒绝把名称含 staging 的数据库用于 production；新资源使用 `mangadock-turso-production`。未完成数据迁移及真实来源验收前，不修改现有 DNS。
 
@@ -20,6 +20,7 @@
 
 - `0004`、`0005` 的任务父子、状态/租约、来源、清理、历史、章节文件名和云转换索引完整应用到 Turso。章节完成检查使用按状态索引的 `EXISTS/LIMIT 1`，不在每下载一张图片时重新统计所有兄弟任务。
 - `0007` 以事务触发器维护存储总量，避免每张图片预留空间都重新 SUM 整个书库。一次性回填后按主键读取一行；保留作品文件与存储账本的重叠扣除、WebDAV 排除和作业预留计算，失败/取消释放作业预留。实际 libSQL 验证插入、更新、删除、重复文件引用和事务回滚后的总量与原公式完全一致；本地 D1 的 2,000 文件回归验证新增文件预留读取小于 20 行。
+- 漫画书架只为当前页面最多 100 本作品批量查询一次进度，消除原来逐本发出数据库请求的 N+1 问题；50 本书的回归限制总 SQL 请求少于 6 次，并验证进度仍对应正确作品。
 - 普通漫画下载失败最多 5 次，指数退避，租约期间的重复消息不会执行下载；耗尽后进入 error。
 - 番茄小说/漫画等待生成的轮询单独限制最多 30 次、间隔 60/120/240/300 秒，并有总时间限制。轮询不会重置预算；漫画正常等待与失败重试分开计数。
 - 云转换领取最多 3 次。进程崩溃、租约过期后也不能永久反复领取；超过上限进入 error。
