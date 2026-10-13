@@ -2,6 +2,15 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      queue_control:
+        description: Only pause/resume queue delivery; skip tests, migration and deployment
+        type: choice
+        options: [none, pause, resume]
+        default: none
+      pause_queue_until_reset:
+        description: Pause new queue sends until the next UTC day during deployment
+        type: boolean
+        default: false
       environment:
         type: choice
         description: Deployment environment
@@ -65,6 +74,12 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: workers/package-lock.json
+      - name: Pause or resume queue delivery only
+        if: ${{ inputs.queue_control && inputs.queue_control != 'none' }}
+        env:
+          DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
+          QUEUE_CONTROL: ${{ inputs.queue_control }}
+        run: python scripts/queue-delivery.py
       - name: Check configured secrets without exposing values
         run: |
           node --input-type=module - <<'JS'
@@ -76,25 +91,29 @@ jobs:
           if(wake.length<32 || wake.length>4096 || /[\r\n]/.test(wake))throw new Error('COMPUTE_WAKE_TOKEN must be an independent value of at least 32 characters');
           JS
       - uses: actions/setup-python@v5
-        if: ${{ !inputs.preflight_only }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') }}
         with:
           python-version: "3.12"
       - name: Install original-template reference dependencies
-        if: ${{ !inputs.preflight_only }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') }}
         run: pip install Pillow==10.4.0 Jinja2==3.1.6 beautifulsoup4==4.12.3 requests==2.32.4
       - run: npm ci
-        if: ${{ !inputs.preflight_only }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') }}
       - run: npx playwright install --with-deps chromium
-        if: ${{ !inputs.preflight_only }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') }}
       - run: npm run verify
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only) }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only) }}
       - name: Provision and deploy without upgrading plan
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only) }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only) }}
         env:
           DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
-        run: npm run bootstrap -- "$DEPLOY_TARGET"
+        run: |
+          if [ "${{ inputs.pause_queue_until_reset && 'true' || 'false' }}" = "true" ]; then
+            export MANGADOCK_QUEUE_PAUSE_UNTIL="$(node -e 'process.stdout.write(String((Math.floor(Date.now()/86400000)+1)*86400))')"
+          fi
+          npm run bootstrap -- "$DEPLOY_TARGET"
       - name: Resolve existing deployment without accessing D1
-        if: ${{ !inputs.preflight_only && (inputs.verify_only) }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (inputs.verify_only) }}
         env:
           DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
         run: |
@@ -107,42 +126,42 @@ jobs:
           await writeFile('deployment.json',JSON.stringify({url:`https://${name}.${result.result.subdomain}.workers.dev`,database_provider:'turso'}));
           JS
       - name: Measure deployed Turso login and library latency
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only) }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only) }}
         run: node scripts/latency-report.mjs
       - name: Deployed login, library and progress smoke test
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only && inputs.test_novels) }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && inputs.test_novels) }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
           SOURCE_CHAPTER_IDS: ${{ inputs.source_chapter_ids || (!inputs.source_book_id && '6838937005267616264') || '' }}
         run: npm run test:live
       - name: Read real-source EPUB in deployed browser and restore progress
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only && inputs.test_novels) }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && inputs.test_novels) }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
         run: node scripts/live-browser.mjs
       - name: Measure progress latency after the real-source test
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/latency-report.mjs
       - name: Run pending cloud conversions and original-model cover super-resolution
         id: cloud_compute
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: |
           pip install -r scripts/cloud-compute-requirements.txt
           python scripts/cloud-compute.py --limit 10
       - name: Real comic source, private R2 pages and progress
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only && !cancelled() && steps.cloud_compute.conclusion == 'success') }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && steps.cloud_compute.conclusion == 'success') }}
         run: node scripts/live-comic.mjs
       - name: Read real comic in the original browser reader and restore progress
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only && success()) }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && success()) }}
         run: node scripts/live-comic-browser.mjs
       - name: Measure real comic progress latency
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only && success()) }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && success()) }}
         run: node scripts/latency-report.mjs
       - name: Validate real task status, logs and execution times on desktop and mobile
-        if: ${{ !inputs.preflight_only && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/live-task-browser.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
-        if: ${{ !inputs.preflight_only && (!cancelled() && hashFiles('workers/deployment.json') != '') }}
+        if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/cpu-report.mjs
       - uses: actions/upload-artifact@v4
         if: always()
