@@ -1,10 +1,10 @@
 name: Workers tests
 on:
   pull_request:
-    paths: ['workers/**', 'templates/login.html', 'templates/novel_reader.html', 'static/**', '.github/workflows/workers-*']
+    paths: ['workers/**', 'templates/**', 'static/**', '.github/workflows/workers-*']
   push:
-    branches: ['main', 'migration/cloudflare-workers']
-    paths: ['workers/**', 'templates/login.html', 'templates/novel_reader.html', 'static/**', '.github/workflows/workers-*']
+    branches: ['main', 'migration/cloudflare-full']
+    paths: ['workers/**', 'templates/**', 'static/**', '.github/workflows/workers-*']
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,11 +21,16 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: workers/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install original-template reference dependencies
+        run: pip install Pillow==10.4.0 Jinja2==3.1.6
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run verify
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: workers-test-reports
           path: workers/test-results/

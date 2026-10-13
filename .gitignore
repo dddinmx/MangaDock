@@ -58,3 +58,5 @@ workers/deployment.json
 workers/live-results.json
 workers/cpu-results.json
 workers/live-browser-results.json
+
+workers/src/generated/

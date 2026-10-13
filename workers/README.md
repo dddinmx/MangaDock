@@ -1,22 +1,24 @@
-# MangaDock Workers migration
+# MangaDock Cloudflare 迁移
 
-本目录是独立的 Cloudflare 迁移实现；仓库根目录的 Flask/Gunicorn 版本仍可运行。当前是首阶段小说闭环，不能替代全部旧功能，也没有迁移个人书库。
+完整迁移开发分支：`migration/cloudflare-full`。原 Flask 代码、原 `templates/` 和 `static/` 没有改动，小说试点分支与测试站继续保留。这里的实现已接入原界面和主要后端模块，仍需完成真实来源、边界文件和全库验收，不能把本地测试当作正式切流完成。
 
-## 本地开发
+## 原版界面
+
+构建时预编译全部 34 个原 Jinja 模板（包含公共模板与局部模板），请求时传入 D1 数据；直接使用原 CSS、字体、图标和前端脚本。保留首页、漫画/小说书架、详情、阅读器、登录、搜索、历史、统计、任务、用户/分组管理、设置等页面。转换层兼容 Jinja 的真假判断、字典 get、切片、日期、URL 和 JSON 转义。
+
+`test/browser/parity.spec.ts` 使用未改动的原模板和 Python Jinja 生成参考页面，在同一 Chromium、同一数据、同一资源下对比 1280px 和 390px 截图。目前覆盖 21 个页面、42 组截图。测试等待图片解码，允许少量抗锯齿差异，不放宽缺失内容或布局差异。CI 保存实际、参考和失败差异截图。
+
+## 本地开发与检查
 
 ```bash
 cd workers
 npm ci
-npm run build
-npm run check
-npm test
+python -m pip install Pillow==10.4.0 Jinja2==3.1.6
 npx playwright install --with-deps chromium
-npm run test:e2e
+npm run verify
 ```
 
-测试在 workerd 中使用真实 D1/R2 实现，来源 HTTP 在接口测试中模拟。浏览器测试使用合成 EPUB，验证原版登录模板、原版小说阅读器、翻页、跨刷新进度恢复及 EPUB 脚本隔离。真实来源测试必须单独执行，不能把模拟测试当作真实下载成功。
-
-首次本地接入现有番茄云服务：
+`npm run verify` 包括构建、TypeScript、真实 workerd/D1/R2 接口测试、原模板截图对照、阅读器浏览器测试和 Python 迁移测试。模拟来源测试与线上真实来源验收分别记录。
 
 ```bash
 npm run source:register
@@ -24,36 +26,35 @@ node scripts/seed-local.mjs
 npm run dev
 ```
 
-`source:register` 复用原服务 `/v1/register` 协议，把令牌保存到忽略提交的 `.dev.vars`（0600），不会打印令牌。测试用管理员密码只在本地 seed 中使用，生产账号从 CI Secret 初始化。受代理管理的 Node 24 环境执行来源脚本时设置 `NODE_USE_ENV_PROXY=1`。
+来源凭据保存在忽略提交的 `.dev.vars`。测试账号密码只用于本地合成书库，线上管理员使用 CI Secret。自定义 Python/Chromium 可设置 `MANGADOCK_REFERENCE_PYTHON` 和 `PLAYWRIGHT_CHROMIUM_EXECUTABLE`。
 
-## CI 和部署
+## 部署与云端超分
 
-Repository Secrets：
+沿用 Repository Secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`、`MANGADOCK_ADMIN_PASSWORD`。可选 `FANQIE_API_TOKEN` / `FANQIE_INSTANCE_ID` 一起配置；缺失时首次部署注册独立实例，后续保留 Worker Secrets。WebDAV/AniList 的加密密钥自动生成并保存到 Worker Secret，不提交仓库。
 
-| 名称 | 用途 |
-| --- | --- |
-| `CLOUDFLARE_API_TOKEN` | 目标账号的 Workers Scripts、D1、R2、Queues 编辑权限及 Account Settings 读取权限 |
-| `CLOUDFLARE_ACCOUNT_ID` | 目标账号 ID |
-| `MANGADOCK_ADMIN_PASSWORD` | 首次初始化 `admin`，至少 6 字符（沿用原项目规则）。后续部署不会重设密码 |
-| `FANQIE_API_TOKEN` / `FANQIE_INSTANCE_ID` | 可选，复用来源服务现有凭据；两者应一起设置 |
+推送完整迁移分支运行测试和独立 staging 部署。资源使用 `mangadock-full-staging` / `mangadock-full-production`；不改旧小说试点资源，不修改现有 DNS，不升级 Workers Paid。
 
-没有来源凭据时，首次部署使用随机实例 ID 和随机 256-bit 注册密钥向现有来源服务注册；把 Token / Instance ID 写入 Worker Secrets，后续部署保留这些 Secrets，不重复注册，也不从用户密码派生服务密钥。注册密钥不进入仓库或日志。若 Worker Secrets 丢失，可重新注册独立实例或提供显式来源凭据。
+正式发布通过 **Deploy Workers (free plan)** 手动选择 `production` 和已验收提交。数据库采用追加迁移；代码回滚不等于数据回滚。
 
-推送迁移分支自动运行测试、部署 staging。正式发布：在 GitHub Actions 中手动运行 **Deploy Workers (free plan)**，选择 `production`，选择已验证的提交。可给 GitHub `production` environment 设置 required reviewers。staging/production 使用不同 D1、R2 和 Queue。不要在公开 PR/分叉工作流中注入 Secrets。
+普通 HTTP Worker 负责转发，密码校验与应用逻辑分别运行在 SQLite Durable Object，D1 保存状态，R2 保存私有文件，Queues 按章节/图片拆分下载，Cron 恢复未完成消息。DO 单次 CPU 默认 30 秒，HTTP Worker Free 是 10 ms，必须分别核验，不能把 wall time 当 CPU。
 
-部署脚本会创建资源、执行 D1 migrations、初始化账号、发布 Worker、写入来源 Secrets，输出 `workers.dev` 地址。它不会开通 Workers Paid、更改套餐或配置现有自定义域名。R2 必须由账号所有者先开通，可能需要支付方式；资源 API 失败时不会自动购买套餐。
+ONNX、PDF/CBZ 转换、超大 EPUB 索引以及来源兼容解析由 `cloud-compute.py` 在 GitHub Actions Linux 执行。封面继续使用原 RealESRGAN 动漫模型；失败或超时时按原方案退回 Pillow。产物通过管理员认证接口写入 R2；任务有领取租约、文件大小检查和章节版本检查。
 
-若只运行 `wrangler deploy --env ...` 而未生成资源配置，会因缺少绑定失败。请运行 `npm run bootstrap -- staging` / `production`，或使用提供的工作流。
+新增 **Cloud conversions and cover super-resolution** 工作流，在合并到默认分支后每 15 分钟处理一批；GitHub 不保证定时准点。开发分支部署时直接执行转换，不把未合并的 schedule 声称为已自动运行。公共仓库标准 Linux runner 当前免费；私有仓库超过 Actions 分钟额度、Cloudflare 超额资源以及现有番茄服务器不能承诺免费。详细费用见迁移文档。
 
-`MANGADOCK_URL=... MANGADOCK_ADMIN_PASSWORD=... SOURCE_BOOK_ID=... SOURCE_CHAPTER_IDS=... npm run test:live` 执行真实登录、来源下载、R2 文件读取、进度保存。`SOURCE_CHAPTER_IDS` 是逗号分隔的真实来源章节 ID；省略会下载全书（仍受 32 MB 限制）。测试写入该管理员的进度，仅对测试作品运行。返回的 `wall_ms` 是耗时，**不是 Cloudflare CPU 用量**。线上 CPU 验收见架构文档。
+## 数据迁移
 
-## 第一阶段限制
+```bash
+python workers/scripts/import-library.py \
+  --database /private/backup/app.db \
+  --comics /private/backup/comic \
+  --novels /private/backup/小说 \
+  --covers /private/backup/cover
+```
 
-- 仅接入番茄小说 EPUB；每本最多 32 MB、单章解压后最多 2 MB，浏览器解压及正文纯文本呈现。
-- 小说阅读器从原模板生成，保留颜色、字体、横向翻页、纵向滚动；目录暂显示序号。书架是使用原 CSS 的首阶段页面，封面和旧首页完整布局待迁移。
-- 仅管理员下载；书库对已初始化的账号共享。旧版分组权限、18+ 权限、用户管理尚未迁移，**不得直接导入旧账号/受限书库并公开访问**。
-- 首次下载完成后重复下载被拒绝；更新、取消、重试 UI 待迁移。来源提交响应丢失时不自动重发，避免创建重复来源作业；D1 标记错误以供人工核对。
-- staging 书库预算 256 MB，production 8 GB；这只限制此实现的已入库对象及传输预留，不能保证整个账号其他 R2 bucket 没有费用。没有完成整个账号用量审计时，不能承诺零账单。
-- 密码验证交给免费 SQLite Durable Object（30 秒默认 CPU 限额），HTTP Worker 只等待结果。新账号 PBKDF2 SHA-256 600,000 次，支持旧 Werkzeug 260,000 次哈希，避免普通 Worker 10 ms CPU 限额以及 WebCrypto 100,000 次上限。身份验证及来源下载的线上 CPU 仍需实际验收。
+默认只规划，不上传。确认目标预算后，在环境中配置 `MANGADOCK_ADMIN_PASSWORD`，增加 `--url https://目标站 --apply` 执行。保留旧密码哈希、分组/权限、原作品和章节标识、进度锚点、阅读时长、封面变体；管理员现有密码默认保留，显式 `--restore-admin-password` 才覆盖。大文件使用 5 MB 分片、每片 SHA-256、长度和有序分片检查。整文件 SHA-256 来自备份端清单，不把分片校验说成服务端复算全文件。
 
-详细功能差异、费用、迁移和回退方案：[`docs/cloudflare-migration.md`](../docs/cloudflare-migration.md)。
+先用 SQLite backup API 创建含 WAL 的一致快照。原备份不可提交公共仓库。当前没有用户实际数据库和 10–100 GB 文件，因此未执行全库迁移。导入器当前处理 CBZ/PDF 章节和 EPUB；直接图片目录、旧任务历史、旧加密 AniList/WebDAV 凭据迁移还需补齐/重新连接。详见验收与剩余工作。
+
+- [迁移架构、费用和回退](../docs/cloudflare-migration.md)
+- [真实验证记录](../docs/cloudflare-validation.md)

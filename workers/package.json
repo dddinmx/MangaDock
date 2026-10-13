@@ -23,11 +23,15 @@
     "esbuild": "^0.28.2",
     "miniflare": "^4.20251011.1",
     "nunjucks": "^3.2.4",
+    "prettier": "^3.9.10",
     "typescript": "latest",
     "vitest": "~3.2.0",
     "wrangler": "latest"
   },
   "dependencies": {
-    "@noble/hashes": "^2.0.1"
+    "@noble/hashes": "^2.0.1",
+    "fflate": "^0.8.3",
+    "linkedom": "^0.18.13",
+    "lz-string": "^1.5.0"
   }
 }

@@ -1,0 +1,47 @@
+name: Cloud conversions and cover super-resolution
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+        default: staging
+      limit:
+        description: Maximum jobs in this run (1-20)
+        default: '10'
+permissions:
+  contents: read
+concurrency:
+  group: workers-compute-${{ inputs.environment || 'production' }}
+  cancel-in-progress: false
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: ${{ inputs.environment || 'production' }}
+    env:
+      MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve this account's deployed URL
+        env:
+          DEPLOY_TARGET: ${{ inputs.environment || 'production' }}
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          request=urllib.request.Request(f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/subdomain',headers={'Authorization':'Bearer '+os.environ['CLOUDFLARE_API_TOKEN']})
+          with urllib.request.urlopen(request) as response:subdomain=json.load(response)['result']['subdomain']
+          name='mangadock-full-production' if os.environ['DEPLOY_TARGET']=='production' else 'mangadock-full-staging'
+          with open(os.environ['GITHUB_ENV'],'a') as env:env.write(f'MANGADOCK_URL=https://{name}.{subdomain}.workers.dev\n')
+          PY
+      - run: pip install -r workers/scripts/cloud-compute-requirements.txt
+      - name: Process bounded pending jobs
+        run: python workers/scripts/cloud-compute.py --limit '${{ inputs.limit || 10 }}'

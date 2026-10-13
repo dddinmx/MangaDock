@@ -14,7 +14,7 @@ on:
         description: Optional comma-separated real chapter IDs
         required: false
   push:
-    branches: ['migration/cloudflare-workers']
+    branches: ['migration/cloudflare-full']
     paths: ['workers/**', '.github/workflows/workers-*']
 permissions:
   contents: read
@@ -44,6 +44,11 @@ jobs:
       - name: Check configured secrets
         run: |
           node --input-type=module -e "for (const key of ['CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','MANGADOCK_ADMIN_PASSWORD']) if (!process.env[key]) throw new Error(key+' Secret is missing');"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install original-template reference dependencies
+        run: pip install Pillow==10.4.0 Jinja2==3.1.6
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run verify
@@ -60,8 +65,14 @@ jobs:
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
         run: node scripts/live-browser.mjs
+      - name: Run pending cloud conversions and original-model cover super-resolution
+        run: |
+          pip install -r scripts/cloud-compute-requirements.txt
+          python scripts/cloud-compute.py --limit 10
+      - name: Real comic source, private R2 pages and progress
+        run: node scripts/live-comic.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
-        if: success()
+        if: ${{ !cancelled() && hashFiles('workers/deployment.json') != '' }}
         run: node scripts/cpu-report.mjs
       - uses: actions/upload-artifact@v4
         if: always()
@@ -72,5 +83,7 @@ jobs:
             workers/live-results.json
             workers/cpu-results.json
             workers/live-browser-results.json
+            workers/live-comic-results.json
             workers/test-results/live-reader.png
+            workers/test-results/parity-*.png
           if-no-files-found: ignore

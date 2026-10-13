@@ -3,17 +3,130 @@
   "name": "mangadock-local",
   "main": "src/index.ts",
   "compatibility_date": "2025-10-01",
-  "assets": {"directory":"./public", "binding":"ASSETS", "html_handling":"none", "run_worker_first":["/api/*", "/reader", "/", "/login"]},
-  "vars": {"FANQIE_API_URL":"https://fanqie.dddinmx.cn", "MAX_ARTIFACT_BYTES":"33554432", "MAX_LIBRARY_BYTES":"256000000"},
-  "d1_databases": [{"binding":"DB", "database_name":"mangadock-local", "database_id":"00000000-0000-0000-0000-000000000000", "migrations_dir":"migrations"}],
-  "r2_buckets": [{"binding":"LIBRARY", "bucket_name":"mangadock-local"}],
-  "queues": {"producers":[{"binding":"DOWNLOADS", "queue":"mangadock-local"}], "consumers":[{"queue":"mangadock-local", "max_batch_size":1, "max_retries":3, "max_concurrency":1}]},
-  "triggers":{"crons":["*/5 * * * *"]},
-  "observability":{"enabled":true},
-  "durable_objects":{"bindings":[{"name":"AUTH_SERVICE","class_name":"PasswordVerifier"}]},
-  "migrations":[{"tag":"auth-v1","new_sqlite_classes":["PasswordVerifier"]}],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "run_worker_first": [
+      "/",
+      "/api/*",
+      "/login",
+      "/logout",
+      "/login-cover/*",
+      "/reader",
+      "/reader/*",
+      "/novels",
+      "/novels/*",
+      "/novel/*",
+      "/comics",
+      "/comics/*",
+      "/comic/*",
+      "/comic_groups",
+      "/comic_groups/*",
+      "/admin_hidden/*",
+      "/settings",
+      "/settings/*",
+      "/change_password",
+      "/search",
+      "/history",
+      "/statistics",
+      "/users",
+      "/users/*",
+      "/download",
+      "/update",
+      "/update/*",
+      "/tasks",
+      "/progress/*",
+      "/task_status/*",
+      "/cancel_task/*",
+      "/delete_task/*",
+      "/delete_tasks",
+      "/save_progress",
+      "/get_progress/*",
+      "/anilist/*",
+      "/static/comic/*",
+      "/static/cover/*",
+    ],
+  },
+  "vars": {
+    "FANQIE_API_URL": "https://fanqie.dddinmx.cn",
+    "MAX_ARTIFACT_BYTES": "2147483648",
+    "MAX_LIBRARY_BYTES": "256000000",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mangadock-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "LIBRARY",
+      "bucket_name": "mangadock-local",
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "DOWNLOADS",
+        "queue": "mangadock-local",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "mangadock-local",
+        "max_batch_size": 1,
+        "max_retries": 3,
+        "max_concurrency": 1,
+      },
+    ],
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"],
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AUTH_SERVICE",
+        "class_name": "PasswordVerifier",
+      },
+      {
+        "name": "APPLICATION",
+        "class_name": "ApplicationService",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "auth-v1",
+      "new_sqlite_classes": ["PasswordVerifier"],
+    },
+    {
+      "tag": "app-v1",
+      "new_sqlite_classes": ["ApplicationService"],
+    },
+  ],
   "env": {
-    "staging": {"name":"mangadock-staging", "vars":{"FANQIE_API_URL":"https://fanqie.dddinmx.cn", "MAX_ARTIFACT_BYTES":"33554432", "MAX_LIBRARY_BYTES":"256000000"}},
-    "production": {"name":"mangadock", "vars":{"FANQIE_API_URL":"https://fanqie.dddinmx.cn", "MAX_ARTIFACT_BYTES":"33554432", "MAX_LIBRARY_BYTES":"256000000"}}
-  }
+    "staging": {
+      "name": "mangadock-staging",
+      "vars": {
+        "FANQIE_API_URL": "https://fanqie.dddinmx.cn",
+        "MAX_ARTIFACT_BYTES": "33554432",
+        "MAX_LIBRARY_BYTES": "256000000",
+      },
+    },
+    "production": {
+      "name": "mangadock",
+      "vars": {
+        "FANQIE_API_URL": "https://fanqie.dddinmx.cn",
+        "MAX_ARTIFACT_BYTES": "33554432",
+        "MAX_LIBRARY_BYTES": "256000000",
+      },
+    },
+  },
 }

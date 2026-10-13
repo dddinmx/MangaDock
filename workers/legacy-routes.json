@@ -1,0 +1,1244 @@
+[
+  {
+    "path": "/api/auth/login",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_auth_login",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/auth/logout",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_auth_logout",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/info",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_info",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/auth/me",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_auth_me",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comics",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comic_detail",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/cover",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comic_cover",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/cover.jpg",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comic_cover_jpg",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/cover/<int:version>.jpg",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comic_cover_version",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/chapters",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comic_chapters",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/chapters/<chapter_id>/file",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comic_chapter_file",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/chapters/<chapter_id>/pages",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comic_chapter_pages",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/chapters/<chapter_id>/pages/<int:page_index>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_comic_chapter_page_image",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/progress",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_get_comic_progress",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comics/<comic_id>/progress",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_save_comic_progress",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/statistics",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_statistics",
+    "source": "mangadock/blueprints/api_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novels",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novel_index",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": [
+      "novel_index.html"
+    ]
+  },
+  {
+    "path": "/novels/library",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novels_list",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": [
+      "novels.html"
+    ]
+  },
+  {
+    "path": "/novels/groups",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novel_group_manager",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": [
+      "novel_groups.html"
+    ]
+  },
+  {
+    "path": "/novels/groups/create",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "create_novel_group",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novels/groups/assign",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "batch_assign_novel_group",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novels/groups/delete",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "remove_novel_group",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novels/search",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novel_search",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": [
+      "novel_search.html"
+    ]
+  },
+  {
+    "path": "/novels/fanqie",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "fanqie_novel_search",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": [
+      "novel_fanqie.html"
+    ]
+  },
+  {
+    "path": "/novels/fanqie/cover",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "fanqie_novel_cover",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novels/fanqie/<book_id>/cover",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "fanqie_novel_book_cover",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novels/fanqie/download",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "fanqie_novel_download",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novels/history",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novel_history",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": [
+      "novel_history.html"
+    ]
+  },
+  {
+    "path": "/novel/<path:novel_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novel_detail",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": [
+      "novel_detail.html"
+    ]
+  },
+  {
+    "path": "/novel/<path:novel_id>/read",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novel_reader",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": [
+      "novel_reader.html"
+    ]
+  },
+  {
+    "path": "/novel/<path:novel_id>/chapter/<int:chapter_index>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novel_chapter_data",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novel/<path:novel_id>/cover",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "novel_cover",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/novel/<path:novel_id>/cover",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "update_novel_cover",
+    "source": "mangadock/blueprints/novel_routes.py",
+    "templates": []
+  },
+  {
+    "path": "/anilist/connect",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "anilist_connect",
+    "source": "mangadock/blueprints/web/anilist.py",
+    "templates": [
+      "anilist_connect.html"
+    ]
+  },
+  {
+    "path": "/anilist/disconnect",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "anilist_disconnect",
+    "source": "mangadock/blueprints/web/anilist.py",
+    "templates": []
+  },
+  {
+    "path": "/anilist/match/<path:comic_name>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "anilist_match",
+    "source": "mangadock/blueprints/web/anilist.py",
+    "templates": [
+      "anilist_match.html",
+      "error.html"
+    ]
+  },
+  {
+    "path": "/anilist/metadata/<path:comic_name>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "anilist_save_metadata",
+    "source": "mangadock/blueprints/web/anilist.py",
+    "templates": [
+      "error.html"
+    ]
+  },
+  {
+    "path": "/anilist/match/<path:comic_name>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "anilist_save_match",
+    "source": "mangadock/blueprints/web/anilist.py",
+    "templates": [
+      "error.html"
+    ]
+  },
+  {
+    "path": "/anilist/unmatch/<path:comic_name>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "anilist_unmatch",
+    "source": "mangadock/blueprints/web/anilist.py",
+    "templates": [
+      "error.html"
+    ]
+  },
+  {
+    "path": "/anilist/complete",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "anilist_complete",
+    "source": "mangadock/blueprints/web/anilist.py",
+    "templates": []
+  },
+  {
+    "path": "/anilist/sync",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "anilist_sync",
+    "source": "mangadock/blueprints/web/anilist.py",
+    "templates": []
+  },
+  {
+    "path": "/login-cover/<int:slot>.jpg",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "login_comic_cover",
+    "source": "mangadock/blueprints/web/auth_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/login",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "login",
+    "source": "mangadock/blueprints/web/auth_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/logout",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "logout",
+    "source": "mangadock/blueprints/web/auth_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/change_password",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "change_password",
+    "source": "mangadock/blueprints/web/auth_pages.py",
+    "templates": [
+      "change_password.html"
+    ]
+  },
+  {
+    "path": "/download",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "download",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": [
+      "download.html"
+    ]
+  },
+  {
+    "path": "/update",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "update",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": [
+      "update.html"
+    ]
+  },
+  {
+    "path": "/update/mode",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "update_mode",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": []
+  },
+  {
+    "path": "/update/check",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "check_updates_now",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": []
+  },
+  {
+    "path": "/delete_task/<task_id>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "delete_task_route",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": []
+  },
+  {
+    "path": "/delete_tasks",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "delete_tasks_route",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": []
+  },
+  {
+    "path": "/progress/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "progress",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": [
+      "error.html",
+      "progress.html"
+    ]
+  },
+  {
+    "path": "/task_status/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "task_status",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": []
+  },
+  {
+    "path": "/cancel_task/<task_id>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "cancel_task",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": []
+  },
+  {
+    "path": "/tasks",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "tasks",
+    "source": "mangadock/blueprints/web/downloads.py",
+    "templates": [
+      "tasks.html"
+    ]
+  },
+  {
+    "path": "/",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "index",
+    "source": "mangadock/blueprints/web/home.py",
+    "templates": [
+      "index.html"
+    ]
+  },
+  {
+    "path": "/search",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "search_page",
+    "source": "mangadock/blueprints/web/home.py",
+    "templates": [
+      "search.html"
+    ]
+  },
+  {
+    "path": "/history",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "history_page",
+    "source": "mangadock/blueprints/web/home.py",
+    "templates": [
+      "history.html"
+    ]
+  },
+  {
+    "path": "/comics",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "comics_list",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": [
+      "comics.html"
+    ]
+  },
+  {
+    "path": "/admin_hidden/toggle_comic",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "toggle_admin_hidden_comic",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": []
+  },
+  {
+    "path": "/admin_hidden/toggle_group",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "toggle_admin_hidden_group",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": []
+  },
+  {
+    "path": "/comic_groups",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "create_comic_group_route",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": []
+  },
+  {
+    "path": "/comic_groups/assign",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "assign_comic_group_route",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": []
+  },
+  {
+    "path": "/comic_groups/delete",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "delete_comic_group_route",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": []
+  },
+  {
+    "path": "/comics/groups",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "comic_group_manager",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": [
+      "comic_groups.html"
+    ]
+  },
+  {
+    "path": "/comics/groups/create",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "create_comic_group",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": []
+  },
+  {
+    "path": "/comics/groups/assign",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "batch_assign_comic_group",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": []
+  },
+  {
+    "path": "/comics/groups/delete",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "remove_comic_group",
+    "source": "mangadock/blueprints/web/library.py",
+    "templates": []
+  },
+  {
+    "path": "/comic/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "comic_detail",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": [
+      "comic_detail.html",
+      "error.html"
+    ]
+  },
+  {
+    "path": "/comic/delete",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "delete_comic_route",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": []
+  },
+  {
+    "path": "/comic/<task_id>/cover",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "update_comic_cover",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": []
+  },
+  {
+    "path": "/reader/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "comic_reader",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": [
+      "error.html",
+      "reader.html"
+    ]
+  },
+  {
+    "path": "/save_progress",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "save_progress",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": []
+  },
+  {
+    "path": "/get_progress/<comic_name>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "get_progress",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": []
+  },
+  {
+    "path": "/static/comic/<path:filename>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_comic_file",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": []
+  },
+  {
+    "path": "/api/comic-pages/<path:filename>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "comic_pages",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": []
+  },
+  {
+    "path": "/api/chapters/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "get_chapters",
+    "source": "mangadock/blueprints/web/reader.py",
+    "templates": []
+  },
+  {
+    "path": "/settings",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "settings",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": [
+      "settings.html"
+    ]
+  },
+  {
+    "path": "/settings/latest-release",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "latest_release",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/webdav",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "webdav_settings",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": [
+      "settings_webdav.html"
+    ]
+  },
+  {
+    "path": "/settings/scan_paths",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "scan_settings",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": [
+      "settings_scan.html"
+    ]
+  },
+  {
+    "path": "/settings/webdav",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "save_webdav",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/webdav/sync",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "sync_webdav",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/webdav/progress",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "webdav_sync_progress",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/webdav/control",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "control_webdav_sync",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/webdav/disconnect",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "disconnect_webdav_route",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/adult-content",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "set_adult_content",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/scan_paths",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "add_scan_path",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/scan_paths/<int:scan_path_id>/delete",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "delete_scan_path",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/settings/scan_paths/rescan",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "rescan_comic_library",
+    "source": "mangadock/blueprints/web/settings_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/statistics",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "statistics",
+    "source": "mangadock/blueprints/web/statistics.py",
+    "templates": [
+      "statistics.html"
+    ]
+  },
+  {
+    "path": "/users",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "users",
+    "source": "mangadock/blueprints/web/users_pages.py",
+    "templates": [
+      "users.html"
+    ]
+  },
+  {
+    "path": "/users/<int:user_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "user_detail",
+    "source": "mangadock/blueprints/web/users_pages.py",
+    "templates": [
+      "user_detail.html"
+    ]
+  },
+  {
+    "path": "/users/<int:user_id>/permissions",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "update_user_permissions",
+    "source": "mangadock/blueprints/web/users_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/users/<int:user_id>/password",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reset_user_password",
+    "source": "mangadock/blueprints/web/users_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/users/<int:user_id>/groups",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "update_user_groups",
+    "source": "mangadock/blueprints/web/users_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/users/<int:user_id>/delete",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "delete_user",
+    "source": "mangadock/blueprints/web/users_pages.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_v1_root",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_v1_root",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/auth/login",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_v1_login",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/auth/logout",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_v1_logout",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/auth/me",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_v1_me",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/tasks",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "list_tasks",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/tasks/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "get_task_detail",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/tasks/<task_id>/cancel",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "cancel_task_v1",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/tasks/<task_id>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "delete_task_v1",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/tasks/delete-finished",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "delete_finished_tasks_v1",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/downloads",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "create_download",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/updates",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "get_updates_status",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/updates",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "start_update",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/updates/mode",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "set_update_mode",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/updates/check",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "check_updates",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/groups",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "list_groups",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/groups",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "create_group",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/groups/<path:group_name>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "remove_group",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/groups/assign",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "assign_group",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/library/hidden/comics",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "toggle_hidden_comic",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/library/hidden/groups",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "toggle_hidden_group",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/comics/by-name/<path:comic_name>/cover",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "upload_cover",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/settings/adult-content",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "get_adult_content_setting",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/settings/adult-content",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "update_adult_content_setting",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/settings/scan-paths",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "list_scan_paths",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/settings/scan-paths",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "add_scan_path_v1",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/settings/scan-paths/<int:scan_path_id>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "delete_scan_path_v1",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/settings/scan-paths/rescan",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "rescan_library",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/users",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "list_users",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/users",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "create_user",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/users/<int:user_id>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "delete_user_v1",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/users/<int:user_id>/groups",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "update_user_groups_v1",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  },
+  {
+    "path": "/api/v1/account/password",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "change_password_v1",
+    "source": "mangadock/api_v1/routes.py",
+    "templates": []
+  }
+]
