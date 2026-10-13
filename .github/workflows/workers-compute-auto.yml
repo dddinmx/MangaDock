@@ -35,7 +35,7 @@ jobs:
           PRODUCTION_ENABLED: ${{ vars.MANGADOCK_PRODUCTION_COMPUTE_ENABLED || 'false' }}
         run: |
           python - <<'PY'
-          import json,os,re,urllib.request,urllib.error
+          import json,os,re,time,urllib.request,urllib.error
           def get(url,token):
               request=urllib.request.Request(url,headers={'Authorization':'Bearer '+token,'User-Agent':'MangaDock/5.0 Cloud-Compute'})
               with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
@@ -55,32 +55,37 @@ jobs:
           except urllib.error.HTTPError as error:
               if error.code in (404,503):result={'pending':False}
               else:raise
+          resume_after=result.get('queue_resume_after',0)
+          resume_ready=False
+          if type(resume_after) in (int,float) and resume_after>0 and time.time()>=resume_after:
+              queues=get(f'https://api.cloudflare.com/client/v4/accounts/{account}/queues?per_page=100',os.environ['CLOUDFLARE_API_TOKEN'])['result']
+              resume_ready=any(queue['queue_name']=='mangadock-turso-'+target and queue.get('settings',{}).get('delivery_paused',False) for queue in queues)
           ready=result.get('pending',False)
           ref=str(result.get('ref',''))
-          if ready and not re.fullmatch(r'(?:main|[a-f0-9]{40})',ref):
+          if (ready or resume_ready) and not re.fullmatch(r'(?:main|[a-f0-9]{40})',ref):
               raise ValueError('Deployed compute ref is not main or a commit SHA')
           sequence=result.get('sequence')
           if ready and (type(sequence) is not int or sequence<0):
               raise ValueError('Compute sequence is invalid')
           with open(os.environ['GITHUB_OUTPUT'],'a') as out:
-              out.write('ready='+str(ready).lower()+'\n')
-              if ready:out.write('ref='+ref+'\n')
+              out.write('ready='+str(ready).lower()+'\nresume_ready='+str(resume_ready).lower()+'\n')
+              if ready or resume_ready:out.write('ref='+ref+'\n')
           if ready:
               with open(os.environ['GITHUB_ENV'],'a') as out:
                   out.write('MANGADOCK_URL='+url+'\nMANGADOCK_COMPUTE_SEQUENCE='+str(sequence)+'\n')
           PY
       - uses: actions/checkout@v4
-        if: success() && steps.pending.outputs.ready == 'true'
+        if: success() && (steps.pending.outputs.ready == 'true' || steps.pending.outputs.resume_ready == 'true')
         with:
           ref: main
           fetch-depth: 0
       - name: Verify the deployed ref against main or an explicitly approved staging commit
         id: guard
-        if: success() && steps.pending.outputs.ready == 'true'
+        if: success() && (steps.pending.outputs.ready == 'true' || steps.pending.outputs.resume_ready == 'true')
         env:
           COMPUTE_REF: ${{ steps.pending.outputs.ref }}
           DEPLOY_TARGET: ${{ matrix.target }}
-          APPROVED_COMPUTE_SHA: ${{ vars.MANGADOCK_APPROVED_COMPUTE_SHA || 'fe8012676045c56746a7726c2381d1ec30296901' }}
+          APPROVED_COMPUTE_SHA: ${{ vars.MANGADOCK_APPROVED_COMPUTE_SHA || '20b287c8770383a16e0a2502ac78c6e2db2fdbb3' }}
         run: |
           set -euo pipefail
           ref="$COMPUTE_REF"
@@ -96,21 +101,29 @@ jobs:
             fi
           fi
       - uses: actions/checkout@v4
-        if: success() && steps.guard.outcome == 'success'
+        if: success() && steps.guard.outcome == 'success' && (steps.pending.outputs.ready == 'true' || steps.pending.outputs.resume_ready == 'true')
         with:
           ref: ${{ steps.pending.outputs.ref }}
           persist-credentials: false
+      - name: Resume only the current queue after reset and reviewed-ref verification
+        if: success() && steps.guard.outcome == 'success' && steps.pending.outputs.resume_ready == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DEPLOY_TARGET: ${{ matrix.target }}
+          QUEUE_CONTROL: resume
+        run: python workers/scripts/queue-delivery.py
       - uses: actions/setup-python@v5
-        if: success() && steps.guard.outcome == 'success'
+        if: success() && steps.guard.outcome == 'success' && steps.pending.outputs.ready == 'true'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: workers/scripts/cloud-compute-requirements.txt
       - name: Install conversion dependencies only when work exists
-        if: success() && steps.guard.outcome == 'success'
+        if: success() && steps.guard.outcome == 'success' && steps.pending.outputs.ready == 'true'
         run: pip install -r workers/scripts/cloud-compute-requirements.txt
       - name: Run at most five jobs, with deadlines and lease fencing
-        if: success() && steps.guard.outcome == 'success'
+        if: success() && steps.guard.outcome == 'success' && steps.pending.outputs.ready == 'true'
         env:
           MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
           MANGADOCK_COMPUTE_TOKEN: ${{ secrets.COMPUTE_WAKE_TOKEN }}
