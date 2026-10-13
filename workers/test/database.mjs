@@ -258,7 +258,7 @@ test("the Workers HTTP driver uses the token, rejects redirects and decodes actu
   try {
     globalThis.fetch = async (input, init) => {
       calls++;
-      assert.equal(init.redirect, "error");
+      assert.equal(init.redirect, "manual");
       const request = new Request(input, init);
       assert.equal(
         request.headers.get("authorization"),

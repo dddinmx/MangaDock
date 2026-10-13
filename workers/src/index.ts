@@ -1,5 +1,5 @@
 import { MAX_JOB_ATTEMPTS, MAX_REMOTE_POLLS, retryDelay } from "./downloads";
-import { DatabasePausedError } from "./database-budget";
+import { databasePaused } from "./database-budget";
 import { DurableObject } from "cloudflare:workers";
 import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -991,13 +991,14 @@ export async function pilotRoute(
       {
         ok: false,
         error: {
-          message:
-            error instanceof HttpError || error instanceof DatabasePausedError
+          message: databasePaused(error)
+            ? "数据库保护已暂停请求，请稍后重试并检查额度"
+            : error instanceof HttpError
               ? error.message
               : "服务暂时不可用",
         },
       },
-      error instanceof DatabasePausedError
+      databasePaused(error)
         ? 503
         : error instanceof HttpError
           ? error.status

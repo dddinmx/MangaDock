@@ -51,4 +51,6 @@ GitHub runner 的耗时不等于中国用户耗时，也不是 CPU；不能直�
 
 Turso Free 官方页面本轮核对为 5 GB、每月 5 亿行读取、1,000 万行写入，无需信用卡；以账户控制台和 [官方价格页](https://turso.tech/pricing) 为准。R2 的免费存储是每账号共享 10 GB，100 GB 书库仅存储超额部分约 $1.35/月，另有请求额度。现有番茄服务器和超出平台免费额度的资源不能承诺免费，不自动升级套餐。
 
-本地共 86 项检查：数据库适配和保护 18 项；workerd/D1/R2 39 项，包含新的小说/漫画轮询截止、云转换领取上限和存储预留行数回归；原界面 Chromium 6 项（46 对截图）；Python 21 项；D1 部署预算 2 项。构建、TypeScript 与 Wrangler 离线打包通过。真实 Turso [首次初始化已通过](https://github.com/dddinmx/MangaDock/actions/runs/38358870436)，当时应用六个迁移文件，追加的 `0007` 将在下次运行应用。真实部署、延时及新部署 CPU 结果以 CI 运行报告为准，不能用历史 D1 测试站的 CPU 结果替代。
+本地共 88 项检查：数据库适配和保护 18 项；workerd/D1/R2 41 项，包含新的小说/漫画轮询截止、云转换领取上限、存储预留行数回归及真实 workerd 下的 Turso HTTP 驱动/重定向检查；原界面 Chromium 6 项（46 对截图）；Python 21 项；D1 部署预算 2 项。构建与 TypeScript 通过。真实 Turso [七个迁移已全部初始化](https://github.com/dddinmx/MangaDock/actions/runs/38359678956)；[首次完整 CI](https://github.com/dddinmx/MangaDock/actions/runs/38359678825) 通过 86 项。
+
+[首次线上部署](https://github.com/dddinmx/MangaDock/actions/runs/38360021779) 创建了独立资源，但登录返回 500；定位为 workerd 不支持 `redirect:error`，已经改为 `manual` 并显式拒绝 3xx，避免携带数据库授权跟随重定向。补充了带实际驱动及预算的 workerd 回归、驱动包装错误后仍返回 503 的检查。该错误发生在数据库请求发出前，不能把这次登录失败当作 Turso 查询延时证据。修复后的真实部署、延时及新部署 CPU 结果以 CI 运行报告为准，不能用历史 D1 测试站的 CPU 结果替代。

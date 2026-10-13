@@ -14,7 +14,7 @@ class Client:
  def request(self,path,method='GET',data=None,mime='application/json',json_response=True,extra_headers=None):
   if not path.startswith('/api/'): raise ValueError('Invalid path')
   body=json.dumps(data).encode() if isinstance(data,(dict,list)) else data
-  req=urllib.request.Request(self.url+path,data=body,method=method,headers={'Origin':self.url,'Cookie':self.cookie,'X-CSRFToken':self.csrf,'Content-Type':mime,**(extra_headers or {})})
+  req=urllib.request.Request(self.url+path,data=body,method=method,headers={'User-Agent':'MangaDock/5.0 Cloud-Compute','Origin':self.url,'Cookie':self.cookie,'X-CSRFToken':self.csrf,'Content-Type':mime,**(extra_headers or {})})
   response=self.opener.open(req,timeout=120)
   if json_response:
    with response:return json.load(response)

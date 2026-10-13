@@ -31,6 +31,13 @@ export class DatabasePausedError extends Error {
     this.name = "DatabasePausedError";
   }
 }
+export function databasePaused(error: unknown) {
+  for (let i = 0; i < 5 && error instanceof Error; i++) {
+    if (error instanceof DatabasePausedError) return true;
+    error = error.cause;
+  }
+  return false;
+}
 export class DatabaseBudget {
   storage: BudgetStorage;
   clock: () => number;

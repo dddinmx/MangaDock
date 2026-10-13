@@ -7,6 +7,8 @@ import { decodeImages, providerFor, unpackManhuagui } from "../src/providers";
 import { beforeAll, beforeEach, afterEach, describe, it, expect } from "vitest";
 import worker, { processJob, verifyPassword, pilotRoute } from "../src/index";
 import type { Env } from "../src/index";
+import { databaseEnv } from "../src/database";
+import { DatabaseBudget, databasePaused } from "../src/database-budget";
 const bindings = env as unknown as Env & {
   TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
 };
@@ -37,6 +39,76 @@ beforeAll(async () => {
     [...new Uint8Array(bits)]
       .map((x) => x.toString(16).padStart(2, "0"))
       .join("");
+});
+describe("Turso HTTP driver in actual workerd", () => {
+  it("uses the same HTTP request options as the deployed Worker", async () => {
+    fetchMock
+      .get("https://fixture.turso.io")
+      .intercept({ path: "/v2/pipeline", method: "POST" })
+      .reply(200, {
+        baton: null,
+        base_url: null,
+        results: [
+          {
+            type: "ok",
+            response: {
+              type: "execute",
+              result: {
+                cols: [{ name: "answer", decltype: "INTEGER" }],
+                rows: [[{ type: "integer", value: "42" }]],
+                affected_row_count: 0,
+                last_insert_rowid: null,
+              },
+            },
+          },
+          { type: "ok", response: { type: "close" } },
+        ],
+      });
+    const store = new Map();
+    const storage = {
+      get: async (key: string) => store.get(key),
+      put: async (key: string, value: unknown) => {
+        store.set(key, value);
+      },
+      transaction: async (fn: any) => fn(storage),
+    };
+    const budget = new DatabaseBudget(storage);
+    const { DB } = databaseEnv(
+      {
+        DATABASE_PROVIDER: "turso",
+        TURSO_DATABASE_URL: "libsql://fixture.turso.io",
+        TURSO_AUTH_TOKEN: "synthetic-token-only",
+      },
+      budget,
+    );
+    expect(await DB.prepare("SELECT 42 AS answer").first()).toEqual({
+      answer: 42,
+    });
+    await budget.reserve(10000 - 1);
+    let paused: unknown;
+    try {
+      await DB.prepare("SELECT 42 AS answer").first();
+    } catch (error) {
+      paused = error;
+    }
+    expect(databasePaused(paused)).toBe(true);
+  });
+  it("refuses redirects without forwarding database credentials", async () => {
+    fetchMock
+      .get("https://redirect-fixture.turso.io")
+      .intercept({ path: "/v2/pipeline", method: "POST" })
+      .reply(302, "", {
+        headers: { location: "https://untrusted.example/steal" },
+      });
+    const { DB } = databaseEnv({
+      DATABASE_PROVIDER: "turso",
+      TURSO_DATABASE_URL: "libsql://redirect-fixture.turso.io",
+      TURSO_AUTH_TOKEN: "synthetic-token-only",
+    });
+    await expect(DB.prepare("SELECT 42").first()).rejects.toThrow(
+      "redirect refused",
+    );
+  });
 });
 beforeEach(async () => {
   fetchMock.activate();

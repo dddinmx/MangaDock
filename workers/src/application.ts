@@ -2,7 +2,7 @@ import { checkUpdates } from "./updates";
 import { publicUser } from "./public-user";
 import { DurableObject } from "cloudflare:workers";
 import { databaseEnv } from "./database";
-import { DatabaseBudget, DatabasePausedError } from "./database-budget";
+import { DatabaseBudget, databasePaused } from "./database-budget";
 import {
   HttpError,
   now,
@@ -194,18 +194,16 @@ export class ApplicationService extends DurableObject<Env> {
         return await this.get(request, user, endpoint, params);
       return await this.mutate(request, user, endpoint, params);
     } catch (error) {
-      const status =
-        error instanceof DatabasePausedError
-          ? 503
-          : error instanceof HttpError
-            ? error.status
-            : 500;
-      const message =
-        error instanceof DatabasePausedError
+      const status = databasePaused(error)
+        ? 503
+        : error instanceof HttpError
+          ? error.status
+          : 500;
+      const message = databasePaused(error)
+        ? "数据库保护已暂停请求，请稍后重试并检查额度"
+        : error instanceof HttpError
           ? error.message
-          : error instanceof HttpError
-            ? error.message
-            : "服务暂时不可用";
+          : "服务暂时不可用";
       if (!(error instanceof HttpError))
         console.error(
           JSON.stringify({

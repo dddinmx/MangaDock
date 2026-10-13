@@ -172,12 +172,22 @@ export function databaseEnv<T extends DatabaseBindings>(
         authToken: env.TURSO_AUTH_TOKEN,
         intMode: "number",
         concurrency: 4,
-        fetch: (input: RequestInfo, init: RequestInit = {}) =>
-          (budget ? budget.guardedFetch.bind(budget) : fetch)(input, {
+        fetch: async (input: RequestInfo, init: RequestInit = {}) => {
+          const response = await (
+            budget ? budget.guardedFetch.bind(budget) : fetch
+          )(input, {
             ...init,
-            redirect: "error",
+            // workerd only implements follow/manual. Never follow redirects
+            // with the database's Authorization header.
+            redirect: "manual",
             signal: AbortSignal.timeout(25000),
-          }),
+          });
+          if (response.status >= 300 && response.status < 400) {
+            await response.body?.cancel();
+            throw new Error("Turso HTTP redirect refused");
+          }
+          return response;
+        },
       }),
     );
     if (!budget) databases.set(env, db);
