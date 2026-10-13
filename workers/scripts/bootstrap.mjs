@@ -1,5 +1,5 @@
 import { writeFile, readFile } from "node:fs/promises";
-import { pbkdf2Sync, randomBytes, randomUUID, createHash } from "node:crypto";
+import { pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { checkD1Budget } from "./d1-budget.mjs";
 process.on("uncaughtException", (error) => {
@@ -86,8 +86,50 @@ if (provider === "d1") {
       "Turso initialization failed; no Cloudflare resources were changed",
     );
 }
-const bucketList = await cf("/r2/buckets");
-if (!bucketList.buckets.some((b) => b.name === prefix))
+async function listR2Buckets() {
+  const buckets = [];
+  let cursor = "";
+  for (let page = 0; page < 100; page++) {
+    const params = new URLSearchParams({ per_page: "1000" });
+    if (cursor) params.set("cursor", cursor);
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${account}/r2/buckets?${params}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    const payload = await response.json();
+    if (!response.ok || !payload.success)
+      throw new Error(
+        `Cloudflare GET /r2/buckets HTTP ${response.status}; error codes ${(payload.errors || []).map((e) => e.code).join(",")}`,
+      );
+    const part = Array.isArray(payload.result)
+      ? payload.result
+      : payload.result?.buckets || [];
+    let added = 0;
+    for (const bucket of part) {
+      if (buckets.some((known) => known.name === bucket.name)) continue;
+      buckets.push(bucket);
+      added++;
+    }
+    const next = payload.result_info?.cursor || payload.result?.cursor || "";
+    if (
+      !next ||
+      next === cursor ||
+      payload.result_info?.is_truncated === false ||
+      added === 0
+    )
+      return buckets;
+    cursor = next;
+  }
+  throw new Error("R2 bucket 列表超过分页上限");
+}
+const buckets = await listR2Buckets();
+if (!buckets.some((b) => b.name === prefix))
   await cf("/r2/buckets", "POST", { name: prefix });
 const queues = await pages("/queues");
 if (!queues.some((q) => q.queue_name === prefix))
@@ -153,7 +195,7 @@ const config = {
     DB_DAILY_REQUEST_LIMIT: process.env.MANGADOCK_DB_DAILY_REQUESTS || "10000",
     DB_DAILY_STATEMENT_LIMIT:
       process.env.MANGADOCK_DB_DAILY_STATEMENTS || "50000",
-    MAX_ARTIFACT_BYTES: "2147483648",
+    MAX_ARTIFACT_BYTES: "33554432",
     MAX_LIBRARY_BYTES: target === "production" ? "8000000000" : "256000000",
   },
   d1_databases:
@@ -174,7 +216,7 @@ const config = {
       { queue: prefix, max_batch_size: 1, max_retries: 3, max_concurrency: 1 },
     ],
   },
-  triggers: { crons: [] },
+  triggers: { crons: ["*/15 * * * *"] },
   observability: { enabled: true },
   durable_objects: {
     bindings: [
@@ -213,13 +255,15 @@ if (provider === "d1") {
   });
 }
 // Preserve established Worker Secrets across releases. Only first enrolment generates new source credentials.
-const existingSecrets =
-  (await cf(
-    `/workers/scripts/${config.name}/secrets`,
-    "GET",
-    undefined,
-    true,
-  )) || [];
+// A 404 from the secrets list means the Worker does not exist yet.
+const listedSecrets = await cf(
+  `/workers/scripts/${config.name}/secrets`,
+  "GET",
+  undefined,
+  true,
+);
+const workerExisted = listedSecrets !== null;
+const existingSecrets = listedSecrets || [];
 const hasSource =
   existingSecrets.some((secret) => secret.name === "FANQIE_API_TOKEN") &&
   existingSecrets.some((secret) => secret.name === "FANQIE_INSTANCE_ID");
@@ -228,37 +272,91 @@ const integrationKey = existingSecrets.some(
 )
   ? null
   : randomBytes(32).toString("base64url");
+// COMPUTE_WAKE_TOKEN is independent of the admin password. Prefer the Actions secret.
+// Generate with randomBytes only when the Worker and the environment both lack it.
+// The value is passed to wrangler on stdin and is never printed or committed.
+const providedWake = process.env.COMPUTE_WAKE_TOKEN || "";
+if (providedWake && (/[\r\n]/.test(providedWake) || providedWake.length > 4096))
+  throw new Error("COMPUTE_WAKE_TOKEN 格式无效");
+const hasWake = existingSecrets.some(
+  (secret) => secret.name === "COMPUTE_WAKE_TOKEN",
+);
+const computeWakeToken = providedWake
+  ? providedWake
+  : hasWake
+    ? null
+    : randomBytes(32).toString("base64url");
 let sourceToken = process.env.FANQIE_API_TOKEN,
   instance = process.env.FANQIE_INSTANCE_ID;
 if (sourceToken && !instance)
   throw new Error(
     "FANQIE_API_TOKEN and FANQIE_INSTANCE_ID must be configured together",
   );
+const fanqieReady = Boolean(sourceToken);
+function showWrangler(result) {
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+}
+function wrangler(args, input) {
+  return spawnSync("npx", ["wrangler", ...args, "--config", filename], {
+    input,
+    encoding: "utf8",
+    env: { ...process.env, CI: "true" },
+  });
+}
+// Upload secrets before deploy so the published version inherits them.
+// secret put creates the Worker on first deploy; secret bulk updates an existing one.
+// If the latest version is not deployed, fall back to versions secret bulk.
+function uploadSecrets(values, createIfMissing) {
+  const entries = Object.entries(values).filter(
+    ([, value]) => value != null && value !== "",
+  );
+  if (!entries.length) return;
+  if (createIfMissing) {
+    for (const [name, value] of entries) {
+      const result = wrangler(["secret", "put", name], String(value));
+      showWrangler(result);
+      if (result.status !== 0) throw new Error("Worker Secret 配置失败");
+    }
+    return;
+  }
+  const payload = JSON.stringify(Object.fromEntries(entries));
+  let result = wrangler(["secret", "bulk"], payload);
+  showWrangler(result);
+  if (result.status !== 0) {
+    const text = `${result.stdout || ""}\n${result.stderr || ""}`;
+    if (
+      !/versions secret bulk|isn't currently deployed|is not currently deployed/i.test(
+        text,
+      )
+    )
+      throw new Error("Worker Secret 配置失败");
+    result = wrangler(["versions", "secret", "bulk"], payload);
+    showWrangler(result);
+    if (result.status !== 0) throw new Error("Worker Secret 配置失败");
+  }
+}
+uploadSecrets(
+  {
+    ...(computeWakeToken ? { COMPUTE_WAKE_TOKEN: computeWakeToken } : {}),
+    ...(provider === "turso"
+      ? {
+          TURSO_DATABASE_URL: process.env.TURSO_DATABASE_URL,
+          TURSO_AUTH_TOKEN: tursoToken,
+        }
+      : {}),
+    ...(integrationKey ? { SETTINGS_ENCRYPTION_KEY: integrationKey } : {}),
+    ...(fanqieReady
+      ? { FANQIE_API_TOKEN: sourceToken, FANQIE_INSTANCE_ID: instance }
+      : {}),
+  },
+  !workerExisted,
+);
 const deploy = spawnSync("npx", ["wrangler", "deploy", "--config", filename], {
   stdio: "inherit",
+  env: { ...process.env, CI: "true" },
 });
 if (deploy.status !== 0) throw new Error("Worker 部署失败");
-function secretBulk(values) {
-  if (!Object.keys(values).length) return;
-  const result = spawnSync(
-    "npx",
-    ["wrangler", "secret", "bulk", "--config", filename],
-    { input: JSON.stringify(values), stdio: ["pipe", "inherit", "inherit"] },
-  );
-  if (result.status !== 0) throw new Error("Worker Secret 配置失败");
-}
-secretBulk({
-  COMPUTE_WAKE_TOKEN: createHash("sha256")
-    .update(`mangadock-compute-wake:v1:${target}:${password}`)
-    .digest("hex"),
-  ...(provider === "turso"
-    ? {
-        TURSO_DATABASE_URL: process.env.TURSO_DATABASE_URL,
-        TURSO_AUTH_TOKEN: tursoToken,
-      }
-    : {}),
-  ...(integrationKey ? { SETTINGS_ENCRYPTION_KEY: integrationKey } : {}),
-});
 const subdomain = await cf("/workers/subdomain");
 const url = `https://${config.name}.${subdomain.subdomain}.workers.dev`;
 await writeFile(
@@ -346,14 +444,13 @@ if (process.env.ENABLE_FANQIE_SOURCE === "true" && !sourceToken && !hasSource) {
     );
   }
 }
-// Credentials travel only on stdin into Worker Secrets, never command arguments, repo or artifacts.
-if (sourceToken) {
-  const secretValues = {
-    ...(sourceToken
-      ? { FANQIE_API_TOKEN: sourceToken, FANQIE_INSTANCE_ID: instance }
-      : {}),
-  };
-  secretBulk(secretValues);
+// A token created by registration does not exist until after the Worker is up.
+// Credentials already in the environment were uploaded before deploy.
+if (sourceToken && !fanqieReady) {
+  uploadSecrets(
+    { FANQIE_API_TOKEN: sourceToken, FANQIE_INSTANCE_ID: instance },
+    false,
+  );
 }
 if (process.env.GITHUB_STEP_SUMMARY)
   await import("node:fs/promises").then((fs) =>

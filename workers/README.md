@@ -1,6 +1,6 @@
 # MangaDock Cloudflare 迁移
 
-当前新增分支 `migration/turso`：业务数据库改用 Turso，Worker/R2/原界面保持原迁移方案。D1 测试站继续暂停；Turso 资源使用独立名称，定时任务不启用。配置与限额保护见 [Turso 迁移说明](../docs/turso-migration.md)。下文的 D1 部署记录是旧分支说明，不代表本分支会自动调用 D1。
+当前新增分支 `migration/turso`：业务数据库改用 Turso，Worker/R2/原界面保持原迁移方案。D1 测试站继续暂停；Turso 资源使用独立名称。生成的 Wrangler 配置启用维护 Cron `*/15 * * * *`，用来重新投递停滞任务。配置与限额保护见 [Turso 迁移说明](../docs/turso-migration.md)。下文的 D1 部署记录是旧分支说明，不代表本分支会自动调用 D1。
 
 完整迁移开发分支：`migration/cloudflare-full`。原 Flask 代码、原 `templates/` 和 `static/` 没有改动，小说试点分支与测试站继续保留。这里的实现已接入原界面和主要后端模块，仍需完成真实来源、边界文件和全库验收，不能把本地测试当作正式切流完成。
 
@@ -32,7 +32,7 @@ npm run dev
 
 ## 部署与云端超分
 
-沿用 Repository Secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`、`MANGADOCK_ADMIN_PASSWORD`。可选 `FANQIE_API_TOKEN` / `FANQIE_INSTANCE_ID` 一起配置；缺失时首次部署注册独立实例，后续保留 Worker Secrets。WebDAV/AniList 的加密密钥自动生成并保存到 Worker Secret，不提交仓库。
+沿用 Repository Secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`、`MANGADOCK_ADMIN_PASSWORD`。另设 `COMPUTE_WAKE_TOKEN`，与管理员密码分开，供自动云转换工作流以 `Authorization: Bearer` 调用 `/api/compute-ready`。部署时把同一值写入 Worker Secret；Worker 用常量时间比较，未配置则拒绝。若 Worker 和环境变量都没有该凭据，bootstrap 用 `crypto.randomBytes` 生成随机值，只通过 wrangler 的 stdin 写入 Worker Secret，不打印、不写入仓库或产物。可选 `FANQIE_API_TOKEN` / `FANQIE_INSTANCE_ID` 一起配置；缺失时首次部署注册独立实例，后续保留 Worker Secrets。WebDAV/AniList 的加密密钥自动生成并保存到 Worker Secret，不提交仓库。
 
 因 D1 配额事故，推送完整迁移分支只运行本地模拟测试；自动 staging 部署和定时云转换已暂停。远程发布前会通过 Analytics 检查账号当日行数预算，读取达 400 万或写入达 8 万即停止，无法读取统计也停止。资源使用 `mangadock-full-staging` / `mangadock-full-production`；不改旧小说试点资源，不修改现有 DNS，不升级 Workers Paid。
 
