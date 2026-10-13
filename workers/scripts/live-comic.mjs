@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 const { url } = JSON.parse(await readFile("deployment.json", "utf8"));
 const source = "https://baozimh.org/manga/dafengdagengren-chuyingshe";
 const expectedChapters = Math.min(
-  2,
+  3,
   Math.max(1, Number(process.env.COMIC_MAX_CHAPTERS) || 1),
 );
 let cookie = "",

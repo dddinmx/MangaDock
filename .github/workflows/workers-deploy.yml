@@ -17,7 +17,7 @@ on:
       comic_chapters:
         type: choice
         description: Maximum real comic chapters to verify
-        options: ['1', '2']
+        options: ['1', '2', '3']
         default: '1'
       verify_only:
         type: boolean
