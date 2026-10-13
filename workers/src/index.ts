@@ -336,7 +336,7 @@ export async function processJob(env: Env, id: string) {
     const key = `novels/${job.source_id}/${artifact.sha256.toLowerCase()}.epub`;
     if (!job.reserved_bytes) {
       const reserved = await env.DB.prepare(
-        "UPDATE jobs SET reserved_bytes=? WHERE id=? AND reserved_bytes=0 AND (SELECT COALESCE(SUM(size),0) FROM books WHERE object_key NOT LIKE 'webdav://%')+(SELECT COALESCE(SUM(size),0) FROM storage_ledger WHERE key NOT IN (SELECT object_key FROM books))+(SELECT COALESCE(SUM(reserved_bytes),0) FROM jobs)+?<=? RETURNING id",
+        "UPDATE jobs SET reserved_bytes=? WHERE id=? AND reserved_bytes=0 AND (SELECT book_bytes+ledger_bytes-overlap_bytes+reservation_bytes FROM storage_totals WHERE id=1)+?<=? RETURNING id",
       )
         .bind(
           artifact.size,
@@ -404,7 +404,7 @@ export async function processJob(env: Env, id: string) {
         ? error.message
         : "下载遇到网络或存储错误，请检查日志后重试";
     await env.DB.prepare(
-      "UPDATE jobs SET state='error', message=?, lease_until=0, updated_at=? WHERE id=?",
+      "UPDATE jobs SET state='error', message=?, lease_until=0, reserved_bytes=0, updated_at=? WHERE id=?",
     )
       .bind(message, now(), id)
       .run();

@@ -182,7 +182,7 @@ export async function reserve(env: Env, key: string, size: number) {
     return;
   }
   const row = await env.DB.prepare(
-    `INSERT INTO storage_ledger(key,size,created_at) SELECT ?,?,? WHERE (SELECT COALESCE(SUM(size),0) FROM books WHERE object_key NOT LIKE 'webdav://%')+(SELECT COALESCE(SUM(size),0) FROM storage_ledger WHERE key NOT IN (SELECT object_key FROM books))+(SELECT COALESCE(SUM(reserved_bytes),0) FROM jobs)+?<=? RETURNING key`,
+    `INSERT INTO storage_ledger(key,size,created_at) SELECT ?,?,? FROM storage_totals WHERE id=1 AND book_bytes+ledger_bytes-overlap_bytes+reservation_bytes+?<=? RETURNING key`,
   )
     .bind(key, size, now(), size, Number(env.MAX_LIBRARY_BYTES) || 256000000)
     .first();

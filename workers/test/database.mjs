@@ -35,6 +35,78 @@ test("all migrations and partial/json indexes work with actual libSQL", async ()
     client.close();
   }
 });
+test("storage totals backfill and triggers match the original formula through overlaps, updates, deletes and rollback", async () => {
+  const client = createClient({ url: "file::memory:" }),
+    db = new TursoDatabase(client);
+  try {
+    const directory = new URL("../migrations/", import.meta.url);
+    for (const file of (await readdir(directory))
+      .filter((name) => name.endsWith(".sql") && !name.startsWith("0007"))
+      .sort())
+      await client.executeMultiple(
+        await readFile(new URL(file, directory), "utf8"),
+      );
+    await client.execute(
+      "INSERT INTO users(id,username,password_hash) VALUES ('u','user','hash')",
+    );
+    await client.execute(
+      "INSERT INTO storage_ledger(key,size,created_at) VALUES ('a',100,0)",
+    );
+    await client.executeMultiple(
+      await readFile(new URL("0007_storage_totals.sql", directory), "utf8"),
+    );
+    async function check() {
+      const original = await db
+        .prepare(
+          "SELECT (SELECT COALESCE(SUM(size),0) FROM books WHERE object_key NOT LIKE 'webdav://%')+(SELECT COALESCE(SUM(size),0) FROM storage_ledger WHERE key NOT IN (SELECT object_key FROM books))+(SELECT COALESCE(SUM(reserved_bytes),0) FROM jobs) AS used",
+        )
+        .first("used");
+      assert.equal(
+        await db
+          .prepare(
+            "SELECT book_bytes+ledger_bytes-overlap_bytes+reservation_bytes AS used FROM storage_totals WHERE id=1",
+          )
+          .first("used"),
+        original,
+      );
+    }
+    await check();
+    for (const sql of [
+      "INSERT INTO books(id,source_id,title,author,object_key,size,sha256,created_at) VALUES ('b1','s1','book','author','a',100,'hash',0)",
+      "INSERT INTO books(id,source_id,title,author,object_key,size,sha256,created_at) VALUES ('b2','s2','book','author','a',100,'hash',0)",
+      "UPDATE storage_ledger SET size=200 WHERE key='a'",
+      "UPDATE books SET object_key='b',size=80 WHERE id='b1'",
+      "INSERT INTO storage_ledger(key,size,created_at) VALUES ('b',80,0)",
+      "DELETE FROM books WHERE id='b2'",
+      "UPDATE books SET object_key='webdav://mount/book',size=999 WHERE id='b1'",
+      "DELETE FROM storage_ledger WHERE key='b'",
+      "UPDATE storage_ledger SET key='webdav://mount/book' WHERE key='a'",
+      "INSERT INTO jobs(id,user_id,source_id,reserved_bytes,created_at,updated_at) VALUES ('j','u','source',50,0,0)",
+      "UPDATE jobs SET reserved_bytes=150 WHERE id='j'",
+      "DELETE FROM jobs WHERE id='j'",
+    ]) {
+      await db.prepare(sql).run();
+      await check();
+    }
+    await assert.rejects(
+      db.batch([
+        db.prepare(
+          "INSERT INTO storage_ledger(key,size,created_at) VALUES ('rollback',777,0)",
+        ),
+        db.prepare("INSERT INTO missing VALUES (1)"),
+      ]),
+    );
+    await check();
+    assert.equal(
+      await db
+        .prepare("SELECT key FROM storage_ledger WHERE key='rollback'")
+        .first(),
+      null,
+    );
+  } finally {
+    client.close();
+  }
+});
 test("bound SQL, RETURNING and first(column) retain the current API contract", async () => {
   const { client, db } = await fixture();
   try {
@@ -231,7 +303,7 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 6);
+    assert.equal(first.applied.length, 7);
     const hash = (
       await client.execute("SELECT password_hash FROM users WHERE id='admin'")
     ).rows[0].password_hash;

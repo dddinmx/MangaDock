@@ -125,6 +125,24 @@ describe("download job loop / D1 row usage", () => {
     expect(row.attempts).toBe(MAX_JOB_ATTEMPTS);
     expect(row.state).toBe("error");
   });
+  it("storage reservation reads stay bounded with 2,000 existing files", async () => {
+    await db.batch(
+      Array.from({ length: 2000 }, (_, i) =>
+        db
+          .prepare(
+            "INSERT INTO storage_ledger(key,size,created_at) VALUES (?,1,0)",
+          )
+          .bind("quota-fixture-" + i),
+      ),
+    );
+    const result = await db
+      .prepare(
+        "INSERT INTO storage_ledger(key,size,created_at) SELECT 'new-file',100,0 FROM storage_totals WHERE id=1 AND book_bytes+ledger_bytes-overlap_bytes+reservation_bytes+100<=256000000 RETURNING key",
+      )
+      .all();
+    expect(result.results).toHaveLength(1);
+    expect(result.meta.rows_read).toBeLessThan(20);
+  });
   it("idle cron reads only a handful of rows", async () => {
     // Snapshot via D1 meta is per statement; measure by running the cron's queries.
     const before = Date.now();

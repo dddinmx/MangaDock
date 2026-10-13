@@ -747,7 +747,7 @@ export async function taskAction(
           .filter(Boolean);
     await run(
       env,
-      `UPDATE ${table} SET state='cancelled',message='用户取消任务' WHERE id=? AND state IN ('queued','submitting','running','waiting')`,
+      `UPDATE ${table} SET state='cancelled',message='用户取消任务'${table === "jobs" ? ",reserved_bytes=0" : ""} WHERE id=? AND state IN ('queued','submitting','running','waiting')`,
       id,
     );
     if (table === "comic_jobs")
