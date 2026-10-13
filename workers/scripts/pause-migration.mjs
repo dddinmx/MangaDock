@@ -13,7 +13,7 @@ async function api(path,method='GET',body){
 for(const script of await api('/workers/scripts')){
   if(!targetNames.has(script.id))continue;
   for(const [kind,path,method,body] of [
-    ['cron',`/workers/scripts/${script.id}/schedules`,'PUT',{crons:[]}],
+    ['cron',`/workers/scripts/${script.id}/schedules`,'PUT',[]],
     ['workers.dev',`/workers/scripts/${script.id}/subdomain`,'POST',{enabled:false,previews_enabled:false}],
   ]) {
     try {await api(path,method,body);result.paused.push({script:script.id,kind});}
