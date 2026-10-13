@@ -142,3 +142,31 @@ it("repairing a deduplicated compute job also wakes the scheduler without creati
   );
   expect(wakes).toBe(1);
 });
+
+it("expired stored running states wait for recovery or queue reset instead of claiming an active download", async () => {
+  await sql(
+    "UPDATE comic_jobs SET state='running',lease_until=1 WHERE id='timing-root'",
+  );
+  expect(await detail()).toMatchObject({
+    state: "running",
+    status: "pending",
+    status_label: "等待任务恢复",
+  });
+  expect(
+    (
+      await tasks(
+        { ...bindings, QUEUE_SEND_PAUSED_UNTIL: String(now() + 60) },
+        user,
+        "timing-root",
+      )
+    )[0],
+  ).toMatchObject({ status: "pending", status_label: "等待队列额度重置" });
+  await sql(
+    "UPDATE comic_jobs SET lease_until=? WHERE id='timing-root'",
+    now() + 120,
+  );
+  expect(await detail()).toMatchObject({
+    status: "running",
+    status_label: "下载中",
+  });
+});

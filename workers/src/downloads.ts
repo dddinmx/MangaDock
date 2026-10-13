@@ -852,7 +852,7 @@ export async function tasks(
   const rows = await all(
     env,
     `SELECT j.*,c.name AS comic_name,
-      CASE WHEN j.state='waiting' THEN (
+      CASE WHEN j.state IN ('waiting','running') THEN (
         SELECT MAX(phase) FROM (
           SELECT CASE WHEN q.state='running' AND q.lease_until>? THEN 2 ELSE 1 END AS phase
           FROM compute_jobs q WHERE json_extract(q.payload,'$.parent_job')=j.id AND q.state IN ('queued','running')
@@ -863,7 +863,7 @@ export async function tasks(
         )
       ) ELSE NULL END AS cloud_phase,
       EXISTS(SELECT 1 FROM comic_jobs held WHERE held.parent_id=j.id AND held.message='队列免费预算已暂停，等待重置后自动恢复' AND held.state IN ('queued','waiting')) AS queue_held,
-      CASE WHEN j.state='waiting' THEN EXISTS(
+      CASE WHEN j.state IN ('waiting','running') THEN EXISTS(
         SELECT 1 FROM comic_jobs child WHERE child.parent_id=j.id AND child.state IN ('running','submitting') AND child.lease_until>?
       ) ELSE 0 END AS native_running
       FROM comic_jobs j LEFT JOIN comics c ON c.id=j.comic_id
@@ -913,7 +913,13 @@ export async function tasks(
           ? cloudRunning || row.native_running
             ? "running"
             : "waiting"
-          : row.state === "queued"
+          : row.state === "queued" ||
+              (row.state === "running" &&
+                !(
+                  cloudRunning ||
+                  row.native_running ||
+                  Number(row.lease_until) > now()
+                ))
             ? "pending"
             : row.state === "submitting"
               ? "running"
@@ -936,7 +942,8 @@ export async function tasks(
               ? "云端处理中"
               : (
                   {
-                    pending: "等待启动",
+                    pending:
+                      row.state === "running" ? "等待任务恢复" : "等待启动",
                     waiting: "等待章节执行",
                     running: "下载中",
                     completed: "已完成",
