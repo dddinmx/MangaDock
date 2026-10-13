@@ -1,4 +1,5 @@
 import { checkUpdates } from "./updates";
+import { runR2Scan } from "./scans";
 import { imageResponse } from "./image-stream";
 import { runWebdavScan } from "./integrations";
 import { queueCompute } from "./compute";
@@ -158,6 +159,17 @@ export async function runJob(env: Env, id: string) {
   try {
     const user = await currentCreator(env, job),
       data = JSON.parse(job.payload);
+    if (job.kind === "r2scan") {
+      admin(user);
+      await runR2Scan(env, job, data);
+      await run(
+        env,
+        "UPDATE comic_jobs SET state='completed',lease_until=0,message='R2 目录扫描完成',updated_at=? WHERE id=?",
+        now(),
+        id,
+      );
+      return;
+    }
     if (job.kind === "update-check") {
       await checkUpdates(env, user, !!data.automatic);
       await run(

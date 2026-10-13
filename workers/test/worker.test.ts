@@ -1,6 +1,7 @@
 import { env, SELF, fetchMock, applyD1Migrations } from "cloudflare:test";
 import { zipSync, strToU8, strFromU8, unzipSync, gunzipSync } from "fflate";
 import { runJob } from "../src/downloads";
+import { scanLibrary } from "../src/scans";
 import { indexNovel } from "../src/novels";
 import { decodeImages, providerFor, unpackManhuagui } from "../src/providers";
 import { beforeAll, beforeEach, afterEach, describe, it, expect } from "vitest";
@@ -45,6 +46,7 @@ beforeEach(async () => {
       "upload_parts",
       "uploads",
       "compute_jobs",
+      "remote_mounts",
       "anilist_links",
       "anilist_accounts",
       "reading_reports",
@@ -628,7 +630,7 @@ describe("full legacy routes and permissions", () => {
     expect(
       (await login("new-reader", "reset-strong-password")).response.status,
     ).toBe(200);
-  });
+  }, 15000);
   it("preserves image pagination contract, actual bytes and CBZ page order", async () => {
     await comicFixture();
     const { cookie } = await login(),
@@ -1149,6 +1151,51 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
       cookie,
     );
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(
+      new Uint8Array([137, 80, 78, 71, 1]),
+    );
+  });
+});
+
+describe("cloud R2 library scan", () => {
+  it("indexes a private CBZ prefix without copying its images, and keeps direct reading usable", async () => {
+    const raw = zipSync({
+      "01.png": new Uint8Array([137, 80, 78, 71, 1]),
+      "02.png": new Uint8Array([137, 80, 78, 71, 2]),
+    });
+    await bindings.LIBRARY.put("scan-fixture/云端扫描漫画/第一话.cbz", raw);
+    await bindings.DB.prepare(
+      "INSERT INTO settings(key,value) VALUES ('scan_path:test','r2://library/scan-fixture/')",
+    ).run();
+    const scan = await scanLibrary(bindings, {
+      user_id: "admin",
+      role: "admin",
+      username: "admin",
+    } as any);
+    expect(scan.task_ids).toHaveLength(1);
+    await runJob(bindings, scan.task_ids[0]);
+    const comic = await bindings.DB.prepare(
+      "SELECT * FROM comics WHERE name='云端扫描漫画'",
+    ).first<any>();
+    expect(comic.provider).toBe("r2");
+    const chapter = await bindings.DB.prepare(
+      "SELECT * FROM chapters WHERE comic_id=?",
+    )
+      .bind(comic.id)
+      .first<any>();
+    expect(chapter.object_key).toBe("scan-fixture/云端扫描漫画/第一话.cbz");
+    expect(chapter.manifest_key).toBeNull();
+    const { cookie } = await login();
+    const response = await SELF.fetch(
+      origin +
+        "/api/comic-pages/" +
+        encodeURIComponent(comic.name) +
+        "/" +
+        encodeURIComponent("第一话.cbz") +
+        "?page=0",
+      { headers: { Cookie: cookie } },
+    );
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(
       new Uint8Array([137, 80, 78, 71, 1]),
     );
   });

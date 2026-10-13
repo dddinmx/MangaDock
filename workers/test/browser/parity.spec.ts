@@ -67,6 +67,38 @@ const novel = {
 };
 const cases = [
   {
+    path: "/novels/fanqie",
+    template: "novel_fanqie.html",
+    endpoint: "fanqie_novel_search",
+    mode: "novel",
+    values: {
+      query: "",
+      results: [],
+      local_ids: {},
+      error: "",
+      fanqie_api_health: { ok: true, message: "服务已配置" },
+    },
+  },
+  {
+    path: "/anilist/match/c_test",
+    template: "anilist_match.html",
+    endpoint: "anilist_match",
+    values: {
+      comic_name: comic.name,
+      account: null,
+      link: null,
+      query: comic.name,
+      results: [],
+      searched: false,
+      metadata_mode: false,
+      metadata: {},
+      chapter_count: 1,
+      suggested_first_chapter: 1,
+      metadata_provider: "anilist",
+      metadata_source_name: "AniList",
+    },
+  },
+  {
     path: "/search?q=本地",
     template: "search.html",
     endpoint: "search_page",

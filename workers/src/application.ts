@@ -65,6 +65,7 @@ import { computeApi, queueCompute } from "./compute";
 import { importApi } from "./imports";
 import { uploadApi } from "./uploads";
 import { mediaApi } from "./media";
+import { scanLibrary, r2Prefix } from "./scans";
 import { loadComic } from "./providers";
 const definitions = routes.map((route) => ({
   ...route,
@@ -850,17 +851,14 @@ export class ApplicationService extends DurableObject<Env> {
             400,
             "云端扫盘请使用 R2 前缀或 WebDAV HTTPS 目录；本地目录由 Cloud 导入工具处理",
           );
+        if (path.startsWith("r2://")) r2Prefix(path);
         const key = "scan_path:" + (await hash(path)).slice(0, 12);
         await setSetting(env, key, path);
         result = { id: key, path };
       } else if (endpoint.startsWith("delete"))
         await run(env, "DELETE FROM settings WHERE key=?", params.scan_path_id);
       else {
-        result = { message: "云端目录扫描已排队" };
-        if (
-          await one(env, "SELECT id FROM remote_mounts WHERE enabled=1 LIMIT 1")
-        )
-          await scanWebdav(env, user);
+        result = await scanLibrary(env, user);
       }
       redirect = "/settings/scan_paths";
     } else if (endpoint === "delete_comic_route") {
