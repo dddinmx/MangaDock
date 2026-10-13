@@ -42,37 +42,117 @@ export async function decrypt(env: Env, value: string) {
     ),
   );
 }
+const REBIND_SUFFIXES = ["nip.io", "sslip.io", "localtest.me", "xip.io"];
+function authorityHost(raw: string) {
+  const start = raw.indexOf("://");
+  if (start < 0) return "";
+  let auth = raw.slice(start + 3);
+  const cut = auth.search(/[/?#]/);
+  if (cut >= 0) auth = auth.slice(0, cut);
+  const at = auth.lastIndexOf("@");
+  if (at >= 0) auth = auth.slice(at + 1);
+  if (auth.startsWith("[")) return auth;
+  const colon = auth.lastIndexOf(":");
+  if (colon >= 0 && /^\d+$/.test(auth.slice(colon + 1)))
+    return auth.slice(0, colon);
+  return auth;
+}
+function isIpLiteral(hostname: string) {
+  const host = hostname.toLowerCase();
+  // WHATWG parsing usually rewrites decimal, octal, and hex to dotted IPv4
+  // and keeps IPv6 in brackets. Also match the raw forms when it does not.
+  if (host.startsWith("[") || host.includes(":")) return true;
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)) return true;
+  const parts = host.split(".");
+  if (parts.length < 1 || parts.length > 4) return false;
+  return parts.every((part) =>
+    /^(?:0x[0-9a-f]+|0[0-7]*|[1-9]\d*)$/i.test(part),
+  );
+}
+function blockedHost(raw: string, hostname: string) {
+  const host = hostname.toLowerCase();
+  const bare = host.endsWith(".") ? host.slice(0, -1) : host;
+  return (
+    !host ||
+    host.endsWith(".") ||
+    authorityHost(raw).endsWith(".") ||
+    bare === "localhost" ||
+    bare.endsWith(".localhost") ||
+    bare.endsWith(".local") ||
+    bare.endsWith(".internal") ||
+    REBIND_SUFFIXES.some(
+      (suffix) => bare === suffix || bare.endsWith("." + suffix),
+    ) ||
+    isIpLiteral(bare)
+  );
+}
+export function hostAllowed(hostname: string, allowedHosts: readonly string[]) {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  return allowedHosts.some((suffix) => {
+    const name = suffix.toLowerCase();
+    return host === name || host.endsWith("." + name);
+  });
+}
 export function remoteUrl(raw: string) {
-  const url = new URL(raw);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new HttpError(400, "远端地址必须为公开 HTTPS 域名");
+  }
   if (
     url.protocol !== "https:" ||
     url.username ||
     url.password ||
     (url.port && url.port !== "443") ||
-    url.hostname === "localhost" ||
-    url.hostname.endsWith(".local") ||
-    url.hostname.endsWith(".internal") ||
-    url.hostname.includes(":") ||
-    /^\d+(?:\.\d+){3}$/.test(url.hostname)
+    blockedHost(raw, url.hostname)
   )
     throw new HttpError(400, "远端地址必须为公开 HTTPS 域名");
   return url;
 }
-export async function remote(raw: string, init: RequestInit = {}) {
-  let url = remoteUrl(raw);
-  const authenticated = new Headers(init.headers).has("Authorization");
-  for (let count = 0; count < 5; count++) {
+export function allowedRemoteUrl(raw: string, allowedHosts: readonly string[]) {
+  const url = remoteUrl(raw);
+  if (!hostAllowed(url.hostname, allowedHosts))
+    throw new HttpError(400, "远端地址不在来源允许域名内");
+  return url;
+}
+async function fetchChecked(
+  raw: string,
+  init: RequestInit,
+  check: (value: string) => URL,
+) {
+  let url = check(raw);
+  for (let hop = 0; hop < 5; hop++) {
     const response = await fetch(url, {
       ...init,
       redirect: "manual",
       signal: AbortSignal.timeout(25000),
     });
-    if (authenticated || ![301, 302, 303, 307, 308].includes(response.status))
-      return response;
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
     const location = response.headers.get("Location");
     await response.body?.cancel();
     if (!location) throw new HttpError(502, "来源跳转地址缺失");
-    url = remoteUrl(new URL(location, url).href);
+    url = check(new URL(location, url).href);
   }
   throw new HttpError(502, "来源跳转过多");
+}
+export async function remote(raw: string, init: RequestInit = {}) {
+  if (new Headers(init.headers).has("Authorization")) {
+    const response = await fetch(remoteUrl(raw), {
+      ...init,
+      redirect: "manual",
+      signal: AbortSignal.timeout(25000),
+    });
+    return response;
+  }
+  return fetchChecked(raw, init, remoteUrl);
+}
+export function safeFetch(
+  raw: string,
+  init: RequestInit = {},
+  allowedHosts: readonly string[] = [],
+) {
+  return fetchChecked(raw, init, (value) =>
+    allowedRemoteUrl(value, allowedHosts),
+  );
 }

@@ -187,6 +187,60 @@ export function boundedInflate(compressed: Uint8Array, expected: number) {
   if (size !== expected) throw new HttpError(422, "CBZ 图片长度不一致");
   return output;
 }
+const EXTENSION_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  epub: "application/epub+zip",
+  pdf: "application/pdf",
+  zip: "application/zip",
+  cbz: "application/vnd.comicbook+zip",
+  txt: "text/plain",
+};
+function fileName(name: string) {
+  let path = name.split("#", 1)[0].split("?", 1)[0];
+  try {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(path)) path = new URL(path).pathname;
+  } catch {
+    /* Keep a relative name when it is not a URL. */
+  }
+  let base = path.split("/").pop() || "download";
+  try {
+    base = decodeURIComponent(base);
+  } catch {
+    /* Leave an undecodable name unchanged. */
+  }
+  return base.replace(/[\r\n"\\]/g, "_").slice(0, 180) || "download";
+}
+export function contentTypeForName(name: string) {
+  const base = fileName(name);
+  const dot = base.lastIndexOf(".");
+  const ext = dot >= 0 ? base.slice(dot + 1).toLowerCase() : "";
+  return EXTENSION_TYPES[ext] || "application/octet-stream";
+}
+export function remoteProxyHeaders(upstream: Headers, name: string) {
+  const headers = new Headers(upstream),
+    mime = contentTypeForName(name);
+  headers.delete("Set-Cookie");
+  headers.delete("WWW-Authenticate");
+  headers.delete("Content-Disposition");
+  headers.set("Content-Type", mime);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Content-Security-Policy", "default-src 'none'; sandbox");
+  headers.set("Cache-Control", "private, no-store");
+  if (!mime.startsWith("image/")) {
+    const filename =
+      fileName(name)
+        .replace(/[^\w.\-]+/g, "_")
+        .replace(/^\.+/, "") || "download";
+    headers.set("Content-Disposition", `attachment; filename="${filename}"`);
+  }
+  return headers;
+}
 export async function remotePage(env: Env, chapter: Row, page: Row) {
   const header = await range(env, chapter, page.offset, page.offset + 29),
     view = new DataView(header.buffer);
@@ -235,9 +289,8 @@ export async function remoteFile(env: Env, chapter: Row, request: Request) {
     },
   );
   if (!response.ok) throw new HttpError(502, "网盘文件暂时不可用");
-  const headers = new Headers(response.headers);
-  headers.delete("Set-Cookie");
-  headers.delete("WWW-Authenticate");
-  headers.set("Cache-Control", "private, no-store");
-  return new Response(response.body, { status: response.status, headers });
+  return new Response(response.body, {
+    status: response.status,
+    headers: remoteProxyHeaders(response.headers, chapter.remote_url || ""),
+  });
 }
