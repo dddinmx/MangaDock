@@ -1,0 +1,62 @@
+name: Automatic bounded cloud conversions
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mangadock-auto-compute-staging
+  cancel-in-progress: false
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: staging
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
+    steps:
+      - name: Probe DO-local pending flag without querying the database
+        id: pending
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,re,urllib.request,urllib.error
+          def get(url,token):
+              request=urllib.request.Request(url,headers={'Authorization':'Bearer '+token})
+              with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          subdomain=get(f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/subdomain',os.environ['CLOUDFLARE_API_TOKEN'])['result']['subdomain']
+          url=f'https://mangadock-turso-staging.{subdomain}.workers.dev'
+          token=hashlib.sha256(('mangadock-compute-wake:v1:staging:'+os.environ['MANGADOCK_ADMIN_PASSWORD']).encode()).hexdigest()
+          print('::add-mask::'+token)
+          try:result=get(url+'/api/compute-ready',token)['data']
+          except urllib.error.HTTPError as error:
+              if error.code in (404,503):result={'pending':False}
+              else:raise
+          ready=result.get('pending',False)
+          if ready and not re.fullmatch(r'[a-f0-9]{40}',str(result.get('ref',''))):raise ValueError('Deployed compute ref is not a commit SHA')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('ready='+str(ready).lower()+'\n')
+              if ready:out.write('ref='+result['ref']+'\n')
+          if ready:
+              with open(os.environ['GITHUB_ENV'],'a') as out:
+                  out.write('MANGADOCK_URL='+url+'\nMANGADOCK_COMPUTE_TOKEN='+token+'\nMANGADOCK_COMPUTE_SEQUENCE='+str(result['sequence'])+'\n')
+          PY
+      - uses: actions/checkout@v4
+        if: steps.pending.outputs.ready == 'true'
+        with:
+          ref: ${{ steps.pending.outputs.ref }}
+      - uses: actions/setup-python@v5
+        if: steps.pending.outputs.ready == 'true'
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: workers/scripts/cloud-compute-requirements.txt
+      - name: Install conversion dependencies only when work exists
+        if: steps.pending.outputs.ready == 'true'
+        run: pip install -r workers/scripts/cloud-compute-requirements.txt
+      - name: Run at most five jobs, with deadlines and lease fencing
+        if: steps.pending.outputs.ready == 'true'
+        run: python workers/scripts/cloud-compute.py --scheduled --limit 5 --deadline 480
