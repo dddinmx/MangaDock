@@ -1,9 +1,12 @@
 name: Initialize Turso staging
 on:
-  push:
-    branches: ['migration/turso']
-    paths: ['workers/**', '.github/workflows/workers-turso-init.yml']
   workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: Deployment environment
+        options: [staging, production]
+        default: staging
 permissions:
   contents: read
 concurrency:
@@ -13,7 +16,7 @@ jobs:
   initialize:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: staging
+    environment: ${{ inputs.environment || 'staging' }}
     defaults:
       run:
         working-directory: workers

@@ -50,6 +50,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
+      COMPUTE_WAKE_TOKEN: ${{ secrets.COMPUTE_WAKE_TOKEN }}
       FANQIE_API_TOKEN: ${{ secrets.FANQIE_API_TOKEN }}
       FANQIE_INSTANCE_ID: ${{ secrets.FANQIE_INSTANCE_ID }}
     steps:
@@ -90,35 +91,36 @@ jobs:
           await writeFile('deployment.json',JSON.stringify({url:`https://${name}.${result.result.subdomain}.workers.dev`,database_provider:'turso'}));
           JS
       - name: Measure deployed Turso login and library latency
+        if: ${{ !inputs.verify_only }}
         run: node scripts/latency-report.mjs
       - name: Deployed login, library and progress smoke test
-        if: ${{ inputs.test_novels }}
+        if: ${{ !inputs.verify_only && inputs.test_novels }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
           SOURCE_CHAPTER_IDS: ${{ inputs.source_chapter_ids || (!inputs.source_book_id && '6838937005267616264') || '' }}
         run: npm run test:live
       - name: Read real-source EPUB in deployed browser and restore progress
-        if: ${{ inputs.test_novels }}
+        if: ${{ !inputs.verify_only && inputs.test_novels }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
         run: node scripts/live-browser.mjs
       - name: Measure progress latency after the real-source test
-        if: ${{ !cancelled() && hashFiles('workers/deployment.json') != '' }}
+        if: ${{ !inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '' }}
         run: node scripts/latency-report.mjs
       - name: Run pending cloud conversions and original-model cover super-resolution
         id: cloud_compute
-        if: ${{ !cancelled() && hashFiles('workers/deployment.json') != '' }}
+        if: ${{ !inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '' }}
         run: |
           pip install -r scripts/cloud-compute-requirements.txt
           python scripts/cloud-compute.py --limit 10
       - name: Real comic source, private R2 pages and progress
-        if: ${{ !cancelled() && steps.cloud_compute.conclusion == 'success' }}
+        if: ${{ !inputs.verify_only && !cancelled() && steps.cloud_compute.conclusion == 'success' }}
         run: node scripts/live-comic.mjs
       - name: Read real comic in the original browser reader and restore progress
-        if: ${{ success() }}
+        if: ${{ !inputs.verify_only && success() }}
         run: node scripts/live-comic-browser.mjs
       - name: Measure real comic progress latency
-        if: ${{ success() }}
+        if: ${{ !inputs.verify_only && success() }}
         run: node scripts/latency-report.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
         if: ${{ !cancelled() && hashFiles('workers/deployment.json') != '' }}
