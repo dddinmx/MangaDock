@@ -1200,3 +1200,4 @@ describe("cloud R2 library scan", () => {
     );
   });
 });
+import "./job-loop";

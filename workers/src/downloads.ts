@@ -32,6 +32,12 @@ import {
   type SourceChapter,
 } from "./providers";
 import { remote } from "./security";
+/** Hard cap on attempts per comic job; after this the job is dead ('error'). */
+export const MAX_JOB_ATTEMPTS = 5;
+/** Exponential backoff in seconds: 60, 120, 240, ... capped at 6 h. */
+export function retryDelay(attempts: number) {
+  return Math.min(60 * 2 ** Math.max(0, attempts - 1), 21600);
+}
 export async function enqueue(
   env: Env,
   userId: string,
@@ -129,17 +135,13 @@ async function currentCreator(env: Env, job: Row) {
   return user;
 }
 async function completeParent(env: Env, rootId: string) {
-  const unfinished = await one(
+  const counts = await one(
     env,
-    "SELECT COUNT(*) AS n FROM comic_jobs WHERE parent_id=? AND state NOT IN ('completed','cancelled','error')",
+    "SELECT COALESCE(SUM(state NOT IN ('completed','cancelled','error')),0) AS n,COALESCE(SUM(state='error'),0) AS failed FROM comic_jobs WHERE parent_id=?",
     rootId,
   );
-  const failed = await one(
-    env,
-    "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state='error'",
-    rootId,
-  );
-  if (!unfinished?.n)
+  const failed = !!counts?.failed;
+  if (!counts?.n)
     await run(
       env,
       "UPDATE comic_jobs SET state=?,message=?,updated_at=? WHERE id=? AND state='waiting'",
@@ -151,9 +153,9 @@ async function completeParent(env: Env, rootId: string) {
 }
 export async function runJob(env: Env, id: string) {
   const job = await env.DB.prepare(
-    "UPDATE comic_jobs SET state='running',lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<? RETURNING *",
+    "UPDATE comic_jobs SET state='running',lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<? AND attempts<? RETURNING *",
   )
-    .bind(now() + 300, now(), id, now())
+    .bind(now() + 300, now(), id, now(), MAX_JOB_ATTEMPTS)
     .first<Row>();
   if (!job) return;
   try {
@@ -282,6 +284,15 @@ export async function runJob(env: Env, id: string) {
           id,
           comicId,
         );
+      const queuedChapters = new Set(
+        (
+          await all(
+            env,
+            "SELECT json_extract(payload,'$.chapter_id') AS chapter_id FROM comic_jobs WHERE parent_id=? AND kind='chapter'",
+            id,
+          )
+        ).map((row) => row.chapter_id),
+      );
       const selected = data.max_chapters
         ? source.chapters.slice(0, data.max_chapters)
         : source.chapters;
@@ -303,14 +314,7 @@ export async function runJob(env: Env, id: string) {
           chapter.title,
           chapter.id,
         );
-        if (
-          !(await one(
-            env,
-            "SELECT 1 FROM comic_jobs WHERE parent_id=? AND kind='chapter' AND json_extract(payload,'$.chapter_id')=?",
-            id,
-            chapterId,
-          ))
-        )
+        if (!queuedChapters.has(chapterId))
           await enqueue(
             env,
             user.user_id,
@@ -371,15 +375,17 @@ export async function runJob(env: Env, id: string) {
         "UPDATE comic_jobs SET state='waiting',lease_until=0,message='图片下载中' WHERE id=?",
         id,
       );
-      for (const [index, item] of keys.entries())
-        if (
-          !(await one(
+      const queuedPages = new Set(
+        (
+          await all(
             env,
-            "SELECT 1 FROM comic_jobs WHERE parent_id=? AND json_extract(payload,'$.page')=?",
+            "SELECT json_extract(payload,'$.page') AS page FROM comic_jobs WHERE parent_id=?",
             id,
-            index,
-          ))
-        )
+          )
+        ).map((row) => Number(row.page)),
+      );
+      for (const [index, item] of keys.entries())
+        if (!queuedPages.has(index))
           await enqueue(
             env,
             user.user_id,
@@ -609,7 +615,7 @@ export async function runJob(env: Env, id: string) {
     const message =
       error instanceof HttpError ? error.message : "来源或存储暂时不可用";
     const retry =
-      job.attempts < 3 &&
+      job.attempts < MAX_JOB_ATTEMPTS &&
       !(
         error instanceof HttpError &&
         [400, 403, 409, 413, 507].includes(error.status)
@@ -622,11 +628,23 @@ export async function runJob(env: Env, id: string) {
       now(),
       id,
     );
-    if (retry)
+    if (retry) {
+      // Backoff is enforced in D1 via lease_until so neither the queue nor the
+      // maintenance cron can claim the job again before the delay has passed.
+      const delay = retryDelay(job.attempts);
+      await run(
+        env,
+        "UPDATE comic_jobs SET lease_until=? WHERE id=? AND state='queued'",
+        now() + delay,
+        id,
+      );
       try {
-        await env.DOWNLOADS.send({ id, kind: "comic" }, { delaySeconds: 60 });
+        await env.DOWNLOADS.send(
+          { id, kind: "comic" },
+          { delaySeconds: delay },
+        );
       } catch {}
-    else if (job.parent_id) {
+    } else if (job.parent_id) {
       await run(
         env,
         "UPDATE comic_jobs SET state='error',message='部分下载失败',updated_at=? WHERE id=?",

@@ -1,3 +1,4 @@
+import { MAX_JOB_ATTEMPTS, retryDelay } from "./downloads";
 import { DurableObject } from "cloudflare:workers";
 import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -871,30 +872,24 @@ export default {
   },
   async queue(batch: MessageBatch<{ id: string; kind?: string }>, env: Env) {
     for (const message of batch.messages) {
-      if (message.body.kind === "comic") {
+      let ok = false;
+      try {
         const result = await env.APPLICATION.get(
           env.APPLICATION.idFromName("jobs"),
-        ).fetch("https://jobs.internal/run", {
-          method: "POST",
-          body: JSON.stringify({ id: message.body.id }),
-        });
-        if (!result.ok) {
-          message.retry({ delaySeconds: 60 });
-          continue;
-        }
-      } else {
-        const result = await env.APPLICATION.get(
-          env.APPLICATION.idFromName("jobs"),
-        ).fetch("https://jobs.internal/run-novel", {
-          method: "POST",
-          body: JSON.stringify({ id: message.body.id }),
-        });
-        if (!result.ok) {
-          message.retry({ delaySeconds: 60 });
-          continue;
-        }
-      }
-      message.ack();
+        ).fetch(
+          message.body.kind === "comic"
+            ? "https://jobs.internal/run"
+            : "https://jobs.internal/run-novel",
+          { method: "POST", body: JSON.stringify({ id: message.body.id }) },
+        );
+        ok = result.ok;
+        await result.body?.cancel();
+      } catch {}
+      if (ok) message.ack();
+      // Infrastructure failure (e.g. D1 unavailable / quota exhausted): back off
+      // exponentially. After the consumer's max_retries the message is dropped;
+      // the job row stays in D1 and the maintenance cron re-sends it later.
+      else message.retry({ delaySeconds: retryDelay(message.attempts) });
     }
   },
   async scheduled(_controller: ScheduledController, env: Env) {
@@ -915,20 +910,28 @@ export async function maintenance(env: Env) {
       "UPDATE jobs SET state='error',message='提交状态未知，检查来源服务后重试',lease_until=0 WHERE state='submitting' AND updated_at<?",
     ).bind(now() - 300),
   ]);
+  // Re-send only work that is genuinely stale (no progress for 30 min, lease and
+  // backoff expired). Touch updated_at so the same job is not re-sent every
+  // 5 minutes while it is still waiting in the queue backlog.
+  const stale = now() - 1800;
   const pending = await env.DB.prepare(
-    "SELECT id FROM jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20",
+    "UPDATE jobs SET updated_at=? WHERE id IN (SELECT id FROM jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id",
   )
-    .bind(now(), now() - 120)
+    .bind(now(), now(), stale)
     .all<{ id: string }>();
-  await env.DB.prepare(
-    "UPDATE comic_jobs SET state='error',lease_until=0,message='提交状态未知，请检查来源后重试' WHERE state='submitting' AND updated_at<?",
-  )
-    .bind(now() - 300)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE comic_jobs SET state='error',lease_until=0,message='提交状态未知，请检查来源后重试' WHERE state='submitting' AND updated_at<?",
+    ).bind(now() - 300),
+    // Dead-letter: jobs that exhausted their attempts never get re-queued.
+    env.DB.prepare(
+      "UPDATE comic_jobs SET state='error',lease_until=0,message='重试次数已用尽',updated_at=? WHERE state IN ('queued','running') AND lease_until<? AND attempts>=?",
+    ).bind(now(), now(), MAX_JOB_ATTEMPTS),
+  ]);
   const comicPending = await env.DB.prepare(
-    "SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20",
+    "UPDATE comic_jobs SET updated_at=? WHERE id IN (SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id",
   )
-    .bind(now(), now() - 60)
+    .bind(now(), now(), stale)
     .all<{ id: string }>();
   if (comicPending.results.length)
     await env.DOWNLOADS.sendBatch(
