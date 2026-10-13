@@ -217,6 +217,11 @@
 
     let refreshPending = false;
     let taskPageActive = true;
+    const taskPollMin = 10000;
+    const taskPollMax = 60000;
+    const taskPollDeadlineMs = 10 * 60 * 1000;
+    let taskPollDelay = taskPollMin;
+    let taskPollDeadline = 0;
 
     async function refreshTaskRecords() {
         if (document.hidden || !taskPageActive || isMutatingTasks || refreshPending) return;
@@ -235,8 +240,11 @@
             hasActiveTasks = next.dataset.active === 'true';
             deletableTaskCount = Number(next.dataset.deletableCount);
             activeTaskCount = Number(next.dataset.activeCount);
-            if (!hasActiveTasks) stopTasksAutoRefresh();
-            else startTasksAutoRefresh();
+            if (!hasActiveTasks) {
+                stopTasksAutoRefresh();
+                taskPollDelay = taskPollMin;
+                taskPollDeadline = 0;
+            }
         } catch (error) {
             console.warn('任务状态暂时无法更新', error);
         } finally {
@@ -245,17 +253,30 @@
     }
 
     function stopTasksAutoRefresh() {
-        window.clearInterval(autoRefreshTimer);
+        window.clearTimeout(autoRefreshTimer);
         autoRefreshTimer = null;
     }
     function startTasksAutoRefresh() {
         if (!hasActiveTasks || autoRefreshTimer || document.hidden || !taskPageActive) return;
-        autoRefreshTimer = window.setInterval(refreshTaskRecords, 4000);
+        if (!taskPollDeadline) taskPollDeadline = Date.now() + taskPollDeadlineMs;
+        if (Date.now() >= taskPollDeadline) return;
+        autoRefreshTimer = window.setTimeout(() => {
+            autoRefreshTimer = null;
+            refreshTaskRecords().finally(() => {
+                if (!hasActiveTasks || document.hidden || !taskPageActive) return;
+                taskPollDelay = Math.min(taskPollMax, taskPollDelay * 2);
+                startTasksAutoRefresh();
+            });
+        }, taskPollDelay);
     }
     document.addEventListener('DOMContentLoaded', startTasksAutoRefresh);
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) stopTasksAutoRefresh();
-        else { refreshTaskRecords(); startTasksAutoRefresh(); }
+        else {
+            taskPollDelay = taskPollMin;
+            taskPollDeadline = Date.now() + taskPollDeadlineMs;
+            refreshTaskRecords().finally(startTasksAutoRefresh);
+        }
     });
     window.addEventListener('pagehide', () => { taskPageActive = false; stopTasksAutoRefresh(); });
     window.addEventListener('pageshow', (event) => {

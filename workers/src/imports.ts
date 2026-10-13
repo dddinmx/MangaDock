@@ -1,5 +1,6 @@
 import { HttpError, now, json, type Env, type Identity } from "./index";
 import { admin, one, run, input, groupName, type Row } from "./library";
+import { importObjectKey } from "./scans";
 export async function importApi(
   request: Request,
   env: Env,
@@ -109,27 +110,34 @@ export async function importApi(
         record.updated_at || now(),
       );
     } else if (kind === "chapters") {
-      const object = await env.LIBRARY.head(record.object_key);
+      const key = importObjectKey(record.object_key);
+      const object = await env.LIBRARY.head(key);
       if (!object || object.size !== record.size)
         throw new HttpError(409, "章节对象尚未上传或长度不一致");
       if (!["cbz", "pdf"].includes(record.format))
         throw new HttpError(400, "章节格式无效");
-      await run(
-        env,
-        "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,object_key,size,format,state,public_id,legacy_filename) VALUES (?,?,?,?,?,?,?,?,'ready',?,?) ON CONFLICT(id) DO UPDATE SET object_key=excluded.object_key,size=excluded.size,legacy_filename=excluded.legacy_filename",
-        record.id,
-        record.comic_id,
-        record.ordinal,
-        record.title,
-        record.source_id || record.legacy_filename,
-        record.object_key,
-        record.size,
-        record.format,
-        record.public_id || null,
-        record.legacy_filename || null,
-      );
+      await env.DB.batch([
+        env.DB.prepare(
+          "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,object_key,size,format,state,public_id,legacy_filename) VALUES (?,?,?,?,?,?,?,?,'ready',?,?) ON CONFLICT(id) DO UPDATE SET object_key=excluded.object_key,size=excluded.size,legacy_filename=excluded.legacy_filename",
+        ).bind(
+          record.id,
+          record.comic_id,
+          record.ordinal,
+          record.title,
+          record.source_id || record.legacy_filename,
+          key,
+          record.size,
+          record.format,
+          record.public_id || null,
+          record.legacy_filename || null,
+        ),
+        env.DB.prepare(
+          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
+        ).bind(record.comic_id, record.comic_id),
+      ]);
     } else if (kind === "novels") {
-      const object = await env.LIBRARY.head(record.object_key);
+      const key = importObjectKey(record.object_key);
+      const object = await env.LIBRARY.head(key);
       if (!object || object.size !== record.size)
         throw new HttpError(409, "小说对象尚未上传或长度不一致");
       await run(
@@ -139,7 +147,7 @@ export async function importApi(
         record.source_id || record.id,
         record.title,
         record.author || "未知作者",
-        record.object_key,
+        key,
         record.size,
         record.sha256,
         record.created_at || now(),
@@ -148,8 +156,9 @@ export async function importApi(
         record.chapter_count || 0,
       );
     } else if (kind === "covers") {
+      const key = importObjectKey(record.object_key);
       const table = record.kind === "novel" ? "books" : "comics";
-      if (!(await env.LIBRARY.head(record.object_key)))
+      if (!(await env.LIBRARY.head(key)))
         throw new HttpError(409, "封面对象不存在");
       const field = ["original", "hero", "mobile", "banner"].includes(
         record.variant,
@@ -168,7 +177,7 @@ export async function importApi(
       await run(
         env,
         `UPDATE ${table} SET ${field}=? WHERE id=?`,
-        record.object_key,
+        key,
         record.media_id,
       );
     } else if (kind === "progress") {

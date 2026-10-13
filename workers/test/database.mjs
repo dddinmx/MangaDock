@@ -299,11 +299,73 @@ test("the Workers HTTP driver uses the token, rejects redirects and decodes actu
     globalThis.fetch = original;
   }
 });
+test("comic chapter_count is backfilled and updated with ready chapters", async () => {
+  const client = createClient({ url: "file::memory:", intMode: "number" }),
+    db = new TursoDatabase(client),
+    directory = new URL("../migrations/", import.meta.url);
+  try {
+    for (const file of (await readdir(directory))
+      .filter((name) => name.endsWith(".sql") && !name.startsWith("0009"))
+      .sort())
+      await client.executeMultiple(await readFile(new URL(file, directory), "utf8"));
+    await client.execute(
+      "INSERT INTO comics(id,name,provider,source_url,created_at,updated_at) VALUES ('c','n','p','',0,0)",
+    );
+    await client.execute(
+      "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,state) VALUES ('a','c',0,'a','a','ready'),('b','c',1,'b','b','pending')",
+    );
+    await client.executeMultiple(
+      await readFile(new URL("0009_comic_chapter_counts.sql", directory), "utf8"),
+    );
+    const count = () =>
+      db.prepare("SELECT chapter_count AS n FROM comics WHERE id='c'").first("n");
+    assert.equal(await count(), 1);
+    await db
+      .prepare(
+        "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,state) VALUES ('d','c',2,'d','d','ready')",
+      )
+      .run();
+    assert.equal(await count(), 2);
+    await db
+      .prepare(
+        "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,state) VALUES ('d','c',2,'renamed','d','ready') ON CONFLICT(id) DO UPDATE SET title=excluded.title",
+      )
+      .run();
+    assert.equal(await count(), 2);
+    await db.prepare("UPDATE chapters SET state='ready' WHERE id='b'").run();
+    assert.equal(await count(), 3);
+    await db
+      .prepare("UPDATE chapters SET state='converting' WHERE id='a'")
+      .run();
+    assert.equal(await count(), 2);
+    await db.prepare("DELETE FROM chapters WHERE id='d'").run();
+    assert.equal(await count(), 1);
+    await assert.rejects(
+      db.batch([
+        db.prepare(
+          "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,state) VALUES ('e','c',3,'e','e','ready')",
+        ),
+        db.prepare("INSERT INTO missing VALUES (1)"),
+      ]),
+    );
+    assert.equal(await count(), 1);
+    await db.prepare("DELETE FROM chapters WHERE comic_id='c'").run();
+    assert.equal(await count(), 0);
+  } finally {
+    client.close();
+  }
+});
 test("migration initialization is repeatable and preserves the administrator password", async () => {
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 8);
+    assert.equal(first.applied.length, 9);
+    assert.ok(first.applied.includes("0009_comic_chapter_counts.sql"));
+    assert.ok(
+      (
+        await client.execute("PRAGMA table_info(comics)")
+      ).rows.some((row) => row.name === "chapter_count"),
+    );
     const hash = (
       await client.execute("SELECT password_hash FROM users WHERE id='admin'")
     ).rows[0].password_hash;

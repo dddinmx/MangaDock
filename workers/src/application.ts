@@ -31,6 +31,7 @@ import {
   admin,
   downloader,
   comicById,
+  bookById,
   canAccess,
   library,
   groups,
@@ -337,17 +338,19 @@ export class ApplicationService extends DurableObject<Env> {
               anchor_paragraph: null,
               anchor_offset: null,
             };
-      if (name.startsWith("novel:"))
+      if (name.startsWith("novel:")) {
+        const book = await bookById(env, user, name.slice(6));
         return json(
           legacy(
             await one(
               env,
               "SELECT * FROM progress WHERE user_id=? AND book_id=?",
               user.user_id,
-              name.slice(6),
+              book.id,
             ),
           ),
         );
+      }
       const comic = await comicById(env, user, name);
       return json(
         legacy(
@@ -360,10 +363,12 @@ export class ApplicationService extends DurableObject<Env> {
         ),
       );
     }
-    if (endpoint === "novel_chapter_data")
+    if (endpoint === "novel_chapter_data") {
+      await bookById(env, user, String(params.novel_id || ""));
       return json(
         await novelChapter(env, params.novel_id, Number(params.chapter_index)),
       );
+    }
     if (
       endpoint === "task_status" ||
       endpoint === "get_task_detail" ||
@@ -1020,6 +1025,9 @@ export class ApplicationService extends DurableObject<Env> {
           comic.id,
         ),
         env.DB.prepare("DELETE FROM chapters WHERE comic_id=?").bind(comic.id),
+        env.DB.prepare(
+          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
+        ).bind(comic.id, comic.id),
         env.DB.prepare(
           "UPDATE comic_jobs SET comic_id=NULL WHERE comic_id=?",
         ).bind(comic.id),

@@ -2,11 +2,80 @@ import { HttpError, hash, now, type Env, type Identity } from "./index";
 import { admin, all, one, run, reserve, type Row } from "./library";
 import { enqueue } from "./downloads";
 import { scanWebdav } from "./integrations";
+export const LIBRARY_R2_PREFIX = "r2://library/";
+export const IMPORT_OBJECT_PREFIX = "imports/";
+const SCAN_PATH_ERROR = "请输入 r2://library/ 加本应用 R2 内的目录前缀";
+const KEY_ERROR = "对象键无效";
+export function pathEscapes(value: string) {
+  return (
+    value.includes("\\") ||
+    value.includes("\0") ||
+    /[\r\n]/.test(value) ||
+    value.split("/").includes("..")
+  );
+}
+function decodedPath(value: string, message: string) {
+  let current = value;
+  for (let i = 0; i < 3 && current.includes("%"); i++) {
+    let next = current;
+    try {
+      next = decodeURIComponent(current);
+    } catch {
+      throw new HttpError(400, message);
+    }
+    if (next === current) break;
+    current = next;
+  }
+  return current;
+}
+function assertSafePath(value: string, message: string) {
+  if (pathEscapes(value) || pathEscapes(decodedPath(value, message)))
+    throw new HttpError(400, message);
+}
 export function r2Prefix(path: string) {
-  const match = path.match(/^r2:\/\/library\/(.*)$/);
-  if (!match || /[\\\r\n]/.test(match[1]) || match[1].split("/").includes(".."))
-    throw new HttpError(400, "请输入 r2://library/ 加本应用 R2 内的目录前缀");
-  return match[1].replace(/^\/+/, "").replace(/\/?$/, match[1] ? "/" : "");
+  if (typeof path !== "string" || !path.startsWith(LIBRARY_R2_PREFIX))
+    throw new HttpError(400, SCAN_PATH_ERROR);
+  const rest = path.slice(LIBRARY_R2_PREFIX.length);
+  assertSafePath(rest, SCAN_PATH_ERROR);
+  const trimmed = rest.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!trimmed || trimmed.includes("//"))
+    throw new HttpError(400, SCAN_PATH_ERROR);
+  assertSafePath(trimmed, SCAN_PATH_ERROR);
+  return trimmed + "/";
+}
+export function scanPrefix(prefix: unknown) {
+  if (
+    typeof prefix !== "string" ||
+    !prefix.endsWith("/") ||
+    prefix.startsWith("/") ||
+    prefix.includes("//")
+  )
+    throw new HttpError(400, SCAN_PATH_ERROR);
+  assertSafePath(prefix, SCAN_PATH_ERROR);
+  if (!prefix.slice(0, -1)) throw new HttpError(400, SCAN_PATH_ERROR);
+  return prefix;
+}
+export function libraryObjectKey(value: unknown, prefix = "") {
+  if (typeof value !== "string" || !value || value.length > 4096)
+    throw new HttpError(400, KEY_ERROR);
+  let key = value;
+  if (key.startsWith(LIBRARY_R2_PREFIX))
+    key = key.slice(LIBRARY_R2_PREFIX.length);
+  else if (key.startsWith("r2://") || key.includes("://") || key.startsWith("/"))
+    throw new HttpError(400, KEY_ERROR);
+  if (!key) throw new HttpError(400, KEY_ERROR);
+  assertSafePath(key, KEY_ERROR);
+  const canonical = LIBRARY_R2_PREFIX + key;
+  if (!canonical.startsWith(LIBRARY_R2_PREFIX))
+    throw new HttpError(400, KEY_ERROR);
+  if (prefix && !key.startsWith(prefix)) throw new HttpError(400, KEY_ERROR);
+  return key;
+}
+export function importObjectKey(value: unknown) {
+  const key = libraryObjectKey(value);
+  if (key.includes("/") && !key.startsWith(IMPORT_OBJECT_PREFIX))
+    throw new HttpError(400, KEY_ERROR);
+  return key;
 }
 export async function scanLibrary(env: Env, user: Identity) {
   admin(user);
@@ -31,21 +100,29 @@ export async function scanLibrary(env: Env, user: Identity) {
   };
 }
 export async function runR2Scan(env: Env, job: Row, data: Row) {
+  const prefix = scanPrefix(data.prefix);
   const page = await env.LIBRARY.list({
-    prefix: data.prefix,
+    prefix,
     cursor: data.cursor,
     limit: 100,
   });
   for (const object of page.objects) {
     if (!/\.(cbz|pdf|epub)$/i.test(object.key)) continue;
-    const relative = object.key.slice(data.prefix.length),
+    let key: string;
+    try {
+      key = libraryObjectKey(object.key, prefix);
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 400) continue;
+      throw error;
+    }
+    const relative = key.slice(prefix.length),
       parts = relative.split("/").filter(Boolean);
     if (!parts.length) continue;
-    await reserve(env, object.key, object.size);
+    await reserve(env, key, object.size);
     await run(
       env,
       "UPDATE storage_ledger SET state='stored' WHERE key=?",
-      object.key,
+      key,
     );
     const stem = parts.at(-1)!.replace(/\.(cbz|pdf|epub)$/i, ""),
       version = object.etag;
@@ -57,7 +134,7 @@ export async function runR2Scan(env: Env, job: Row, data: Row) {
         id,
         id,
         stem,
-        object.key,
+        key,
         object.size,
         await hash(version),
         now(),
@@ -73,32 +150,37 @@ export async function runR2Scan(env: Env, job: Row, data: Row) {
     );
     if (known && known.provider !== "r2") continue;
     const comicId =
-        known?.id || "c_" + (await hash(data.prefix + "|" + name)).slice(0, 24),
+        known?.id || "c_" + (await hash(prefix + "|" + name)).slice(0, 24),
       chapterId = "ch_" + (await hash(object.key)).slice(0, 24);
     await run(
       env,
       "INSERT INTO comics(id,name,provider,source_url,comic_format,created_at,updated_at) VALUES (?,?,'r2',?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at",
       comicId,
       name,
-      "r2://library/" + object.key,
+      LIBRARY_R2_PREFIX + key,
       format === "pdf" ? 1 : 2,
       now(),
       now(),
     );
-    await run(
-      env,
-      "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,format,object_key,size,source_version,state,legacy_filename) VALUES (?,?,?,?,?,?,?,?,?,'ready',?) ON CONFLICT(id) DO UPDATE SET manifest_key=CASE WHEN source_version=excluded.source_version THEN manifest_key ELSE NULL END,size=excluded.size,source_version=excluded.source_version",
-      chapterId,
-      comicId,
-      Number(stem.match(/^\d+/)?.[0] || 0),
-      stem,
-      object.key,
-      format,
-      object.key,
-      object.size,
-      version,
-      parts.at(-1),
-    );
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,format,object_key,size,source_version,state,legacy_filename) VALUES (?,?,?,?,?,?,?,?,?,'ready',?) ON CONFLICT(id) DO UPDATE SET manifest_key=CASE WHEN source_version=excluded.source_version THEN manifest_key ELSE NULL END,size=excluded.size,source_version=excluded.source_version",
+      ).bind(
+        chapterId,
+        comicId,
+        Number(stem.match(/^\d+/)?.[0] || 0),
+        stem,
+        key,
+        format,
+        key,
+        object.size,
+        version,
+        parts.at(-1),
+      ),
+      env.DB.prepare(
+        "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
+      ).bind(comicId, comicId),
+    ]);
   }
   if (page.truncated)
     await enqueue(

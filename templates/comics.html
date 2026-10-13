@@ -206,21 +206,28 @@
     let version = {{ library_version|tojson }};
     let pollTimer = null;
     let polling = false;
+    const minDelay = 10000;
+    const maxDelay = 60000;
+    const deadlineMs = 10 * 60 * 1000;
+    let delay = minDelay;
+    let deadlineAt = Date.now() + deadlineMs;
 
-    function schedulePoll(delay) {
+    function schedulePoll(next) {
         window.clearTimeout(pollTimer);
-        if (!document.hidden) pollTimer = window.setTimeout(poll, delay);
+        pollTimer = null;
+        if (document.hidden || Date.now() >= deadlineAt) return;
+        pollTimer = window.setTimeout(poll, next);
     }
 
     async function poll() {
-        if (document.hidden || polling) return;
+        if (document.hidden || polling || Date.now() >= deadlineAt) return;
         polling = true;
-        let nextDelay = 30000;
+        let active = false;
         try {
             const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
             if (response.ok) {
                 const data = await response.json();
-                if (data.status === 'pending' || data.status === 'running') nextDelay = 2000;
+                active = data.status === 'pending' || data.status === 'running';
                 if (version !== undefined && version !== data.version) {
                     const page = await fetch(location.href, {cache: 'no-store'});
                     if (!page.ok) throw new Error('library refresh failed');
@@ -242,19 +249,26 @@
                     window.scrollTo(0, y);
                     version = data.version;
                 }
+            } else {
+                active = true;
             }
         } catch (_) {
-            // 暂时断线时保持空闲频率，下次可见时立即重试。
+            active = true;
         } finally {
             polling = false;
-            schedulePoll(nextDelay);
+            if (!active) return;
+            schedulePoll(delay);
+            delay = Math.min(maxDelay, delay * 2);
         }
     }
 
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             window.clearTimeout(pollTimer);
+            pollTimer = null;
         } else if (!polling) {
+            delay = minDelay;
+            deadlineAt = Date.now() + deadlineMs;
             schedulePoll(0);
         }
     });
