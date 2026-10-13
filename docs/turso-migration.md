@@ -52,6 +52,18 @@ GitHub runner 的耗时不等于中国用户耗时，也不是 CPU；不能直�
 
 Turso Free 官方页面本轮核对为 5 GB、每月 5 亿行读取、1,000 万行写入，无需信用卡；以账户控制台和 [官方价格页](https://turso.tech/pricing) 为准。R2 的免费存储是每账号共享 10 GB，100 GB 书库仅存储超额部分约 $1.35/月，另有请求额度。现有番茄服务器和超出平台免费额度的资源不能承诺免费，不自动升级套餐。
 
-本地共 88 项检查：数据库适配和保护 18 项；workerd/D1/R2 41 项，包含新的小说/漫画轮询截止、云转换领取上限、存储预留行数回归及真实 workerd 下的 Turso HTTP 驱动/重定向检查；原界面 Chromium 6 项（46 对截图）；Python 21 项；D1 部署预算 2 项。构建与 TypeScript 通过。真实 Turso [七个迁移已全部初始化](https://github.com/dddinmx/MangaDock/actions/runs/38359678956)；[首次完整 CI](https://github.com/dddinmx/MangaDock/actions/runs/38359678825) 通过 86 项。
+最新 [完整 CI](https://github.com/dddinmx/MangaDock/actions/runs/38363695055) 共 **89 项检查通过**：数据库适配和保护 18 项；workerd/D1/R2 42 项，包含小说/漫画轮询截止、云转换领取上限、存储预留行数回归、真实 workerd 下的 Turso HTTP 驱动/重定向以及 50 本漫画进度批量读取；原界面 Chromium 6 项（46 对截图）；Python 21 项；D1 部署预算 2 项。构建与 TypeScript 通过。真实 Turso [七个迁移已全部初始化](https://github.com/dddinmx/MangaDock/actions/runs/38359678956)。
 
 [首次线上部署](https://github.com/dddinmx/MangaDock/actions/runs/38360021779) 创建了独立资源，但登录返回 500；定位为 workerd 不支持 `redirect:error`，已经改为 `manual` 并显式拒绝 3xx，避免携带数据库授权跟随重定向。补充了带实际驱动及预算的 workerd 回归、驱动包装错误后仍返回 503 的检查。该错误发生在数据库请求发出前，不能把这次登录失败当作 Turso 查询延时证据。修复后的真实部署、延时及新部署 CPU 结果以 CI 运行报告为准，不能用历史 D1 测试站的 CPU 结果替代。
+
+## 漫画线上验收结果（2026-10-13）
+
+测试站：[mangadock-turso-staging](https://mangadock-turso-staging.dddinmx.workers.dev)，应用代码 `291fd59`；[草稿 PR #9](https://github.com/dddinmx/MangaDock/pull/9)。后续 `41a5309` 只调整验收等待及提供 `verify_only`，没有重新部署应用。
+
+- [首次真实漫画运行](https://github.com/dddinmx/MangaDock/actions/runs/38360993277)：包子漫画《大奉打更人》第一章实际下载、私有 R2 图片读取、保存进度通过。Linux 兼容来源解析得到 676 章目录，实际下载限制为一章，不能把目录解析章数说成已下载章数。封面超分用原 ONNX 模型实际成功：320×426 → 1442×1920，手机图 1352×1800，约 24.23 秒。
+- [第二章增量下载](https://github.com/dddinmx/MangaDock/actions/runs/38362909509)：只补测至两章，`new_download=true`，第二章图片首张 390,918 字节；进度读回 `chapter_index=1,page_index=0`。该脚本从 07:32:16.889 UTC 到 07:33:34.472 UTC，共约 77.6 秒，包含登录、排队、云解析、下载、R2、读取及进度验证，不能当作纯下载时间。此运行的浏览器步骤因为登录导航超过原 5 秒等待而失败；已加明确导航等待，没有修改界面。
+- [最终在线验收](https://github.com/dddinmx/MangaDock/actions/runs/38363696537) **全部通过**。使用 `verify_only=true`，复验已有两章，没有重新部署或创建新下载；电脑 1280px、手机 390px 均在原阅读器加载真实私有图片并在刷新后恢复滚动进度。小说/番茄注册均按用户暂停要求跳过。
+- 最终 GitHub runner 测得：漫画书架 GET 中位数 569 ms（5 次）、首页 GET 927 ms（5 次）、漫画进度 GET 569 ms（3 次）、进度 POST 972 ms（3 次）；登录 3,939 ms（1 次）。样本少、客户端在 GitHub runner；没有同条件 D1 对照，不能量化 D1/Turso 性能差异或承诺中国用户耗时相同。
+- 同一新 Worker 最近 30 分钟真实 CPU 统计：252 次请求（246 success、6 clientDisconnected），执行错误数 0，最大 CPU 2,141 微秒即 **2.141 ms**，低于普通 HTTP Worker Free 的 10 ms；包含多个本轮验收会话，不是独立的负载测试。DO 的 CPU 限额仍需单独看，不能由此声明所有后端场景都已验收。
+
+本轮没有查询或恢复线上 D1，没有导入原 10–100 GB 私有书库。其余漫画来源、整本/大文件边界、自动云转换调度及正式数据迁移仍待逐项验收；定时任务继续关闭。
