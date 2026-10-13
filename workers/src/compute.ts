@@ -37,7 +37,11 @@ export async function queueCompute(
     kind,
     inputKey,
   );
-  if (known) return known.id;
+  if (known) {
+    // Reusing a queued job must also repair a lost scheduler wake.
+    await notifyCompute(env);
+    return known.id;
+  }
   const id = crypto.randomUUID();
   const inserted = await run(
     env,

@@ -75,7 +75,7 @@
         <h2 class="md-setting-group__title">任务记录</h2>
         <div class="md-setting-list">
             {% for task in tasks %}
-            {% set status_label = status_labels.get(task.status, '等待中') %}
+            {% set status_label = task.status_label if task.status_label is defined else status_labels.get(task.status, '等待中') %}
             {% set status_class = status_classes.get(task.status, 'is-pending') %}
             <div class="md-task-row">
                 <a href="{{ url_for('progress', task_id=task.id) }}" class="md-task-row__link" aria-label="查看 {{ task.comic_name }} 的任务详情">

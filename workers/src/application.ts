@@ -411,7 +411,7 @@ export class ApplicationService extends DurableObject<Env> {
             ...task,
             comic_name: task.comic_name,
             status: task.status,
-            log: task.message,
+            log: task.log,
           })
         : json({ ok: true, data: task });
     }

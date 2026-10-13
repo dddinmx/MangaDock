@@ -513,7 +513,7 @@
 
     let renderedLogEntries = null;
     function updateTaskLogs(entries) {
-        const logs = entries || [];
+        const logs = Array.isArray(entries) ? entries : typeof entries === 'string' && entries ? [entries] : [];
         const container = document.getElementById('log-container');
         if (renderedLogEntries && logs.length === renderedLogEntries.length && logs.every((entry, i) => entry === renderedLogEntries[i])) return;
         const followEnd = renderedLogEntries === null || container.scrollHeight - container.clientHeight - container.scrollTop < 32;
@@ -559,7 +559,7 @@
         document.getElementById('completed-chapters').textContent = data.completed_chapters || '0';
 
         const statusElement = document.getElementById('status');
-        statusElement.textContent = getStatusText(data.status);
+        statusElement.textContent = data.status_label || getStatusText(data.status);
         statusElement.className = `md-ios-status ${getStatusClass(data.status)}`;
 
         document.getElementById('start-time').textContent = data.start_time || '--:--:--';
@@ -577,6 +577,7 @@
     function getStatusText(status) {
         const statusMap = {
             'pending': '等待中...',
+            'waiting': '等待执行...',
             'running': '下载中...',
             'completed': '已完成',
             'cancelled': '已取消',
@@ -590,6 +591,7 @@
     function getStatusClass(status) {
         const classMap = {
             'pending': 'is-pending',
+            'waiting': 'is-pending',
             'running': 'is-running',
             'completed': 'is-completed',
             'cancelled': 'is-cancelled',

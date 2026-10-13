@@ -805,10 +805,26 @@ export async function tasks(
 ): Promise<Row[]> {
   const rows = await all(
     env,
-    `SELECT j.*,c.name AS comic_name
+    `SELECT j.*,c.name AS comic_name,
+      CASE WHEN j.state='waiting' THEN (
+        SELECT MAX(phase) FROM (
+          SELECT CASE WHEN q.state='running' AND q.lease_until>? THEN 2 ELSE 1 END AS phase
+          FROM compute_jobs q WHERE json_extract(q.payload,'$.parent_job')=j.id AND q.state IN ('queued','running')
+          UNION ALL
+          SELECT CASE WHEN q.state='running' AND q.lease_until>? THEN 2 ELSE 1 END AS phase
+          FROM comic_jobs child JOIN compute_jobs q ON json_extract(q.payload,'$.parent_job')=child.id
+          WHERE child.parent_id=j.id AND child.state IN ('waiting','running') AND q.state IN ('queued','running')
+        )
+      ) ELSE NULL END AS cloud_phase,
+      CASE WHEN j.state='waiting' THEN EXISTS(
+        SELECT 1 FROM comic_jobs child WHERE child.parent_id=j.id AND child.state IN ('running','submitting') AND child.lease_until>?
+      ) ELSE 0 END AS native_running
       FROM comic_jobs j LEFT JOIN comics c ON c.id=j.comic_id
       WHERE j.kind='source' AND (?='admin' OR j.user_id=?) ${taskId ? "AND j.id=?" : ""}
       ORDER BY j.created_at DESC LIMIT 100`,
+    now(),
+    now(),
+    now(),
     user.role,
     user.user_id,
     ...(taskId ? [taskId] : []),
@@ -843,16 +859,56 @@ export async function tasks(
     })),
   ]
     .sort((a, b) => b.created_at - a.created_at)
-    .map((row): Row => ({
-      ...row,
-      status:
+    .map((row): Row => {
+      const cloudRunning = row.cloud_phase === 2;
+      const status =
         row.state === "waiting"
-          ? "running"
+          ? cloudRunning || row.native_running
+            ? "running"
+            : "waiting"
           : row.state === "queued"
             ? "pending"
-            : row.state,
-      log: row.message,
-    }));
+            : row.state === "submitting"
+              ? "running"
+              : row.state;
+      const paused = row.state === "waiting" && row.message === "同步已暂停";
+      const statusLabel = paused
+        ? "已暂停"
+        : row.state === "waiting" &&
+            row.cloud_phase === 1 &&
+            !row.native_running
+          ? "等待云执行器"
+          : cloudRunning
+            ? "云端处理中"
+            : (
+                {
+                  pending: "等待启动",
+                  waiting: "等待章节执行",
+                  running: "下载中",
+                  completed: "已完成",
+                  cancelled: "已取消",
+                  error: "出错",
+                } as Record<string, string>
+              )[status] || status;
+      const logs = row.message ? [String(row.message)] : [];
+      if (!logs.length) logs.push(statusLabel);
+      if (statusLabel === "等待云执行器")
+        logs.push(
+          "任务已排队，云执行器尚未开始；定时调度可能延迟，请勿重复提交。",
+        );
+      return {
+        ...row,
+        status,
+        status_label: statusLabel,
+        start_time: row.started_at
+          ? new Date(row.started_at * 1000).toISOString()
+          : null,
+        end_time: row.finished_at
+          ? new Date(row.finished_at * 1000).toISOString()
+          : null,
+        log: logs,
+      };
+    });
 }
 export async function taskAction(
   env: Env,

@@ -19,6 +19,68 @@ async function fixture() {
     );
   return { client, db: new TursoDatabase(client) };
 }
+test("task timestamp migration preserves unknown history and tracks execution, finish and retry on libSQL", async () => {
+  const client = createClient({ url: "file::memory:", intMode: "number" });
+  try {
+    const directory = new URL("../migrations/", import.meta.url);
+    for (const name of (await readdir(directory))
+      .filter((name) => name.endsWith(".sql") && name < "0011")
+      .sort())
+      await client.executeMultiple(
+        await readFile(new URL(name, directory), "utf8"),
+      );
+    await client.execute(
+      "INSERT INTO users(id,username,password_hash) VALUES ('timing','timing','hash')",
+    );
+    await client.execute(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES ('old','timing','source','{}','completed',100,200)",
+    );
+    await client.executeMultiple(
+      await readFile(new URL("0011_task_progress.sql", directory), "utf8"),
+    );
+    const get = async (table, id) =>
+      (
+        await client.execute({
+          sql: `SELECT started_at,finished_at FROM ${table} WHERE id=?`,
+          args: [id],
+        })
+      ).rows[0];
+    const old = await get("comic_jobs", "old");
+    assert.equal(old.started_at, null);
+    assert.equal(old.finished_at, 200);
+    for (const table of ["comic_jobs", "jobs"]) {
+      await client.execute(
+        table === "comic_jobs"
+          ? "INSERT INTO comic_jobs(id,user_id,kind,payload,created_at,updated_at) VALUES ('new','timing','source','{}',100,100)"
+          : "INSERT INTO jobs(id,user_id,source_id,created_at,updated_at) VALUES ('new','timing','123456789',100,100)",
+      );
+      assert.equal((await get(table, "new")).started_at, null);
+      await client.execute(
+        `UPDATE ${table} SET state='running' WHERE id='new'`,
+      );
+      const start = (await get(table, "new")).started_at;
+      assert.ok(start >= Math.floor(Date.now() / 1000) - 2);
+      await client.execute(
+        `UPDATE ${table} SET state='waiting' WHERE id='new'`,
+      );
+      assert.equal((await get(table, "new")).started_at, start);
+      await client.execute(
+        `UPDATE ${table} SET state='completed' WHERE id='new'`,
+      );
+      const finish = (await get(table, "new")).finished_at;
+      assert.ok(finish >= start);
+      await client.execute(
+        `UPDATE ${table} SET state='completed',updated_at=999999 WHERE id='new'`,
+      );
+      assert.equal((await get(table, "new")).finished_at, finish);
+      await client.execute(`UPDATE ${table} SET state='queued' WHERE id='new'`);
+      assert.equal((await get(table, "new")).started_at, null);
+      assert.equal((await get(table, "new")).finished_at, null);
+    }
+  } finally {
+    client.close();
+  }
+});
 test("all migrations and partial/json indexes work with actual libSQL", async () => {
   const { client, db } = await fixture();
   try {
@@ -366,7 +428,7 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 10);
+    assert.equal(first.applied.length, 11);
     assert.ok(first.applied.includes("0009_comic_chapter_counts.sql"));
     assert.ok(
       (await client.execute("PRAGMA table_info(comics)")).rows.some(

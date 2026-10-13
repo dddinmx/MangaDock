@@ -138,6 +138,9 @@ jobs:
       - name: Measure real comic progress latency
         if: ${{ !inputs.preflight_only && (!inputs.verify_only && success()) }}
         run: node scripts/latency-report.mjs
+      - name: Validate real task status, logs and execution times on desktop and mobile
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
+        run: node scripts/live-task-browser.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
         if: ${{ !inputs.preflight_only && (!cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/cpu-report.mjs
@@ -153,6 +156,9 @@ jobs:
             workers/live-browser-results.json
             workers/live-comic-results.json
             workers/live-comic-browser-results.json
+            workers/live-task-results.json
+            workers/test-results/live-task-*.png
+            workers/test-results/task-waiting-*.png
             workers/test-results/live-comic-*.png
             workers/test-results/live-reader.png
             workers/test-results/parity-*.png
