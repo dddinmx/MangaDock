@@ -24,7 +24,7 @@ jobs:
           python - <<'PY'
           import hashlib,json,os,re,urllib.request,urllib.error
           def get(url,token):
-              request=urllib.request.Request(url,headers={'Authorization':'Bearer '+token})
+              request=urllib.request.Request(url,headers={'Authorization':'Bearer '+token,'User-Agent':'MangaDock/5.0 Cloud-Compute'})
               with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
           account=os.environ['CLOUDFLARE_ACCOUNT_ID']
           subdomain=get(f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/subdomain',os.environ['CLOUDFLARE_API_TOKEN'])['result']['subdomain']
