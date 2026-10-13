@@ -52,6 +52,24 @@ export async function canAccess(env: Env, user: Identity, comic: Row) {
     comic.group_name,
   ));
 }
+/** Default on. NOVEL_GROUP_PERMISSIONS=off restores an open novel shelf. */
+export function novelPermissionsEnforced(env: Env) {
+  return (
+    String(env.NOVEL_GROUP_PERMISSIONS ?? "on")
+      .trim()
+      .toLowerCase() !== "off"
+  );
+}
+export async function bookById(env: Env, user: Identity, id: string) {
+  const book = await one(env, "SELECT * FROM books WHERE id=?", id);
+  if (!book) throw new HttpError(404, "小说不存在");
+  if (
+    novelPermissionsEnforced(env) &&
+    !(await canAccess(env, user, book))
+  )
+    throw new HttpError(403, "当前账号未被授权访问该分组小说");
+  return book;
+}
 export async function comicById(env: Env, user: Identity, id: string) {
   const comic = await one(
     env,
@@ -64,17 +82,100 @@ export async function comicById(env: Env, user: Identity, id: string) {
     throw new HttpError(403, "当前账号未被授权访问该分组漫画");
   return comic;
 }
+const LIBRARY_CAP = 10000;
+const LIBRARY_PAGE_DEFAULT = 60;
+const LIBRARY_PAGE_MAX = 200;
+export type LibraryRange = {
+  limit?: number;
+  offset?: number;
+  cursor?: string | null;
+  query?: string;
+  group?: string | null;
+};
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Number.isFinite(value) ? Math.trunc(value) : min));
+export function encodeLibraryCursor(row: Row) {
+  return btoa(JSON.stringify([row.updated_at, row.id]))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+export function decodeLibraryCursor(value: string) {
+  try {
+    const pad =
+      value.length % 4 === 0 ? "" : "=".repeat(4 - (value.length % 4));
+    const parsed = JSON.parse(
+      atob(value.replaceAll("-", "+").replaceAll("_", "/") + pad),
+    );
+    if (
+      !Array.isArray(parsed) ||
+      !Number.isSafeInteger(Number(parsed[0])) ||
+      typeof parsed[1] !== "string" ||
+      parsed[1].length > 200
+    )
+      return null;
+    return { updated_at: Number(parsed[0]), id: parsed[1] };
+  } catch {
+    return null;
+  }
+}
 export async function library(
   env: Env,
   user: Identity,
   includeHidden = false,
-): Promise<{ comics: Row[]; all: Row[]; hidden: Row[] }> {
-  const comics = await all(
+  range?: LibraryRange,
+): Promise<{
+  comics: Row[];
+  all: Row[];
+  hidden: Row[];
+  total: number;
+  next_cursor: string | null;
+}> {
+  const paging = range != null;
+  const limit = paging
+    ? clamp(range.limit ?? LIBRARY_PAGE_DEFAULT, 1, LIBRARY_PAGE_MAX)
+    : LIBRARY_CAP;
+  const cursor =
+    paging && range.cursor ? decodeLibraryCursor(range.cursor) : null;
+  if (paging && range.cursor && !cursor)
+    throw new HttpError(400, "分页游标无效");
+  const offset = cursor ? 0 : paging ? clamp(range.offset ?? 0, 0, 1_000_000_000) : 0;
+  const query = (range?.query || "").trim().toLowerCase().slice(0, 100);
+  const group =
+    range?.group && range.group !== "全部" ? String(range.group).slice(0, 50) : "";
+  let where = `WHERE (?='admin' OR EXISTS(SELECT 1 FROM group_permissions gp WHERE gp.user_id=? AND gp.group_name=c.group_name))`;
+  const args: unknown[] = [user.role, user.user_id];
+  if (group) {
+    where += " AND c.group_name=?";
+    args.push(group);
+  }
+  if (query) {
+    where += " AND instr(lower(c.name),?)";
+    args.push(query);
+  }
+  const cursorSql = cursor
+    ? " AND (c.updated_at<? OR (c.updated_at=? AND c.id<?))"
+    : "";
+  const cursorArgs = cursor
+    ? [cursor.updated_at, cursor.updated_at, cursor.id]
+    : [];
+  const fetched = await all(
     env,
-    `SELECT c.*,COUNT(ch.id) AS available_chapters FROM comics c LEFT JOIN chapters ch ON ch.comic_id=c.id AND ch.state='ready' WHERE (?='admin' OR EXISTS(SELECT 1 FROM group_permissions gp WHERE gp.user_id=? AND gp.group_name=c.group_name)) GROUP BY c.id ORDER BY c.updated_at DESC LIMIT 10000`,
-    user.role,
-    user.user_id,
+    `SELECT c.* FROM comics c ${where}${cursorSql} ORDER BY c.updated_at DESC, c.id DESC LIMIT ? OFFSET ?`,
+    ...args,
+    ...cursorArgs,
+    cursor ? limit + 1 : limit,
+    offset,
   );
+  let comics = fetched;
+  const hasExtra = Boolean(cursor && comics.length > limit);
+  if (hasExtra) comics = comics.slice(0, limit);
+  const total = paging
+    ? Number(
+        (await one(env, `SELECT COUNT(*) AS n FROM comics c ${where}`, ...args))
+          ?.n || 0,
+      )
+    : comics.length;
   const hidden = await all(
     env,
     "SELECT kind,target FROM hidden_items WHERE user_id=?",
@@ -99,13 +200,19 @@ export async function library(
       group: c.group_name,
       comic_format: c.comic_format || 2,
       status: "completed",
-      total_chapters: c.available_chapters,
-      completed_chapters: c.available_chapters,
+      available_chapters: c.chapter_count || 0,
+      total_chapters: c.chapter_count || 0,
+      completed_chapters: c.chapter_count || 0,
       cover_version: c.updated_at,
       created_at: date(c.created_at),
     })),
     all: comics,
     hidden,
+    total,
+    next_cursor:
+      paging && (cursor ? hasExtra : offset + comics.length < total) && comics.at(-1)
+        ? encodeLibraryCursor(comics.at(-1)!)
+        : null,
   };
 }
 export async function groups(env: Env, user: Identity, kind = "comic") {
@@ -115,7 +222,7 @@ export async function groups(env: Env, user: Identity, kind = "comic") {
       `SELECT name FROM library_groups WHERE kind=? AND (?='admin' OR ?='novel' OR EXISTS(SELECT 1 FROM group_permissions p WHERE p.user_id=? AND p.group_name=name)) ORDER BY name!='默认分组',created_at,name`,
       kind,
       user.role,
-      kind,
+      !novelPermissionsEnforced(env) && kind === "novel" ? kind : "",
       user.user_id,
     )
   ).map((r) => r.name as string);
@@ -149,7 +256,10 @@ export async function novels(env: Env, user: Identity): Promise<Row[]> {
   return (
     await all(
       env,
-      "SELECT b.*,p.chapter,p.page,p.scroll,p.client_ms,p.updated_at AS last_read FROM books b LEFT JOIN progress p ON p.book_id=b.id AND p.user_id=? ORDER BY p.updated_at DESC,b.created_at DESC LIMIT 10000",
+      `SELECT b.*,p.chapter,p.page,p.scroll,p.client_ms,p.updated_at AS last_read FROM books b LEFT JOIN progress p ON p.book_id=b.id AND p.user_id=? WHERE (?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM group_permissions gp WHERE gp.user_id=? AND gp.group_name=b.group_name)) ORDER BY p.updated_at DESC,b.created_at DESC LIMIT 10000`,
+      user.user_id,
+      user.role,
+      novelPermissionsEnforced(env) ? 1 : 0,
       user.user_id,
     )
   ).map((b): Row => ({
