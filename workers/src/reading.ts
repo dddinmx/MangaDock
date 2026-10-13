@@ -1,5 +1,13 @@
 import { HttpError, now, type Env, type Identity } from "./index";
-import { one, all, run, comicById, canAccess, type Row } from "./library";
+import {
+  one,
+  all,
+  run,
+  comicById,
+  bookById,
+  novelPermissionsEnforced,
+  type Row,
+} from "./library";
 export function serializeProgress(row: Row | null) {
   return row
     ? {
@@ -35,7 +43,7 @@ export async function saveProgress(
     novel = name.startsWith("novel:"),
     id = novel ? name.slice(6) : name;
   const media = novel
-    ? await one(env, "SELECT id FROM books WHERE id=?", id)
+    ? await bookById(env, user, id)
     : await comicById(env, user, id);
   if (!media) throw new HttpError(404, "作品不存在");
   const chapter = Number(data.chapter),
@@ -262,9 +270,13 @@ export async function statistics(
       LEFT JOIN comics c ON c.id=r.media_id
       LEFT JOIN books b ON r.media_id LIKE 'novel:%' AND b.id=substr(r.media_id,7)
       WHERE (c.id IS NULL OR ?='admin' OR EXISTS(SELECT 1 FROM group_permissions p WHERE p.user_id=? AND p.group_name=c.group_name))
+      AND (b.id IS NULL OR ?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM group_permissions np WHERE np.user_id=? AND np.group_name=b.group_name))
       ORDER BY r.duration DESC LIMIT 1000`,
       user.user_id,
       user.role,
+      user.user_id,
+      user.role,
+      novelPermissionsEnforced(env) ? 1 : 0,
       user.user_id,
     ),
     rank: Row[] = [];

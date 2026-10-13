@@ -89,8 +89,8 @@ describe("download job loop / D1 row usage", () => {
       .bind(
         JSON.stringify({
           key: "comics/c1/x",
-          url: "https://img.example.com/1.jpg",
-          referer: "https://example.com/c",
+          url: "https://us.hamreus.com/1.jpg",
+          referer: "https://www.manhuagui.com/comic/1/",
           page: 0,
         }),
         t(),
@@ -176,6 +176,72 @@ describe("download job loop / D1 row usage", () => {
       expect(result.results).toHaveLength(1);
       expect(result.meta.rows_read).toBeLessThan(10);
     }
+  });
+  it("maintenance invalidates a stale claim so it cannot commit or be claimed twice", async () => {
+    const novel = "stale-novel";
+    const oldLease = 10;
+    await db.prepare("DELETE FROM jobs WHERE id=?").bind(novel).run();
+    await db
+      .prepare(
+        "INSERT INTO jobs(id,user_id,source_id,state,lease_until,attempts,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+      )
+      .bind(novel, "admin", "src-stale", "running", oldLease, 1, 1, 1)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO comic_jobs(id,user_id,kind,payload,state,claim_token,lease_until,attempts,created_at,updated_at) VALUES ('stale-comic','admin','page','{}','running','old-token',10,1,1,1)",
+      )
+      .run();
+    await maintenance(env as unknown as Env);
+    const novelRow = await db
+      .prepare(
+        "SELECT state,lease_until,updated_at FROM jobs WHERE id=?",
+      )
+      .bind(novel)
+      .first<any>();
+    expect(novelRow.state).toBe("running");
+    expect(novelRow.lease_until).toBe(0);
+    expect(novelRow.updated_at).toBeGreaterThan(oldLease);
+    const staleCommit = await db
+      .prepare(
+        "UPDATE jobs SET state='completed' WHERE id=? AND lease_until=? RETURNING id",
+      )
+      .bind(novel, oldLease)
+      .all();
+    expect(staleCommit.results).toHaveLength(0);
+    const claim = await db
+      .prepare(
+        "UPDATE jobs SET lease_until=? WHERE id=? AND state IN ('queued','running') AND lease_until<? RETURNING id",
+      )
+      .bind(t() + 300, novel, t())
+      .all();
+    expect(claim.results).toHaveLength(1);
+    const again = await db
+      .prepare(
+        "UPDATE jobs SET lease_until=? WHERE id=? AND state IN ('queued','running') AND lease_until<? RETURNING id",
+      )
+      .bind(t() + 300, novel, t())
+      .all();
+    expect(again.results).toHaveLength(0);
+    const comic = await db
+      .prepare(
+        "SELECT state,lease_until,claim_token FROM comic_jobs WHERE id='stale-comic'",
+      )
+      .first<any>();
+    expect(comic.state).toBe("running");
+    expect(comic.lease_until).toBe(0);
+    expect(comic.claim_token).toBeNull();
+    const staleComic = await db
+      .prepare(
+        "UPDATE comic_jobs SET state='completed' WHERE id='stale-comic' AND claim_token=? RETURNING id",
+      )
+      .bind("old-token")
+      .all();
+    expect(staleComic.results).toHaveLength(0);
+    await db.prepare("DELETE FROM jobs WHERE id=?").bind(novel).run();
+    await db
+      .prepare("DELETE FROM comic_jobs WHERE id='stale-comic'")
+      .run();
   });
   it("cleanup, login history and legacy chapter filenames use their dedicated indexes", async () => {
     for (const [sql, index] of [

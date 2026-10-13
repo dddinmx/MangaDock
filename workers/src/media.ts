@@ -7,9 +7,11 @@ import {
   all,
   one,
   comicById,
+  bookById,
   findChapter,
   library,
   stored,
+  type LibraryRange,
   type Row,
 } from "./library";
 import {
@@ -175,6 +177,74 @@ export function apiComic(c: Row, progress: Row | null = null) {
     progress: apiProgress(progress),
   };
 }
+export const COVER_BYTE_LIMIT = 5 * 1024 * 1024;
+const COVER_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/bmp",
+]);
+export function fanqieBookId(id: string | null | undefined) {
+  if (typeof id !== "string" || !/^\d{8,24}$/.test(id))
+    throw new HttpError(400, "书籍 ID 无效");
+  return id;
+}
+export function coverContentType(header: string | null) {
+  const type = (header || "").split(";", 1)[0].trim().toLowerCase();
+  if (!COVER_TYPES.has(type)) throw new HttpError(502, "封面格式无效");
+  return type;
+}
+export function coverContentLength(header: string | null) {
+  if (header === null) return null;
+  if (!/^\d+$/.test(header) || Number(header) > COVER_BYTE_LIMIT)
+    throw new HttpError(413, "封面超过 5 MB");
+  return Number(header);
+}
+export async function limitedCover(response: Response) {
+  let type: string;
+  try {
+    type = coverContentType(response.headers.get("Content-Type"));
+    coverContentLength(response.headers.get("Content-Length"));
+  } catch (error) {
+    await response.body?.cancel().catch(() => {});
+    throw error;
+  }
+  if (!response.body) throw new HttpError(502, "封面为空");
+  const reader = response.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
+      if (size > COVER_BYTE_LIMIT) {
+        await reader.cancel();
+        throw new HttpError(413, "封面超过 5 MB");
+      }
+      parts.push(part.value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const part of parts) {
+    bytes.set(part, offset);
+    offset += part.byteLength;
+  }
+  return new Response(bytes, {
+    headers: {
+      "Content-Type": type,
+      "Content-Length": String(size),
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
 export async function mediaApi(
   request: Request,
   env: Env,
@@ -206,12 +276,7 @@ export async function mediaApi(
     (match = path.match(/^\/novel\/([^/]+)\/cover$/)) &&
     ["GET", "HEAD"].includes(method)
   ) {
-    const book = await one(
-      env,
-      "SELECT * FROM books WHERE id=?",
-      decodeURIComponent(match[1]),
-    );
-    if (!book) throw new HttpError(404, "小说不存在");
+    const book = await bookById(env, user, decodeURIComponent(match[1]));
     if (book.cover_key) return stored(env, book.cover_key, request);
     try {
       const response = await source(
@@ -233,14 +298,9 @@ export async function mediaApi(
     (match = path.match(/^\/novels\/fanqie\/(\d{8,24})\/cover$/)) ||
     path === "/novels/fanqie/cover"
   ) {
-    const id = match?.[1] || url.searchParams.get("book_id");
-    if (!/^\d{8,24}$/.test(id || "")) throw new HttpError(400, "书籍 ID 无效");
+    const id = fanqieBookId(match?.[1] || url.searchParams.get("book_id"));
     const response = await source(env, `/v1/resources/${id}/cover`);
-    return new Response(response.body, {
-      headers: {
-        "Content-Type": response.headers.get("Content-Type") || "image/jpeg",
-      },
-    });
+    return limitedCover(response);
   }
   if (path === "/api/info")
     return json({
@@ -263,26 +323,44 @@ export async function mediaApi(
       ),
     );
   if (path === "/api/comics" && method === "GET") {
-    const data = await library(env, user, true),
-      query = (url.searchParams.get("query") || "").toLowerCase(),
-      group = url.searchParams.get("group"),
-      items = data.comics.filter(
-        (c) =>
-          (!query || c.name.toLowerCase().includes(query)) &&
-          (!group || group === "全部" || group === c.group),
-      ),
-      page = Math.max(
-        1,
-        Number.parseInt(url.searchParams.get("page") || "1") || 1,
-      ),
-      size = Math.max(
-        1,
-        Math.min(
-          100,
-          Number.parseInt(url.searchParams.get("page_size") || "50") || 50,
-        ),
-      );
-    const selected = items.slice((page - 1) * size, page * size);
+    const bound = (
+      raw: string | null,
+      fallback: number,
+      min: number,
+      max: number,
+    ) => {
+      const parsed = Number.parseInt(raw ?? "", 10);
+      const value = Number.isFinite(parsed) ? parsed : fallback;
+      return Math.min(max, Math.max(min, value));
+    };
+    const cursor = url.searchParams.get("cursor") || null;
+    const explicitWindow =
+      url.searchParams.has("limit") || url.searchParams.has("offset");
+    const limit = explicitWindow
+      ? bound(url.searchParams.get("limit"), 60, 1, 200)
+      : bound(url.searchParams.get("page_size"), 60, 1, 200);
+    const page = Math.max(
+      1,
+      Number.parseInt(url.searchParams.get("page") || "1") || 1,
+    );
+    const offset = cursor
+      ? 0
+      : explicitWindow
+        ? Math.max(
+            0,
+            Number.parseInt(url.searchParams.get("offset") || "0") || 0,
+          )
+        : (page - 1) * limit;
+    const range: LibraryRange = {
+      limit,
+      offset,
+      cursor,
+      query: url.searchParams.get("query") || "",
+      group: url.searchParams.get("group"),
+    };
+    const data = await library(env, user, true, range);
+    const selected = data.comics;
+    const resolvedPage = explicitWindow ? Math.floor(offset / limit) + 1 : page;
     const progress = selected.length
       ? await all(
           env,
@@ -297,10 +375,13 @@ export async function mediaApi(
         apiComic(comic, byComic.get(comic.id) || null),
       ),
       pagination: {
-        page,
-        page_size: size,
-        total: items.length,
-        has_more: page * size < items.length,
+        page: resolvedPage,
+        page_size: limit,
+        limit,
+        offset,
+        total: data.total,
+        has_more: data.next_cursor != null,
+        next_cursor: data.next_cursor,
       },
     });
   }

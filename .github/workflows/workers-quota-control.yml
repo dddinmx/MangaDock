@@ -1,9 +1,12 @@
 name: Pause migration traffic and inspect D1 quota
 on:
-  push:
-    branches: ['migration/cloudflare-full']
-    paths: ['.github/workflows/workers-quota-control.yml', 'workers/scripts/pause-migration.mjs']
   workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: Deployment environment
+        options: [staging, production]
+        default: staging
 permissions:
   contents: read
 concurrency:
@@ -12,6 +15,7 @@ concurrency:
 jobs:
   pause:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'staging' }}
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

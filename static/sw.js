@@ -1,4 +1,6 @@
-const STATIC_CACHE_NAME = 'mangadock-static-v12';
+// Bumped when static assets change. scripts/build.mjs rewrites this name to a
+// content hash for the Workers bundle; activate drops every older cache.
+const STATIC_CACHE_NAME = 'mangadock-static-v13';
 const PAGE_CACHE_PREFIX = 'mangadock-pages-';
 
 // 2026-09-20 code review P2：不再缓存任何 HTML 导航响应。

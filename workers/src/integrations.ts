@@ -215,6 +215,233 @@ export async function saveWebdav(env: Env, user: Identity, data: Row) {
   );
   return {};
 }
+const WEBDAV_PROPFIND_MAX_BYTES = 5 * 1024 * 1024;
+const WEBDAV_MAX_DEPTH = 8;
+const WEBDAV_MAX_LISTING = 10000;
+const WEBDAV_MAX_TOTAL_ENTRIES = 100000;
+const WEBDAV_CHUNK = 40;
+const WEBDAV_ENTRY_KEY = "webdav_scan_entries";
+const FORBIDDEN_PATH = /[\\\u0000]/;
+
+function decodeWebdavPath(
+  pathname: string,
+): { segments: string[]; pathname: string } | null {
+  if (!pathname.startsWith("/") || FORBIDDEN_PATH.test(pathname)) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+  if (!decoded.startsWith("/") || FORBIDDEN_PATH.test(decoded)) return null;
+  const trailing = decoded.endsWith("/");
+  const segments: string[] = [];
+  for (const segment of decoded.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") return null;
+    segments.push(segment);
+  }
+  return {
+    segments,
+    pathname: segments.length
+      ? "/" + segments.join("/") + (trailing ? "/" : "")
+      : "/",
+  };
+}
+
+function rawAbsolutePath(absolute: string) {
+  const match = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/?#]*)([^?#]*)$/.exec(
+    absolute,
+  );
+  if (!match || match[1].includes("@")) return null;
+  const path = match[2] || "/";
+  return path.startsWith("/") ? path : null;
+}
+
+function resolveWebdavPath(base: URL, candidate: string) {
+  const hashAt = candidate.indexOf("#");
+  const noHash = hashAt >= 0 ? candidate.slice(0, hashAt) : candidate;
+  const queryAt = noHash.indexOf("?");
+  const before = queryAt >= 0 ? noHash.slice(0, queryAt) : noHash;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(before)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(before);
+    } catch {
+      return null;
+    }
+    if (parsed.username || parsed.password || parsed.origin !== base.origin)
+      return null;
+    return rawAbsolutePath(before);
+  }
+  if (before.startsWith("//")) {
+    let parsed: URL;
+    try {
+      parsed = new URL(base.protocol + before);
+    } catch {
+      return null;
+    }
+    if (parsed.username || parsed.password || parsed.origin !== base.origin)
+      return null;
+    return rawAbsolutePath(base.protocol + before);
+  }
+  if (before.startsWith("/")) return before;
+  const baseDir = base.pathname.endsWith("/")
+    ? base.pathname
+    : base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1);
+  return baseDir + before;
+}
+
+function prefixContains(rootPath: string, candidatePath: string) {
+  const rootKey = rootPath.endsWith("/") ? rootPath : rootPath + "/";
+  const candidateKey = candidatePath.endsWith("/")
+    ? candidatePath
+    : candidatePath + "/";
+  return candidateKey.startsWith(rootKey);
+}
+
+function containWebdav(rootRaw: string, candidateRaw: string, baseRaw = rootRaw) {
+  if (typeof rootRaw !== "string" || typeof candidateRaw !== "string")
+    return null;
+  if (!rootRaw || FORBIDDEN_PATH.test(rootRaw) || FORBIDDEN_PATH.test(baseRaw))
+    return null;
+  if (FORBIDDEN_PATH.test(candidateRaw)) return null;
+  let root: URL;
+  try {
+    root = new URL(rootRaw);
+  } catch {
+    return null;
+  }
+  const rootPath = decodeWebdavPath(root.pathname);
+  if (!rootPath) return null;
+  let base = root;
+  if (baseRaw !== rootRaw) {
+    if (typeof baseRaw !== "string" || !baseRaw) return null;
+    try {
+      base = new URL(baseRaw);
+    } catch {
+      return null;
+    }
+    if (base.origin !== root.origin) return null;
+    const basePath = decodeWebdavPath(base.pathname);
+    if (!basePath || !prefixContains(rootPath.pathname, basePath.pathname))
+      return null;
+  }
+  const target = candidateRaw === "" ? baseRaw || rootRaw : candidateRaw;
+  const pathname = resolveWebdavPath(base, target);
+  if (pathname === null) return null;
+  const candidatePath = decodeWebdavPath(pathname);
+  if (
+    !candidatePath ||
+    !prefixContains(rootPath.pathname, candidatePath.pathname)
+  )
+    return null;
+  const out = new URL(root.origin);
+  out.pathname = candidatePath.pathname;
+  return {
+    href: out.href,
+    parts: candidatePath.segments.slice(rootPath.segments.length),
+  };
+}
+
+/** Normalized href when `candidate` is inside `root`; null if it escapes or is malformed.
+ * Relative paths resolve against `base` (defaults to the mount root). `..` is rejected,
+ * including after decoding `%2e` / `%2F`, and so are backslash, NUL, and bad escapes.
+ * The root prefix keeps its trailing slash, so `/lib2` is not inside `/lib`.
+ */
+export function webdavContainedHref(
+  rootRaw: string,
+  candidateRaw: string,
+  baseRaw = rootRaw,
+) {
+  return containWebdav(rootRaw, candidateRaw, baseRaw)?.href ?? null;
+}
+
+export async function readBoundedText(
+  response: Response,
+  limit = WEBDAV_PROPFIND_MAX_BYTES,
+) {
+  const declared = response.headers.get("Content-Length");
+  if (
+    declared !== null &&
+    (!/^\d{1,10}$/.test(declared) || Number(declared) > limit)
+  ) {
+    await response.body?.cancel();
+    throw new HttpError(502, "WebDAV PROPFIND 响应过大");
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      total += value.byteLength;
+      if (total > limit) throw new HttpError(502, "WebDAV PROPFIND 响应过大");
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(body);
+}
+
+function webdavResumeUrl(directoryHref: string, cursor: string) {
+  return (
+    directoryHref.split("#")[0] + "#md-cursor=" + encodeURIComponent(cursor)
+  );
+}
+
+async function countWebdavEntry(env: Env) {
+  const row = await one(
+    env,
+    "INSERT INTO settings(key,value) VALUES (?,'1') ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT) RETURNING value",
+    WEBDAV_ENTRY_KEY,
+  );
+  const total = Number(row?.value);
+  if (
+    !Number.isSafeInteger(total) ||
+    total < 1 ||
+    total > WEBDAV_MAX_TOTAL_ENTRIES
+  )
+    throw new HttpError(413, "WebDAV 条目过多");
+}
+
+async function saveWebdavCursor(
+  env: Env,
+  job: Row,
+  data: Row,
+  depth: number,
+  cursor: string,
+  handedOff = false,
+) {
+  const payload: Row = {
+    mount_id: data.mount_id,
+    url: data.url,
+    depth,
+    cursor,
+  };
+  if (handedOff) payload.handed_off = true;
+  return run(
+    env,
+    "UPDATE comic_jobs SET payload=?,updated_at=? WHERE id=? AND state='running'",
+    JSON.stringify(payload),
+    now(),
+    job.id,
+  );
+}
+
 export async function webdavRequest(
   env: Env,
   mount: Row,
@@ -222,15 +449,9 @@ export async function webdavRequest(
   method = "GET",
   extraHeaders: Record<string, string> = {},
 ) {
-  const root = remoteUrl(mount.url),
-    url = new URL(path, root);
-  if (
-    url.origin !== root.origin ||
-    !decodeURIComponent(url.pathname).startsWith(
-      decodeURIComponent(root.pathname),
-    )
-  )
-    throw new HttpError(403, "WebDAV 路径超出已配置目录");
+  const root = remoteUrl(mount.url);
+  const href = webdavContainedHref(root.href, path);
+  if (!href) throw new HttpError(403, "WebDAV 路径超出已配置目录");
   const password = await decrypt(env, mount.password);
   const authorization =
     "Basic " +
@@ -239,7 +460,7 @@ export async function webdavRequest(
         ...new TextEncoder().encode(mount.username + ":" + password),
       ),
     );
-  return remote(url.href, {
+  return remote(href, {
     method,
     headers: {
       Authorization: authorization,
@@ -261,6 +482,7 @@ export async function scanWebdav(env: Env, user: Identity) {
     "SELECT * FROM remote_mounts WHERE id='default' AND enabled=1",
   );
   if (!mount) throw new HttpError(400, "WebDAV 尚未连接");
+  await setSetting(env, WEBDAV_ENTRY_KEY, "0");
   const id = await enqueue(env, user.user_id, "webdav", {
     mount_id: mount.id,
     url: mount.url,
@@ -282,12 +504,24 @@ export async function runWebdavScan(env: Env, job: Row, data: Row) {
   if (!mount) throw new HttpError(409, "WebDAV 已断开");
   if (mount.state === "paused") throw new HttpError(425, "同步已暂停");
   if (mount.state !== "running") throw new HttpError(409, "同步已停止");
-  if (data.depth > 10) throw new HttpError(413, "WebDAV 目录层级过深");
-  const response = await webdavRequest(env, mount, data.url, "PROPFIND");
-  if (response.status !== 207 && !response.ok)
+  if (data.handed_off) return;
+  const depth = data.depth;
+  if (
+    typeof depth !== "number" ||
+    !Number.isInteger(depth) ||
+    depth < 0 ||
+    depth > WEBDAV_MAX_DEPTH
+  )
+    throw new HttpError(413, "WebDAV 目录层级过深");
+  const here = webdavContainedHref(mount.url, String(data.url || ""));
+  if (!here) throw new HttpError(403, "WebDAV 路径超出已配置目录");
+  const response = await webdavRequest(env, mount, here, "PROPFIND");
+  if (response.status !== 207 && !response.ok) {
+    await response.body?.cancel();
     throw new HttpError(502, `WebDAV PROPFIND HTTP ${response.status}`);
+  }
   const document = new DOMParser().parseFromString(
-      await response.text(),
+      await readBoundedText(response),
       "text/xml",
     ),
     localTags = (node: any, name: string) =>
@@ -295,7 +529,23 @@ export async function runWebdavScan(env: Env, job: Row, data: Row) {
         (tag: any) => (tag.localName || "").split(":").at(-1) === name,
       ),
     nodes = localTags(document, "response");
+  if (nodes.length > WEBDAV_MAX_LISTING)
+    throw new HttpError(413, "WebDAV 条目过多");
+  const hereKey = here.replace(/\/$/, "");
+  const cursor = typeof data.cursor === "string" ? data.cursor : "";
+  const pending: { href: string; url: URL; item: any }[] = [];
   for (const item of nodes) {
+    const raw = String(localTags(item, "href")[0]?.textContent || "").trim();
+    if (!raw) continue;
+    const safe = webdavContainedHref(mount.url, raw, here);
+    if (!safe || safe.replace(/\/$/, "") === hereKey) continue;
+    pending.push({ href: safe, url: new URL(safe), item });
+  }
+  pending.sort((a, b) => (a.href < b.href ? -1 : a.href > b.href ? 1 : 0));
+  let processed = 0;
+  for (let index = 0; index < pending.length; index++) {
+    const entry = pending[index];
+    if (cursor && entry.href <= cursor) continue;
     const current = await one(
       env,
       "SELECT state,enabled FROM remote_mounts WHERE id=?",
@@ -304,30 +554,46 @@ export async function runWebdavScan(env: Env, job: Row, data: Row) {
     if (current?.state === "paused") throw new HttpError(425, "同步已暂停");
     if (!current?.enabled || current.state !== "running")
       throw new HttpError(409, "同步已停止");
-    const href = localTags(item, "href")[0]?.textContent;
-    if (!href) continue;
-    const url = new URL(href, mount.url);
-    if (url.href.replace(/\/$/, "") === data.url.replace(/\/$/, "")) continue;
-    if (
-      url.origin !== new URL(mount.url).origin ||
-      !url.pathname.startsWith(new URL(mount.url).pathname)
-    )
-      continue;
-    const directory = !!localTags(item, "collection").length;
+    await countWebdavEntry(env);
+    const directory = !!localTags(entry.item, "collection").length;
     if (directory) {
+      if (depth < WEBDAV_MAX_DEPTH)
+        await enqueue(
+          env,
+          job.user_id,
+          "webdav",
+          { mount_id: mount.id, url: entry.href, depth: depth + 1 },
+          job.parent_id || job.id,
+        );
+    } else if (/\.(cbz|pdf|epub)$/i.test(entry.url.pathname)) {
+      const size = Number(
+          localTags(entry.item, "getcontentlength")[0]?.textContent,
+        ),
+        etag = localTags(entry.item, "getetag")[0]?.textContent || String(size);
+      await registerRemoteFile(env, mount, entry.url, size, etag);
+    }
+    processed += 1;
+    const saved = await saveWebdavCursor(env, job, data, depth, entry.href);
+    if (!saved.meta.changes) throw new HttpError(409, "同步已停止");
+    const next = pending[index + 1];
+    if (processed >= WEBDAV_CHUNK && next && next.href > entry.href) {
+      // Active WebDAV jobs are deduped by payload url, so the next slice uses
+      // a fragment cursor. The request strips it; payload.cursor is the resume point.
       await enqueue(
         env,
         job.user_id,
         "webdav",
-        { mount_id: mount.id, url: url.href, depth: data.depth + 1 },
+        {
+          mount_id: mount.id,
+          url: webdavResumeUrl(here, entry.href),
+          depth,
+          cursor: entry.href,
+        },
         job.parent_id || job.id,
       );
-      continue;
+      await saveWebdavCursor(env, job, data, depth, entry.href, true);
+      return;
     }
-    if (!/\.(cbz|pdf|epub)$/i.test(url.pathname)) continue;
-    const size = Number(localTags(item, "getcontentlength")[0]?.textContent),
-      etag = localTags(item, "getetag")[0]?.textContent || String(size);
-    await registerRemoteFile(env, mount, url, size, etag);
   }
   await run(
     env,
@@ -343,10 +609,10 @@ async function registerRemoteFile(
   size: number,
   etag: string,
 ) {
-  const parts = decodeURIComponent(url.pathname)
-      .slice(decodeURIComponent(new URL(mount.url).pathname).length)
-      .split("/")
-      .filter(Boolean),
+  const contained = containWebdav(mount.url, url.href);
+  if (!contained?.parts.length) return;
+  url = new URL(contained.href);
+  const parts = contained.parts,
     name =
       parts.length > 1 ? parts[0] : parts[0].replace(/\.(cbz|pdf|epub)$/i, ""),
     ext = url.pathname.toLowerCase().endsWith(".pdf")
@@ -391,20 +657,25 @@ async function registerRemoteFile(
   const id = "ch_" + (await hash(url.href)).slice(0, 24),
     title = parts.at(-1)!.replace(/\.(cbz|pdf)$/i, ""),
     order = Number(/^([0-9]+)/.exec(title)?.[1] || 0);
-  await run(
-    env,
-    "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,format,size,state,remote_url,mount_id,source_version) VALUES (?,?,?,?,?,?,?,'ready',?,?,?) ON CONFLICT(id) DO UPDATE SET manifest_key=CASE WHEN source_version=excluded.source_version THEN manifest_key ELSE NULL END,size=excluded.size,remote_url=excluded.remote_url,source_version=excluded.source_version",
-    id,
-    comicId,
-    order,
-    title,
-    url.href,
-    ext,
-    size,
-    url.href,
-    mount.id,
-    etag,
-  );
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,format,size,state,remote_url,mount_id,source_version) VALUES (?,?,?,?,?,?,?,'ready',?,?,?) ON CONFLICT(id) DO UPDATE SET manifest_key=CASE WHEN source_version=excluded.source_version THEN manifest_key ELSE NULL END,size=excluded.size,remote_url=excluded.remote_url,source_version=excluded.source_version",
+    ).bind(
+      id,
+      comicId,
+      order,
+      title,
+      url.href,
+      ext,
+      size,
+      url.href,
+      mount.id,
+      etag,
+    ),
+    env.DB.prepare(
+      "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
+    ).bind(comicId, comicId),
+  ]);
 }
 export async function metadataSearch(query: string, provider: string) {
   if (provider !== "mangaupdates") return anilistSearch(query);

@@ -20,15 +20,15 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.10.0",
-    "@cloudflare/workers-types": "latest",
-    "@playwright/test": "latest",
+    "@cloudflare/workers-types": "5.20261012.1",
+    "@playwright/test": "1.64.0",
     "esbuild": "^0.28.2",
     "miniflare": "^4.20251011.1",
     "nunjucks": "^3.2.4",
     "prettier": "^3.9.10",
-    "typescript": "latest",
+    "typescript": "7.0.2",
     "vitest": "~3.2.0",
-    "wrangler": "latest"
+    "wrangler": "4.149.0"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

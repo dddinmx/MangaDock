@@ -12,13 +12,13 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: workers-compute-${{ inputs.environment || 'production' }}
+  group: workers-compute-${{ inputs.environment || 'staging' }}
   cancel-in-progress: false
 jobs:
   compute:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    environment: ${{ inputs.environment || 'production' }}
+    environment: ${{ inputs.environment || 'staging' }}
     env:
       MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -30,7 +30,7 @@ jobs:
           python-version: '3.12'
       - name: Resolve this account's deployed URL
         env:
-          DEPLOY_TARGET: ${{ inputs.environment || 'production' }}
+          DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
         run: |
           python - <<'PY'
           import json,os,urllib.request
@@ -42,4 +42,14 @@ jobs:
           PY
       - run: pip install -r workers/scripts/cloud-compute-requirements.txt
       - name: Process bounded pending jobs
-        run: python workers/scripts/cloud-compute.py --limit '${{ inputs.limit || 10 }}'
+        env:
+          COMPUTE_LIMIT: ${{ inputs.limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, re, sys
+          limit = os.environ.get("COMPUTE_LIMIT", "")
+          if not re.fullmatch(r"[1-9][0-9]?", limit):
+              sys.exit("limit must match ^[1-9][0-9]?$")
+          PY
+          python workers/scripts/cloud-compute.py --limit "$COMPUTE_LIMIT"

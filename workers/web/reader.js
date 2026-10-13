@@ -4,10 +4,16 @@ function xml(value){const doc=new DOMParser().parseFromString(value,'application
 function entryName(base,href){const url=new URL(href,`https://epub.invalid/${base}`);if(url.origin!=='https://epub.invalid')throw new Error('EPUB 外部引用不支持');return decodeURIComponent(url.pathname.slice(1));}
 async function start(){
  if(!/^[a-zA-Z0-9_-]{1,64}$/.test(id||''))throw new Error('无效书籍 ID');
- const [user,books,progress,response]=await Promise.all([me(),api('/api/books'),api(`/api/books/${id}/progress`),fetch(`/api/books/${id}/file`)]);
- if(!response.ok)throw new Error('EPUB 下载失败');
+ const limit=33554432;
+ const [user,books,progress,head]=await Promise.all([me(),api('/api/books'),api(`/api/books/${id}/progress`),fetch(`/api/books/${id}/file`,{method:'HEAD'})]);
+ if(!head.ok)throw new Error('EPUB 下载失败');
  const book=books.find(book=>book.id===id);if(!book)throw new Error('作品不存在');
- if(book.size>33554432)throw new Error('首阶段阅读器仅支持 32 MB 以内的 EPUB');
+ const advertised=Number(head.headers.get('Content-Length'));
+ if(!Number.isSafeInteger(advertised)||advertised<1||advertised>limit||Number(book.size)>limit)throw new Error('首阶段阅读器仅支持 32 MB 以内的 EPUB');
+ const response=await fetch(`/api/books/${id}/file`);
+ if(!response.ok){await response.body?.cancel();throw new Error('EPUB 下载失败');}
+ const received=Number(response.headers.get('Content-Length')||advertised);
+ if(!Number.isSafeInteger(received)||received<1||received>limit){await response.body?.cancel();throw new Error('首阶段阅读器仅支持 32 MB 以内的 EPUB');}
  const zip=await JSZip.loadAsync(await response.arrayBuffer());
  const container=zip.file('META-INF/container.xml');if(!container)throw new Error('缺少 EPUB container');
  const path=xml(await container.async('string')).getElementsByTagNameNS('*','rootfile')[0]?.getAttribute('full-path');

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir, cp, rm, readdir } from "node:fs/promises";
 import nunjucks from "nunjucks";
 import { build } from "esbuild";
@@ -205,7 +206,34 @@ await cp(
   new URL("static/manifest.json", root),
   new URL("static/manifest.json", out),
 );
-await cp(new URL("static/sw.js", root), new URL("static/sw.js", out));
+const serviceWorker = await readFile(new URL("static/sw.js", root), "utf8");
+if (!/const STATIC_CACHE_NAME = '[^']*';/.test(serviceWorker))
+  throw new Error("static/sw.js is missing STATIC_CACHE_NAME");
+const serviceWorkerHash = createHash("sha256");
+serviceWorkerHash.update(
+  serviceWorker.replace(
+    /const STATIC_CACHE_NAME = '[^']*';/,
+    "const STATIC_CACHE_NAME = 'mangadock-static';",
+  ),
+);
+for (const relative of [
+  "static/favicon.png",
+  "static/logo-192.png",
+  "static/pwa-icon-192.png",
+  "static/pwa-icon-512.png",
+  "static/css/app.generated.css",
+  "static/css/font-awesome.min.css",
+])
+  serviceWorkerHash.update(await readFile(new URL(relative, out)));
+const serviceWorkerCache =
+  "mangadock-static-" + serviceWorkerHash.digest("hex").slice(0, 12);
+await writeFile(
+  new URL("static/sw.js", out),
+  serviceWorker.replace(
+    /const STATIC_CACHE_NAME = '[^']*';/,
+    `const STATIC_CACHE_NAME = '${serviceWorkerCache}';`,
+  ),
+);
 await writeFile(
   new URL("login-wall.json", out),
   JSON.stringify(context.login_wall),

@@ -1050,7 +1050,7 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
     )
       .bind(
         JSON.stringify({
-          url: "https://images.example/evil.svg",
+          url: "https://c-nd2-1.6wm.top/evil.svg",
           key: "fixture/evil",
           referer: "https://baozimh.org/",
         }),
@@ -1059,7 +1059,7 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
       )
       .run();
     fetchMock
-      .get("https://images.example")
+      .get("https://c-nd2-1.6wm.top")
       .intercept({ path: "/evil.svg" })
       .reply(200, "<svg><script>bad()</script></svg>", {
         headers: { "content-type": "image/svg+xml" },
@@ -1976,6 +1976,15 @@ describe("execution and storage safeguards", () => {
     await runInDurableObject(stub, async (_instance, state) => {
       expect((await state.storage.get<any>("compute-wake")).pending).toBe(true);
     });
+  });
+  it("compute wake rejects a bearer token other than COMPUTE_WAKE_TOKEN", async () => {
+    const stub = bindings.APPLICATION.get(
+      bindings.APPLICATION.idFromName("scheduler"),
+    );
+    const response = await stub.fetch(origin + "/api/compute-ready", {
+      headers: { Authorization: "Bearer not-the-wake-token" },
+    });
+    expect(response.status).toBe(401);
   });
 });
 import { fencedEnv } from "../src/job-state";

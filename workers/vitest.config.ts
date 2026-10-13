@@ -11,6 +11,7 @@ export default defineWorkersConfig(async () => ({
     poolOptions: {
       workers: {
         isolatedStorage: false,
+        singleWorker: true,
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
           bindings: {

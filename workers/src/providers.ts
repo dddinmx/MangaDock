@@ -1,7 +1,7 @@
 import { parseHTML } from "linkedom";
 import LZString from "lz-string";
 import { HttpError, sourceJson, type Env } from "./index";
-import { remote, remoteUrl } from "./security";
+import { allowedRemoteUrl, remoteUrl, safeFetch } from "./security";
 export interface SourceChapter {
   order: number;
   title: string;
@@ -22,6 +22,33 @@ export interface ComicSource {
 }
 export const UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36";
+const BAOZI_CDNS = [
+  "6wm.top",
+  "bzcdn.net",
+  "cnbzmg.com",
+  "mgsearcher.com",
+  "g-mh.online",
+  "jjmhw6.top",
+  "jjmhw8.top",
+  "jjmhw9.top",
+  "twbzmg.com",
+];
+/** Site host plus the API and image CDN suffixes that provider actually fetches. */
+export const PROVIDER_HOSTS: Record<string, readonly string[]> = {
+  fanqie: ["fanqienovel.com", "changdunovel.com"],
+  baozimh_org: ["baozimh.org", "apikk.top", ...BAOZI_CDNS],
+  hipmh: ["hipmh.com", "hipmh.top", "s3file.top", "s3imgs.top"],
+  manhuagui: ["manhuagui.com", "mhgui.com", "hamreus.com"],
+  mxs: ["mxs12.cc", "wzd1.cc"],
+  guazimanhua: ["guazimanhua.com", "guazicdn.com"],
+  kalamanhua: ["kalamanhua.com", "kalaimg.top"],
+  baozimhcn: ["baozimh.com", "baozimhcn.com", ...BAOZI_CDNS],
+};
+export function providerHosts(provider: string) {
+  const hosts = PROVIDER_HOSTS[provider];
+  if (!hosts) throw new HttpError(400, "不支持的漫画来源");
+  return hosts;
+}
 export const clean = (name: string) =>
   (name || "未知漫画")
     .replace(/[\\/:*?"<>|\x00-\x1f]/g, "_")
@@ -112,10 +139,16 @@ export function providerFor(raw: string) {
     return "baozimhcn";
   throw new HttpError(400, "不支持的漫画来源链接");
 }
-export async function page(url: string, referer = url) {
-  const response = await remote(url, {
-    headers: { "User-Agent": UA, Referer: referer },
-  });
+export async function page(
+  url: string,
+  referer = url,
+  allowedHosts: readonly string[] = [],
+) {
+  const response = await safeFetch(
+    url,
+    { headers: { "User-Agent": UA, Referer: referer } },
+    allowedHosts,
+  );
   if (!response.ok) {
     await response.body?.cancel();
     throw new HttpError(502, `来源页面 HTTP ${response.status}`);
@@ -124,10 +157,12 @@ export async function page(url: string, referer = url) {
   if (text.length > 8388608) throw new HttpError(502, "来源页面过大");
   return { text, document: parseHTML(text).document };
 }
-const api = async (url: string) => {
-  const response = await remote(url, {
-    headers: { "User-Agent": UA, Referer: "https://baozimh.org/" },
-  });
+const api = async (url: string, allowedHosts: readonly string[]) => {
+  const response = await safeFetch(
+    url,
+    { headers: { "User-Agent": UA, Referer: "https://baozimh.org/" } },
+    allowedHosts,
+  );
   if (!response.ok)
     throw new HttpError(502, `来源接口 HTTP ${response.status}`);
   return response.json() as Promise<any>;
@@ -193,13 +228,14 @@ export async function loadComic(url: string, env?: Env): Promise<ComicSource> {
       })),
     };
   }
+  const allowed = providerHosts(provider);
   if (provider === "manhuagui") {
     const target = new URL(url);
     target.pathname =
       "/comic/" + /\/comic\/(\d+)/.exec(target.pathname)![1] + "/";
     url = target.href;
   }
-  const { text, document } = await page(url);
+  const { text, document } = await page(url, url, allowed);
   let title = clean(
       document.querySelector("h1")?.textContent ||
         document.querySelector("title")?.textContent ||
@@ -220,6 +256,7 @@ export async function loadComic(url: string, env?: Env): Promise<ComicSource> {
     if (!mid) throw new HttpError(502, "缺少作品 ID");
     const result = await api(
       `https://v2.apikk.top/api/manga/get?mid=${mid}&mode=all`,
+      allowed,
     );
     if (result.code !== 200) throw new HttpError(502, "来源信息失败");
     title = clean(result.data.title);
@@ -245,6 +282,7 @@ export async function loadComic(url: string, env?: Env): Promise<ComicSource> {
     for (let p = 1; p <= 1000; p++) {
       const result = await api(
         `https://hipapi1.s3file.top/v1/manga/chapters?mid=${encodeURIComponent(mid)}&page=${p}&per_page=100&order=asc`,
+        allowed,
       );
       if (result.code !== 200) throw new HttpError(502, "嬉皮目录接口错误");
       const items = result.data.items || [];
@@ -380,11 +418,19 @@ export async function loadComic(url: string, env?: Env): Promise<ComicSource> {
     throw new HttpError(502, "未解析到有效章节，已停止下载");
   if (chapters.length > 10000)
     throw new HttpError(413, "来源章节超过单次任务上限");
+  let coverUrl: string | null = null;
+  if (cover) {
+    try {
+      coverUrl = allowedRemoteUrl(new URL(cover, url).href, allowed).href;
+    } catch (error) {
+      if (!(error instanceof HttpError) || error.status !== 400) throw error;
+    }
+  }
   return {
     provider,
     title,
     description: desc.slice(0, 10000),
-    cover: cover ? new URL(cover, url).href : null,
+    cover: coverUrl,
     chapters,
     adult: ["mxs", "kalamanhua"].includes(provider),
   };
@@ -411,10 +457,12 @@ export function unpackManhuagui(html: string) {
   return JSON.parse(json);
 }
 export async function chapterImages(provider: string, chapter: SourceChapter) {
+  const allowed = providerHosts(provider);
   let images: string[] = [];
   if (provider === "baozimh_org") {
     const info = await api(
       `https://v2.apikk.top/api/v2/chapter/getinfo?m=${chapter.mid}&c=${encodeURIComponent(chapter.id)}`,
+      allowed,
     );
     if (info.code !== 200) throw new HttpError(502, "章节接口失败");
     const data = info.data?.info?.images || {},
@@ -430,18 +478,21 @@ export async function chapterImages(provider: string, chapter: SourceChapter) {
       .sort((a: any, b: any) => Number(a.order || 0) - Number(b.order || 0))
       .map((x: any) => new URL(x.url, host).href);
   } else if (provider === "hipmh") {
-    const { document } = await page(
-        `https://reader.hipmh.top/chapter/${encodeURIComponent(chapter.hid || chapter.id)}`,
-      ),
+    const readerUrl = `https://reader.hipmh.top/chapter/${encodeURIComponent(chapter.hid || chapter.id)}`;
+    const { document } = await page(readerUrl, readerUrl, allowed),
       attr = (key: string) =>
         document.querySelector(`[${key}]`)?.getAttribute(key),
       hid = attr("data-api-hid");
     if (!hid) throw new HttpError(502, "嬉皮章节标识缺失");
-    const apiBase = (
-        attr("data-api-base-url-line1") || "https://hipapi1.s3file.top"
-      ).replace(/\/v1\/?$/, ""),
+    const apiBase = allowedRemoteUrl(
+        (
+          attr("data-api-base-url-line1") || "https://hipapi1.s3file.top"
+        ).replace(/\/v1\/?$/, ""),
+        allowed,
+      ).href.replace(/\/$/, ""),
       result = await api(
         `${apiBase}/v2/chapter?hid=${encodeURIComponent(hid)}`,
+        allowed,
       ),
       data = result.data || {};
     images =
@@ -468,16 +519,17 @@ export async function chapterImages(provider: string, chapter: SourceChapter) {
         );
       if (index >= 0 && index < total) images.splice(index, 1);
     }
-    const base =
-      Number(data.line) === 9
+    const imageBase = allowedRemoteUrl(
+      (Number(data.line) === 9
         ? attr("data-chapter-img-base-line1s") ||
           attr("data-chapter-img-base-line1")
-        : attr("data-chapter-img-base-line1");
-    images = images.map(
-      (v) => new URL(v, base || "https://hip-tx-1.s3imgs.top").href,
-    );
+        : attr("data-chapter-img-base-line1")) || "https://hip-tx-1.s3imgs.top",
+      allowed,
+    ).href;
+    images = images.map((v) => new URL(v, imageBase).href);
   } else {
-    const { text, document } = await page(chapter.url || chapter.id);
+    const chapterUrl = chapter.url || chapter.id;
+    const { text, document } = await page(chapterUrl, chapterUrl, allowed);
     if (provider === "manhuagui") {
       const config = unpackManhuagui(text);
       images = config.files.map(
@@ -488,16 +540,18 @@ export async function chapterImages(provider: string, chapter: SourceChapter) {
       const player = JSON.parse(
         /var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;/.exec(text)?.[1] || "{}",
       );
-      if (!player.url) throw new HttpError(502, "卡拉播放地址缺失");
-      const url = new URL(
-        player.url.startsWith("/play/")
-          ? player.url
-          : /^[a-f0-9]+$/i.test(player.url)
-            ? "/play/min/" + player.url
-            : player.url,
-        "https://image.kalaimg.top",
+      if (!player.url || typeof player.url !== "string")
+        throw new HttpError(502, "卡拉播放地址缺失");
+      const playTarget = player.url.startsWith("/play/")
+        ? player.url
+        : /^[a-f0-9]+$/i.test(player.url)
+          ? "/play/min/" + player.url
+          : player.url;
+      const url = allowedRemoteUrl(
+        new URL(playTarget, "https://image.kalaimg.top").href,
+        allowed,
       ).href;
-      const reader = await page(url, chapter.url);
+      const reader = await page(url, chapter.url, allowed);
       images = [...reader.document.querySelectorAll("img.comic-img")].map(
         (node) =>
           new URL(
@@ -532,6 +586,6 @@ export async function chapterImages(provider: string, chapter: SourceChapter) {
   }
   if (!images.length || images.length > 10000)
     throw new HttpError(502, "章节图片数量无效");
-  images.forEach(remoteUrl);
+  for (const image of images) allowedRemoteUrl(String(image), allowed);
   return images;
 }

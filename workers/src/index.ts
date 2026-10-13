@@ -1,14 +1,26 @@
 import { MAX_JOB_ATTEMPTS, MAX_REMOTE_POLLS, retryDelay } from "./downloads";
+import { novelPermissionsEnforced } from "./library";
 import { cleanupStorage, cleanupUploads } from "./storage";
 import { loginGuard, type LoginGuard } from "./login-guard";
 import { databasePaused, databaseRetryAfter } from "./database-budget";
 import { DurableObject } from "cloudflare:workers";
 import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { scheduleUpdates } from "./updates";
+import { dispatchUpdate, scheduleUpdates } from "./updates";
+import { cancelOrphanedCompute } from "./compute";
 import { publicUser } from "./public-user";
-import type { Database } from "./database";
+import { databaseEnv, type Database } from "./database";
 export { ApplicationService } from "./application";
+export type QueueBody = {
+  id?: string;
+  kind?: string;
+  cursor?: string;
+  budget?: number;
+  generation?: string;
+  userId?: string;
+  automatic?: boolean;
+  comicId?: string;
+};
 export interface Env {
   COMPUTE_WAKE_TOKEN?: string;
   COMPUTE_REF?: string;
@@ -22,13 +34,15 @@ export interface Env {
   TURSO_DATABASE_URL?: string;
   TURSO_AUTH_TOKEN?: string;
   LIBRARY: R2Bucket;
-  DOWNLOADS: Queue<{ id: string; kind?: string }>;
+  DOWNLOADS: Queue<QueueBody>;
   ASSETS: Fetcher;
   FANQIE_API_URL: string;
   FANQIE_API_TOKEN?: string;
   FANQIE_INSTANCE_ID?: string;
   MAX_ARTIFACT_BYTES: string;
   MAX_LIBRARY_BYTES?: string;
+  /** Set to "off" to show every novel group. Any other value enforces group_permissions. */
+  NOVEL_GROUP_PERMISSIONS?: string;
 }
 export class HttpError extends Error {
   constructor(
@@ -263,23 +277,34 @@ type Job = {
   reserved_bytes: number;
 };
 export async function processJob(env: Env, id: string) {
+  // lease_until is the attempt fence. Maintenance requeue and a newer claim
+  // replace it, so this attempt must not commit or fail the replacement.
+  const held = now() + 300;
   const lease = await env.DB.prepare(
     "UPDATE jobs SET lease_until=?, attempts=attempts+1, updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<? RETURNING *",
   )
-    .bind(now() + 300, now(), id, now())
+    .bind(held, now(), id, now())
     .first<Job>();
   if (!lease) return;
   let job = lease;
+  let heldLease = held;
+  const stillOwns = async () =>
+    !!(await env.DB.prepare(
+      "SELECT 1 AS ok FROM jobs WHERE id=? AND lease_until=? AND state IN ('queued','running','submitting')",
+    )
+      .bind(id, heldLease)
+      .first());
   try {
     if (now() - job.created_at > 10800 || job.attempts > MAX_REMOTE_POLLS)
       throw new HttpError(502, "远端任务超时，请检查来源服务后重试");
     if (!job.remote_id) {
       // A crash after POST acceptance cannot be safely retried without upstream idempotency support.
-      await env.DB.prepare(
-        "UPDATE jobs SET state='submitting', updated_at=? WHERE id=?",
+      const marked = await env.DB.prepare(
+        "UPDATE jobs SET state='submitting', updated_at=? WHERE id=? AND lease_until=? AND state IN ('queued','running') RETURNING id",
       )
-        .bind(now(), id)
-        .run();
+        .bind(now(), id, heldLease)
+        .first();
+      if (!marked) return;
       const remote = await sourceJson(env, "/v1/jobs", {
         method: "POST",
         body: JSON.stringify({
@@ -295,22 +320,27 @@ export async function processJob(env: Env, id: string) {
       )
         throw new HttpError(502, "来源任务 ID 无效");
       job.remote_id = remote.id;
-      await env.DB.prepare(
-        "UPDATE jobs SET state='running', remote_id=?, updated_at=? WHERE id=?",
+      const saved = await env.DB.prepare(
+        "UPDATE jobs SET state='running', remote_id=?, updated_at=? WHERE id=? AND lease_until=? AND state='submitting' RETURNING id",
       )
-        .bind(remote.id, now(), id)
-        .run();
+        .bind(remote.id, now(), id, heldLease)
+        .first();
+      if (!saved) return;
     }
+    if (!(await stillOwns())) return;
     const remote = await sourceJson(env, `/v1/jobs/${job.remote_id}`);
     if (["queued", "running"].includes(remote.status)) {
       if (job.attempts >= MAX_REMOTE_POLLS)
         throw new HttpError(504, "小说轮询次数已用尽，已停止访问来源");
       const delay = Math.min(retryDelay(job.attempts), 300);
-      await env.DB.prepare(
-        "UPDATE jobs SET state='running', lease_until=?, updated_at=?, message='来源服务生成 EPUB 中' WHERE id=?",
+      const extended = now() + delay;
+      const parked = await env.DB.prepare(
+        "UPDATE jobs SET state='running', lease_until=?, updated_at=?, message='来源服务生成 EPUB 中' WHERE id=? AND lease_until=? AND state IN ('queued','running','submitting') RETURNING id",
       )
-        .bind(now() + delay, now(), id)
-        .run();
+        .bind(extended, now(), id, heldLease)
+        .first();
+      if (!parked) return;
+      heldLease = extended;
       await env.DOWNLOADS.send({ id }, { delaySeconds: delay });
       return;
     }
@@ -333,19 +363,24 @@ export async function processJob(env: Env, id: string) {
     const key = `novels/${job.source_id}/${artifact.sha256.toLowerCase()}.epub`;
     if (!job.reserved_bytes) {
       const reserved = await env.DB.prepare(
-        "UPDATE jobs SET reserved_bytes=? WHERE id=? AND reserved_bytes=0 AND (SELECT book_bytes+ledger_bytes-overlap_bytes+reservation_bytes FROM storage_totals WHERE id=1)+?<=? RETURNING id",
+        "UPDATE jobs SET reserved_bytes=? WHERE id=? AND lease_until=? AND reserved_bytes=0 AND (SELECT book_bytes+ledger_bytes-overlap_bytes+reservation_bytes FROM storage_totals WHERE id=1)+?<=? RETURNING id",
       )
         .bind(
           artifact.size,
           id,
+          heldLease,
           artifact.size,
           Number(env.MAX_LIBRARY_BYTES) || 256000000,
         )
         .first();
-      if (!reserved)
+      if (!reserved) {
+        if (!(await stillOwns())) return;
         throw new HttpError(507, "书库已达到免费预算上限；此次下载未保存");
+      }
     }
+    if (!(await stillOwns())) return;
     const existing = await env.LIBRARY.head(key);
+    if (!(await stillOwns())) return;
     if (!existing) {
       const response = await source(env, artifact.url);
       if (!response.body) throw new HttpError(502, "产物为空");
@@ -355,6 +390,10 @@ export async function processJob(env: Env, id: string) {
       ) {
         await response.body.cancel();
         throw new HttpError(502, "产物长度不一致");
+      }
+      if (!(await stillOwns())) {
+        await response.body.cancel();
+        return;
       }
       const fixed = new FixedLengthStream(artifact.size);
       // R2 checks SHA-256; FixedLengthStream rejects under/overflow. No unzip/hash loop in Workers CPU budget.
@@ -370,10 +409,11 @@ export async function processJob(env: Env, id: string) {
         throw new HttpError(502, "产物长度或校验和验证失败");
     } else if (existing.size !== artifact.size)
       throw new HttpError(502, "存储对象大小不一致");
+    if (!(await stillOwns())) return;
     const metadata = remote.metadata ?? {};
     await env.DB.batch([
       env.DB.prepare(
-        "INSERT INTO books (id,source_id,title,author,object_key,size,sha256,created_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(source_id) DO UPDATE SET title=excluded.title,author=excluded.author,object_key=excluded.object_key,size=excluded.size,sha256=excluded.sha256,index_key=NULL,chapter_count=0",
+        "INSERT INTO books (id,source_id,title,author,object_key,size,sha256,created_at) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM jobs WHERE id=? AND lease_until=? AND state IN ('queued','running','submitting')) ON CONFLICT(source_id) DO UPDATE SET title=excluded.title,author=excluded.author,object_key=excluded.object_key,size=excluded.size,sha256=excluded.sha256,index_key=NULL,chapter_count=0",
       ).bind(
         job.source_id,
         job.source_id,
@@ -383,10 +423,12 @@ export async function processJob(env: Env, id: string) {
         artifact.size,
         artifact.sha256.toLowerCase(),
         now(),
+        id,
+        heldLease,
       ),
       env.DB.prepare(
-        "UPDATE jobs SET state='completed', message='已保存至 R2', lease_until=0, reserved_bytes=0, updated_at=? WHERE id=?",
-      ).bind(now(), id),
+        "UPDATE jobs SET state='completed', message='已保存至 R2', lease_until=0, reserved_bytes=0, updated_at=? WHERE id=? AND lease_until=? AND state IN ('queued','running','submitting')",
+      ).bind(now(), id, heldLease),
     ]);
   } catch (error) {
     // Never expose source response bodies, URLs, tokens or runtime stack traces to library users.
@@ -401,9 +443,9 @@ export async function processJob(env: Env, id: string) {
         ? error.message
         : "下载遇到网络或存储错误，请检查日志后重试";
     await env.DB.prepare(
-      "UPDATE jobs SET state='error', message=?, lease_until=0, reserved_bytes=0, updated_at=? WHERE id=?",
+      "UPDATE jobs SET state='error', message=?, lease_until=0, reserved_bytes=0, updated_at=? WHERE id=? AND lease_until=? AND state IN ('queued','running','submitting')",
     )
-      .bind(message, now(), id)
+      .bind(message, now(), id, heldLease)
       .run();
   }
 }
@@ -602,8 +644,14 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
         ok: true,
         data: (
           await env.DB.prepare(
-            "SELECT id,title,author,size,created_at FROM books ORDER BY created_at DESC LIMIT 200",
-          ).all()
+            `SELECT id,title,author,size,created_at FROM books b WHERE (?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM group_permissions gp WHERE gp.user_id=? AND gp.group_name=b.group_name)) ORDER BY created_at DESC LIMIT 200`,
+          )
+            .bind(
+              user.role,
+              novelPermissionsEnforced(env) ? 1 : 0,
+              user.user_id,
+            )
+            .all()
         ).results,
       });
     if (path === "/api/search" && method === "GET") {
@@ -872,20 +920,28 @@ export default {
       headers,
     });
   },
-  async queue(batch: MessageBatch<{ id: string; kind?: string }>, env: Env) {
+  async queue(batch: MessageBatch<QueueBody>, env: Env) {
     for (const message of batch.messages) {
       let ok = false;
       try {
-        const result = await applicationStub(env, "jobs").fetch(
-          message.body.kind === "storage-gc"
-            ? "https://jobs.internal/storage-gc"
-            : message.body.kind === "comic"
-              ? "https://jobs.internal/run"
-              : "https://jobs.internal/run-novel",
-          { method: "POST", body: JSON.stringify({ id: message.body.id }) },
-        );
-        ok = result.ok;
-        await result.body?.cancel();
+        if (
+          message.body.kind === "update-page" ||
+          message.body.kind === "update-comic"
+        ) {
+          await dispatchUpdate(databaseEnv(env), message.body);
+          ok = true;
+        } else {
+          const result = await applicationStub(env, "jobs").fetch(
+            message.body.kind === "storage-gc"
+              ? "https://jobs.internal/storage-gc"
+              : message.body.kind === "comic"
+                ? "https://jobs.internal/run"
+                : "https://jobs.internal/run-novel",
+            { method: "POST", body: JSON.stringify({ id: message.body.id }) },
+          );
+          ok = result.ok;
+          await result.body?.cancel();
+        }
       } catch {}
       if (ok) message.ack();
       // Infrastructure failure (e.g. D1 unavailable / quota exhausted): back off
@@ -906,6 +962,7 @@ export async function maintenance(env: Env) {
   await cleanupUploads(env);
   await cleanupStorage(env);
   await scheduleUpdates(env);
+  await cancelOrphanedCompute(env);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(now()),
     env.DB.prepare("DELETE FROM login_attempts WHERE window<?").bind(
@@ -916,11 +973,12 @@ export async function maintenance(env: Env) {
     ).bind(now() - 300),
   ]);
   // Re-send only work that is genuinely stale (no progress for 30 min, lease and
-  // backoff expired). Touch updated_at so the same job is not re-sent every
-  // 5 minutes while it is still waiting in the queue backlog.
+  // backoff expired). Clear the expired lease in the same statement so the
+  // stale attempt's later writes no longer match, and touch updated_at so the
+  // same job is not re-sent on every maintenance run while the new message waits.
   const stale = now() - 1800;
   const pending = await env.DB.prepare(
-    "UPDATE jobs SET updated_at=? WHERE id IN (SELECT id FROM jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id",
+    "UPDATE jobs SET updated_at=?, lease_until=0 WHERE id IN (SELECT id FROM jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id",
   )
     .bind(now(), now(), stale)
     .all<{ id: string }>();
@@ -934,7 +992,7 @@ export async function maintenance(env: Env) {
     ).bind(now(), now(), MAX_JOB_ATTEMPTS),
   ]);
   const comicPending = await env.DB.prepare(
-    "UPDATE comic_jobs SET updated_at=? WHERE id IN (SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id",
+    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id",
   )
     .bind(now(), now(), stale)
     .all<{ id: string }>();
