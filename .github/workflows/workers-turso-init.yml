@@ -29,6 +29,7 @@ jobs:
           cache: npm
           cache-dependency-path: workers/package-lock.json
       - run: npm ci
+      - run: npm run build
       - run: npm run check
       - run: npm run test:database
       - name: Initialize Turso schema and preserve existing administrator
