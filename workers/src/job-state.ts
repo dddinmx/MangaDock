@@ -1,5 +1,23 @@
 import { HttpError, now, type Env } from "./index";
 import { one, type Row } from "./library";
+function topLevelKeyword(sql: string, keyword: string) {
+  const token = new RegExp("^\\s" + keyword + "\\s", "i");
+  let depth = 0,
+    quote = "";
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    if (quote) {
+      if (c === quote && sql[i + 1] === quote) i++;
+      else if (c === quote) quote = "";
+      continue;
+    }
+    if (c === "'" || c === '"') quote = c;
+    else if (c === "(") depth++;
+    else if (c === ")") depth--;
+    else if (!depth && /\s/.test(c) && token.test(sql.slice(i))) return i;
+  }
+  return -1;
+}
 // Attach the execution fence to mutations themselves, not a separate check that
 // can race with cancellation or lease reclaim on another Durable Object.
 export function fencedEnv(
@@ -45,8 +63,8 @@ export function fencedEnv(
             : "";
           let guarded: string;
           if (update) {
-            const where = sql.search(/\sWHERE\s/i),
-              returning = sql.search(/\sRETURNING\s/i);
+            const where = topLevelKeyword(sql, "WHERE"),
+              returning = topLevelKeyword(sql, "RETURNING");
             if (where < 0) throw new Error("Fenced mutation requires WHERE");
             const end = returning < 0 ? sql.length : returning;
             guarded =
