@@ -3,7 +3,15 @@ import { queueCompute } from "./compute";
 import { remoteManifest, remotePage, remoteFile } from "./remote-library";
 import { Zip, ZipPassThrough } from "fflate";
 import { HttpError, json, source, type Env, type Identity } from "./index";
-import { all, one, comicById, library, stored, type Row } from "./library";
+import {
+  all,
+  one,
+  comicById,
+  findChapter,
+  library,
+  stored,
+  type Row,
+} from "./library";
 import {
   serializeProgress,
   apiProgress,
@@ -389,14 +397,7 @@ export async function mediaApi(
     ))
   ) {
     const comic = await comicById(env, user, decodeURIComponent(match[1])),
-      chapter = await one(
-        env,
-        "SELECT * FROM chapters WHERE comic_id=? AND (id=? OR public_id=? OR legacy_filename=?) AND state='ready'",
-        comic.id,
-        decodeURIComponent(match[2]),
-        decodeURIComponent(match[2]),
-        decodeURIComponent(match[2]),
-      );
+      chapter = await findChapter(env, comic.id, decodeURIComponent(match[2]));
     if (!chapter) throw new HttpError(404, "章节不存在");
     if (match[3] === "file")
       return chapter.remote_url
@@ -424,14 +425,7 @@ export async function mediaApi(
   }
   if ((match = path.match(/^\/api\/comic-pages\/([^/]+)\/([^/]+)$/))) {
     const comic = await comicById(env, user, decodeURIComponent(match[1])),
-      chapter = await one(
-        env,
-        "SELECT * FROM chapters WHERE comic_id=? AND (id=? OR public_id=? OR legacy_filename=?) AND state='ready'",
-        comic.id,
-        decodeURIComponent(match[2]).replace(/\.(cbz|pdf)$/, ""),
-        decodeURIComponent(match[2]),
-        decodeURIComponent(match[2]),
-      );
+      chapter = await findChapter(env, comic.id, decodeURIComponent(match[2]));
     if (!chapter) throw new HttpError(404, "章节不存在");
     const pages = await chapterManifest(env, chapter);
     if (url.searchParams.has("page")) {
@@ -449,14 +443,7 @@ export async function mediaApi(
   }
   if ((match = path.match(/^\/static\/comic\/([^/]+)\/([^/]+)$/))) {
     const comic = await comicById(env, user, decodeURIComponent(match[1])),
-      chapter = await one(
-        env,
-        "SELECT * FROM chapters WHERE comic_id=? AND (id=? OR public_id=? OR legacy_filename=?) AND state='ready'",
-        comic.id,
-        decodeURIComponent(match[2]).replace(/\.(cbz|pdf)$/, ""),
-        decodeURIComponent(match[2]),
-        decodeURIComponent(match[2]),
-      );
+      chapter = await findChapter(env, comic.id, decodeURIComponent(match[2]));
     if (!chapter) throw new HttpError(404, "章节不存在");
     if (url.searchParams.has("page")) {
       const pages = await chapterManifest(env, chapter),

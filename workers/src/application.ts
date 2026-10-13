@@ -238,27 +238,43 @@ export class ApplicationService extends DurableObject<Env> {
       url = new URL(request.url);
     if (endpoint === "get_progress") {
       const name = params.comic_name;
+      const legacy = (row: Row | null) =>
+        row
+          ? {
+              status: "success",
+              chapter: row.chapter,
+              page: row.page,
+              ...serializeProgress(row),
+            }
+          : {
+              status: "success",
+              chapter: 0,
+              page: 0,
+              scroll_position: 0,
+              anchor_paragraph: null,
+              anchor_offset: null,
+            };
       if (name.startsWith("novel:"))
         return json(
-          serializeProgress(
+          legacy(
             await one(
               env,
               "SELECT * FROM progress WHERE user_id=? AND book_id=?",
               user.user_id,
               name.slice(6),
             ),
-          ) || {},
+          ),
         );
       const comic = await comicById(env, user, name);
       return json(
-        serializeProgress(
+        legacy(
           await one(
             env,
             "SELECT * FROM comic_progress WHERE user_id=? AND comic_id=?",
             user.user_id,
             comic.id,
           ),
-        ) || {},
+        ),
       );
     }
     if (endpoint === "novel_chapter_data")

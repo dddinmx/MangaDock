@@ -1,6 +1,7 @@
 import { writeFile, readFile } from "node:fs/promises";
 import { pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { checkD1Budget } from "./d1-budget.mjs";
 process.on("uncaughtException", (error) => {
   console.error(
     "::error::" +
@@ -53,6 +54,7 @@ async function pages(path) {
   throw new Error("资源列表超过分页上限");
 }
 // These calls provision free-compatible resources only. They never subscribe to Workers Paid or change billing plans.
+await checkD1Budget();
 const databases = await pages("/d1/database");
 const db =
   databases.find((d) => d.name === prefix) ||
@@ -224,56 +226,65 @@ for (let attempt = 0; attempt < 12; attempt++) {
   await new Promise((resolve) => setTimeout(resolve, 5000));
 }
 if (!sourceToken && !hasSource) {
-  instance = randomUUID().replaceAll("-", "");
-  const registration = "fqr_" + randomBytes(32).toString("base64url");
-  const headers = {
-    "X-MangaDock-Instance-ID": instance,
-    "X-MangaDock-Registration-Key": registration,
-    "X-MangaDock-Version": "5.0",
-    "X-MangaDock-System": "Cloudflare/Workers",
-    Accept: "application/json",
-    "User-Agent": "MangaDock/5.0 Fanqie-Client/1.1",
-  };
-  const response = await fetch("https://fanqie.dddinmx.cn/v1/register", {
-    method: "POST",
-    headers,
-    signal: AbortSignal.timeout(25000),
-  });
-  if (response.ok) {
-    const payload = await response.json();
-    if (!payload.ok) throw new Error("来源注册响应无效");
-    sourceToken = payload.data?.token;
-  } else {
-    // The GitHub runner and Cloudflare edge may take different origin routes. Keep the source server unchanged.
-    await response.body?.cancel();
+  try {
+    instance = randomUUID().replaceAll("-", "");
+    const registration = "fqr_" + randomBytes(32).toString("base64url");
+    const headers = {
+      "X-MangaDock-Instance-ID": instance,
+      "X-MangaDock-Registration-Key": registration,
+      "X-MangaDock-Version": "5.0",
+      "X-MangaDock-System": "Cloudflare/Workers",
+      Accept: "application/json",
+      "User-Agent": "MangaDock/5.0 Fanqie-Client/1.1",
+    };
+    const response = await fetch("https://fanqie.dddinmx.cn/v1/register", {
+      method: "POST",
+      headers,
+      signal: AbortSignal.timeout(25000),
+    });
+    if (response.ok) {
+      const payload = await response.json();
+      if (!payload.ok) throw new Error("来源注册响应无效");
+      sourceToken = payload.data?.token;
+    } else {
+      // The GitHub runner and Cloudflare edge may take different origin routes. Keep the source server unchanged.
+      await response.body?.cancel();
+      console.log(
+        `GitHub 来源注册 HTTP ${response.status}; 尝试从已部署 Worker 初始化。`,
+      );
+      const login = await fetch(url + "/api/v1/auth/login", {
+        method: "POST",
+        headers: { Origin: url, "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "admin", password }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!login.ok) throw new Error(`边缘初始化登录 HTTP ${login.status}`);
+      const cookie = login.headers.get("set-cookie")?.split(";")[0],
+        csrf = (await login.json()).data?.csrf_token;
+      const edge = await fetch(url + "/api/source/register", {
+        method: "POST",
+        headers: {
+          Origin: url,
+          Cookie: cookie,
+          "X-CSRFToken": csrf,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ instance, registration }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!edge.ok)
+        throw new Error(`来源 Worker 边缘初始化 HTTP ${edge.status}`);
+      sourceToken = (await edge.json()).data?.token;
+    }
+    if (!/^fqk_[A-Za-z0-9_-]{32,128}$/.test(sourceToken || ""))
+      throw new Error("来源注册 Token 格式无效");
+  } catch (error) {
+    if (target !== "staging") throw error;
+    sourceToken = undefined;
     console.log(
-      `GitHub 来源注册 HTTP ${response.status}; 尝试从已部署 Worker 初始化。`,
+      "::warning::番茄来源注册不可用；staging 界面、漫画、R2 和云转换继续验证，小说来源验收仍会报告失败。",
     );
-    const login = await fetch(url + "/api/v1/auth/login", {
-      method: "POST",
-      headers: { Origin: url, "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "admin", password }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!login.ok) throw new Error(`边缘初始化登录 HTTP ${login.status}`);
-    const cookie = login.headers.get("set-cookie")?.split(";")[0],
-      csrf = (await login.json()).data?.csrf_token;
-    const edge = await fetch(url + "/api/source/register", {
-      method: "POST",
-      headers: {
-        Origin: url,
-        Cookie: cookie,
-        "X-CSRFToken": csrf,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ instance, registration }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!edge.ok) throw new Error(`来源 Worker 边缘初始化 HTTP ${edge.status}`);
-    sourceToken = (await edge.json()).data?.token;
   }
-  if (!/^fqk_[A-Za-z0-9_-]{32,128}$/.test(sourceToken || ""))
-    throw new Error("来源注册 Token 格式无效");
 }
 // Credentials travel only on stdin into Worker Secrets, never command arguments, repo or artifacts.
 if (sourceToken || integrationKey) {

@@ -139,4 +139,45 @@ describe("download job loop / D1 row usage", () => {
     expect(idle.results.length).toBe(0);
     expect(idle.meta.rows_read).toBeLessThan(50);
   });
+  it("completion checks seek unfinished states without recounting every finished sibling", async () => {
+    await db
+      .prepare(
+        "INSERT INTO comic_jobs(id,user_id,comic_id,parent_id,kind,payload,state,created_at,updated_at) VALUES ('pending','admin','c1','p1','page','{}','waiting',0,0)",
+      )
+      .run();
+    for (const states of [
+      "'queued','submitting','running','waiting'",
+      "'queued','submitting','running','waiting','cancelled','error'",
+    ]) {
+      const result = await db
+        .prepare(
+          `SELECT 1 FROM comic_jobs WHERE parent_id=? AND state IN (${states}) LIMIT 1`,
+        )
+        .bind("p1")
+        .all();
+      expect(result.results).toHaveLength(1);
+      expect(result.meta.rows_read).toBeLessThan(10);
+    }
+  });
+  it("cleanup, login history and legacy chapter filenames use their dedicated indexes", async () => {
+    for (const [sql, index] of [
+      [
+        "SELECT key FROM login_attempts WHERE window<0",
+        "login_attempts_window",
+      ],
+      [
+        "SELECT * FROM login_logs WHERE username='admin' ORDER BY created_at DESC LIMIT 5",
+        "login_logs_user_created",
+      ],
+      [
+        "SELECT * FROM chapters WHERE comic_id='c1' AND legacy_filename='1.cbz' AND state='ready'",
+        "chapters_legacy_filename",
+      ],
+    ]) {
+      const result = await db.prepare("EXPLAIN QUERY PLAN " + sql).all<any>();
+      expect(result.results.map((row) => row.detail).join(" ")).toContain(
+        index,
+      );
+    }
+  });
 });

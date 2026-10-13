@@ -68,3 +68,67 @@ test("mobile login keeps original layout", async ({ page }) => {
   ).toBe(true);
   await page.screenshot({ path: "test-results/login-mobile.png" });
 });
+
+for (const width of [1280, 390])
+  test(`original comic reader loads private pages and restores scroll at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(() =>
+      localStorage.setItem("mangadock-install-muted-until", "9999999999999"),
+    );
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto("/login");
+    await page.getByLabel("用户名").fill("admin");
+    await page.getByLabel("密码").fill("local-e2e-password-2026");
+    await page.locator("#loginButton").click();
+    await expect(page.locator(".md-topnav")).toBeVisible();
+    await page.goto("/reader/c_test");
+    await expect(page.locator(".comic-page")).toHaveCount(2);
+    await expect
+      .poll(() =>
+        page
+          .locator(".comic-page")
+          .first()
+          .evaluate((image: any) => image.naturalWidth),
+      )
+      .toBeGreaterThan(0);
+    await page.locator(".comic-page").nth(1).scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        page
+          .locator(".comic-page")
+          .nth(1)
+          .evaluate((image: any) => image.naturalWidth),
+      )
+      .toBeGreaterThan(0);
+    await page.evaluate(() =>
+      window.scrollTo(0, document.documentElement.scrollHeight - 900),
+    );
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(
+          "/get_progress/" + encodeURIComponent("本地测试漫画"),
+        );
+        return (await response.json()).scroll_position || 0;
+      })
+      .toBeGreaterThan(0);
+    const progress = await (
+      await page.request.get(
+        "/get_progress/" + encodeURIComponent("本地测试漫画"),
+      )
+    ).json();
+    await page.reload();
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThan(0);
+    const after = await (
+      await page.request.get(
+        "/get_progress/" + encodeURIComponent("本地测试漫画"),
+      )
+    ).json();
+    expect(after.last_chapter).toBe(progress.last_chapter);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: `test-results/comic-reader-${width}.png` });
+  });

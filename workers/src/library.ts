@@ -119,6 +119,31 @@ export async function groups(env: Env, user: Identity, kind = "comic") {
     )
   ).map((r) => r.name as string);
 }
+export async function findChapter(env: Env, comicId: string, value: string) {
+  const id = value.replace(/\.(cbz|pdf)$/i, "");
+  const own = await one(
+    env,
+    "SELECT * FROM chapters WHERE id=? AND comic_id=? AND state='ready'",
+    id,
+    comicId,
+  );
+  if (own) return own;
+  const alias = await one(
+    env,
+    "SELECT * FROM chapters WHERE comic_id=? AND public_id=? AND state='ready'",
+    comicId,
+    value,
+  );
+  return (
+    alias ||
+    (await one(
+      env,
+      "SELECT * FROM chapters WHERE comic_id=? AND legacy_filename=? AND state='ready'",
+      comicId,
+      value,
+    ))
+  );
+}
 export async function novels(env: Env, user: Identity): Promise<Row[]> {
   return (
     await all(

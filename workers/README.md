@@ -32,7 +32,7 @@ npm run dev
 
 沿用 Repository Secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`、`MANGADOCK_ADMIN_PASSWORD`。可选 `FANQIE_API_TOKEN` / `FANQIE_INSTANCE_ID` 一起配置；缺失时首次部署注册独立实例，后续保留 Worker Secrets。WebDAV/AniList 的加密密钥自动生成并保存到 Worker Secret，不提交仓库。
 
-推送完整迁移分支运行测试和独立 staging 部署。资源使用 `mangadock-full-staging` / `mangadock-full-production`；不改旧小说试点资源，不修改现有 DNS，不升级 Workers Paid。
+因 D1 配额事故，推送完整迁移分支只运行本地模拟测试；自动 staging 部署和定时云转换已暂停。远程发布前会通过 Analytics 检查账号当日行数预算，读取达 400 万或写入达 8 万即停止，无法读取统计也停止。资源使用 `mangadock-full-staging` / `mangadock-full-production`；不改旧小说试点资源，不修改现有 DNS，不升级 Workers Paid。
 
 正式发布通过 **Deploy Workers (free plan)** 手动选择 `production` 和已验收提交。数据库采用追加迁移；代码回滚不等于数据回滚。
 
@@ -40,7 +40,7 @@ npm run dev
 
 ONNX、PDF/CBZ 转换、超大 EPUB 索引以及来源兼容解析由 `cloud-compute.py` 在 GitHub Actions Linux 执行。封面继续使用原 RealESRGAN 动漫模型；失败或超时时按原方案退回 Pillow。产物通过管理员认证接口写入 R2；任务有领取租约、文件大小检查和章节版本检查。
 
-新增 **Cloud conversions and cover super-resolution** 工作流，在合并到默认分支后每 15 分钟处理一批；GitHub 不保证定时准点。开发分支部署时直接执行转换，不把未合并的 schedule 声称为已自动运行。公共仓库标准 Linux runner 当前免费；私有仓库超过 Actions 分钟额度、Cloudflare 超额资源以及现有番茄服务器不能承诺免费。详细费用见迁移文档。
+新增 **Cloud conversions and cover super-resolution** 工作流，当前只允许手动运行，定时触发已因配额事故关闭；恢复后需重新配置有额度监测的调度。开发分支部署时直接执行转换，不把未合并的 schedule 声称为已自动运行。公共仓库标准 Linux runner 当前免费；私有仓库超过 Actions 分钟额度、Cloudflare 超额资源以及现有番茄服务器不能承诺免费。详细费用见迁移文档。
 
 ## 数据迁移
 

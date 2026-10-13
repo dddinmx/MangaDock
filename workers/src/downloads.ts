@@ -135,21 +135,25 @@ async function currentCreator(env: Env, job: Row) {
   return user;
 }
 async function completeParent(env: Env, rootId: string) {
-  const counts = await one(
+  const pending = await one(
     env,
-    "SELECT COALESCE(SUM(state NOT IN ('completed','cancelled','error')),0) AS n,COALESCE(SUM(state='error'),0) AS failed FROM comic_jobs WHERE parent_id=?",
+    "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state IN ('queued','submitting','running','waiting') LIMIT 1",
     rootId,
   );
-  const failed = !!counts?.failed;
-  if (!counts?.n)
-    await run(
-      env,
-      "UPDATE comic_jobs SET state=?,message=?,updated_at=? WHERE id=? AND state='waiting'",
-      failed ? "error" : "completed",
-      failed ? "部分章节失败，请重试" : "下载完成",
-      now(),
-      rootId,
-    );
+  if (pending) return;
+  const failed = await one(
+    env,
+    "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state='error' LIMIT 1",
+    rootId,
+  );
+  await run(
+    env,
+    "UPDATE comic_jobs SET state=?,message=?,updated_at=? WHERE id=? AND state='waiting'",
+    failed ? "error" : "completed",
+    failed ? "部分章节失败，请重试" : "下载完成",
+    now(),
+    rootId,
+  );
 }
 export async function runJob(env: Env, id: string) {
   const job = await env.DB.prepare(
@@ -488,7 +492,7 @@ export async function runJob(env: Env, id: string) {
       if (job.kind === "page") {
         const unfinished = await one(
           env,
-          "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state!='completed' LIMIT 1",
+          "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state IN ('queued','submitting','running','waiting','cancelled','error') LIMIT 1",
           job.parent_id,
         );
         if (!unfinished) {
