@@ -1,7 +1,7 @@
 import { notifyCompute, schedulerRequest } from "./compute-scheduler";
 import { collectComicGarbage, cleanupStorage, cleanupUploads } from "./storage";
 import { LoginGuard } from "./login-guard";
-import { checkUpdates } from "./updates";
+import { checkUpdates, dispatchUpdate, updateStatus } from "./updates";
 import { publicUser } from "./public-user";
 import { DurableObject } from "cloudflare:workers";
 import { databaseEnv } from "./database";
@@ -53,6 +53,7 @@ import {
   createUser,
   getUser,
   saveGroups,
+  saveNovelGroups,
   changePassword,
   deleteUser,
 } from "./accounts";
@@ -119,6 +120,14 @@ export class ApplicationService extends DurableObject<Env> {
         this.ctx.storage,
       );
       if (scheduled) return scheduled;
+      if (
+        url.hostname === "jobs.internal" &&
+        url.pathname === "/update" &&
+        request.method === "POST"
+      ) {
+        await dispatchUpdate(this.env, await request.json());
+        return json({ ok: true });
+      }
       if (url.hostname === "login.internal" && request.method === "POST") {
         const { username, ip, credential } = await request.json<{
           username: string;
@@ -456,18 +465,31 @@ export class ApplicationService extends DurableObject<Env> {
     }
     if (endpoint === "get_updates_status") {
       downloader(user);
+      const url = new URL(request.url),
+        onlyStatus = url.searchParams.get("status_only") === "1";
+      const status = await updateStatus(
+        env,
+        user,
+        url.searchParams.get("after") || "",
+        !onlyStatus,
+      );
       return json({
         ok: true,
         data: {
-          candidates: JSON.parse(await setting(env, "update_candidates", "[]")),
-          checking: false,
+          ...status,
           mode: await setting(env, "comic_update_mode", "manual"),
-          last_checked_at: new Date(
-            Number(await setting(env, "updates_checked_at", "0")) * 1000,
-          ).toISOString(),
-          tracked_comics: (await library(env, user, true)).comics.map(
-            (row) => row.name,
-          ),
+          ...(onlyStatus
+            ? {}
+            : {
+                tracked_comics: (
+                  await all(
+                    env,
+                    "SELECT name FROM comics c WHERE (?='admin' OR EXISTS(SELECT 1 FROM group_permissions gp WHERE gp.user_id=? AND gp.group_name=c.group_name)) ORDER BY c.id LIMIT 10000",
+                    user.role,
+                    user.user_id,
+                  )
+                ).map((row) => row.name),
+              }),
         },
       });
     }
@@ -589,6 +611,13 @@ export class ApplicationService extends DurableObject<Env> {
         ),
         message: "分组权限已更新",
       };
+      if (data.novel_groups_present || data.novel_group_names !== undefined) {
+        result.novel_group_names = await saveNovelGroups(
+          env,
+          target.id,
+          list(data.novel_group_names),
+        );
+      }
       redirect = "/users/" + target.id;
     } else if (["delete_user", "delete_user_v1"].includes(endpoint)) {
       await deleteUser(env, user, params.user_id);
@@ -627,13 +656,11 @@ export class ApplicationService extends DurableObject<Env> {
           env.DB.prepare(
             "DELETE FROM library_groups WHERE kind=? AND name=?",
           ).bind(kind, name),
-          ...(kind === "comic"
-            ? [
-                env.DB.prepare(
-                  "DELETE FROM group_permissions WHERE group_name=?",
-                ).bind(name),
-              ]
-            : []),
+          ...[
+            env.DB.prepare(
+              `DELETE FROM ${kind === "comic" ? "group_permissions" : "novel_group_permissions"} WHERE group_name=?`,
+            ).bind(name),
+          ],
         ]);
       } else if (assigning) {
         if (
@@ -772,7 +799,12 @@ export class ApplicationService extends DurableObject<Env> {
     } else if (["check_updates_now", "check_updates"].includes(endpoint)) {
       downloader(user);
       const candidates = await checkUpdates(env, user);
-      result = { items: candidates, candidates, message: "更新检查完成" };
+      result = {
+        items: candidates,
+        candidates,
+        checking: true,
+        message: "更新检查已排队",
+      };
       redirect = "/update";
     } else if (["update_mode", "set_update_mode"].includes(endpoint)) {
       downloader(user);
@@ -1025,9 +1057,6 @@ export class ApplicationService extends DurableObject<Env> {
           comic.id,
         ),
         env.DB.prepare("DELETE FROM chapters WHERE comic_id=?").bind(comic.id),
-        env.DB.prepare(
-          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
-        ).bind(comic.id, comic.id),
         env.DB.prepare(
           "UPDATE comic_jobs SET comic_id=NULL WHERE comic_id=?",
         ).bind(comic.id),

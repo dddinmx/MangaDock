@@ -13,6 +13,8 @@ import {
   checkUpdates,
   dispatchUpdate,
   UPDATE_PAGE_BUDGET,
+  updateStatus,
+  recoverUpdates,
   type UpdateMessage,
 } from "../src/updates";
 
@@ -52,6 +54,7 @@ async function sql(statement: string, ...args: unknown[]) {
 }
 
 async function cleanup() {
+  await sql("DELETE FROM update_checks WHERE user_id LIKE 'upd-%'");
   await sql("DELETE FROM chapters WHERE comic_id LIKE 'upd-%'");
   await sql(
     "DELETE FROM comic_jobs WHERE user_id LIKE 'upd-%' OR id LIKE 'upd-%'",
@@ -219,106 +222,55 @@ describe("paged update checks", () => {
     );
   }
 
-  it("enqueues one cursor page and returns the previous candidate array", async () => {
+  it("enqueues one active check per user and reports queued rather than old results", async () => {
     await seedUser();
-    await addComic(
-      "upd-live",
-      5,
-      "https://www.manhuagui.com/comic/12345/",
-    );
-    await setSetting(
-      testEnv,
-      "update_candidates",
-      JSON.stringify([{ id: "upd-live", comic_name: "upd-live", pending_chapters: 3 }]),
-    );
-    const returned = await checkUpdates(testEnv, user);
-    expect(returned).toEqual([
-      { id: "upd-live", comic_name: "upd-live", pending_chapters: 3 },
-    ]);
+    await addComic("upd-a", 1, "https://example.com/a");
+    expect(await checkUpdates(testEnv, user)).toEqual([]);
+    expect(await checkUpdates(testEnv, user)).toEqual([]);
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({
-      kind: "update-page",
-      cursor: "",
-      budget: UPDATE_PAGE_BUDGET,
-      userId: "upd-user",
-      automatic: false,
+    expect(await updateStatus(testEnv, user)).toMatchObject({
+      checking: true,
+      total: 0,
+      candidates: [],
+      finished_at: 0,
     });
-    expect(await setting(testEnv, "update_candidates", "")).toBe("[]");
-    expect(sent[0].generation).toBe(
-      await setting(testEnv, "update_check_generation", ""),
-    );
   });
-
-  it("pages a budget of comics, then continues from the cursor", async () => {
+  it("pages stable IDs, deduplicates redelivery and finishes only after every comic", async () => {
     await seedUser();
-    await addComic("upd-z", 50, "https://example.com/z");
-    await addComic("upd-m", 50, "https://example.com/m");
-    await addComic("upd-c", 30, "https://example.com/c");
-    await addComic("upd-b", 20, "https://example.com/b");
-    await addComic("upd-a", 10, "https://example.com/a");
-    await addComic("upd-hidden", 99, "https://example.com/hidden", "默认分组");
-    const returned = await checkUpdates(testEnv, user);
-    expect(Array.isArray(returned)).toBe(true);
-    const generation = sent[0].generation!;
-    const comicIds: string[] = [];
-    let pages = [
-      {
-        kind: "update-page",
-        cursor: "",
-        budget: 2,
-        generation,
-        userId: "upd-user",
-        automatic: false,
-      } as UpdateMessage,
-    ];
-    let steps = 0;
-    while (pages.length) {
-      const next: UpdateMessage[] = [];
-      for (const page of pages) {
-        let acked = 0;
-        let retried = 0;
-        sent.length = 0;
-        await worker.queue(
-          {
-            messages: [
-              {
-                body: page,
-                attempts: 1,
-                ack() {
-                  acked++;
-                },
-                retry() {
-                  retried++;
-                },
-              },
-            ],
-          } as any,
-          testEnv,
-        );
-        expect(acked).toBe(1);
-        expect(retried).toBe(0);
-        for (const body of sent) {
-          if (body.kind === "update-comic") comicIds.push(String(body.comicId));
-          if (body.kind === "update-page") next.push(body);
-        }
-        if (next.length)
-          expect(sent.at(-1)?.kind).toBe("update-page");
+    for (let i = 0; i < 5; i++)
+      await addComic(`upd-${i}`, 50 - i, "https://example.com/a");
+    await addComic("upd-hidden", 99, "https://example.com/h", "默认分组");
+    await checkUpdates(testEnv, user);
+    let page = { ...sent.shift()!, budget: 2 };
+    const seen: string[] = [];
+    for (let steps = 0; steps < 3; steps++) {
+      sent.length = 0;
+      await dispatchUpdate(testEnv, page);
+      for (const item of sent.filter((body) => body.kind === "update-comic")) {
+        seen.push(item.comicId!);
+        await dispatchUpdate(testEnv, item);
+        await dispatchUpdate(testEnv, item);
       }
-      pages = next;
-      steps++;
-      expect(steps).toBeLessThan(6);
+      const next = sent.find((body) => body.kind === "update-page");
+      if (!next) break;
+      page = next;
     }
-    expect(comicIds).toEqual(["upd-z", "upd-m", "upd-c", "upd-b", "upd-a"]);
-    expect(Number(await setting(testEnv, "updates_checked_at", "0"))).toBeGreaterThan(
-      0,
-    );
+    expect(seen).toEqual(["upd-0", "upd-1", "upd-2", "upd-3", "upd-4"]);
+    const status = await updateStatus(testEnv, user);
+    expect(status).toMatchObject({
+      checking: false,
+      total: 5,
+      failed: 5,
+      completed: 0,
+    });
+    expect(status.finished_at).toBeGreaterThan(0);
+    expect(
+      (await updateStatus(testEnv, { ...user, user_id: "other" })).candidates,
+    ).toEqual([]);
   });
-
-  it("checks a single comic and keeps the candidate fields", async () => {
+  it("keeps the single comic result and rejects duplicate/expired messages", async () => {
     await seedUser();
-    const source = "https://www.manhuagui.com/comic/12345/";
-    await addComic("upd-ok", 3, source);
-    await addComic("upd-bad", 2, "https://example.com/not-a-comic");
+    await addComic("upd-ok", 1, "https://www.manhuagui.com/comic/12345/");
     await sql(
       "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,state) VALUES ('upd-ch','upd-ok',1,'第一话',?,'ready')",
       "https://www.manhuagui.com/comic/12345/1.html",
@@ -328,92 +280,113 @@ describe("paged update checks", () => {
       .intercept({ path: "/comic/12345/" })
       .reply(
         200,
-        "<html><head><title>更新测试</title></head><body><h1>更新测试</h1><a href=\"/comic/12345/1.html\">第一话</a><a href=\"/comic/12345/2.html\">第二话</a></body></html>",
+        '<html><body><h1>更新测试</h1><a href="/comic/12345/1.html">第一话</a><a href="/comic/12345/2.html">第二话</a></body></html>',
       );
-    const generation = "upd-gen";
-    await setSetting(testEnv, "update_check_generation", generation);
-    await setSetting(testEnv, "update_candidates", "[]");
-    await dispatchUpdate(testEnv, {
-      kind: "update-comic",
-      comicId: "upd-ok",
-      generation,
-      userId: "upd-user",
+    await checkUpdates(testEnv, user);
+    const page = sent.shift()!;
+    await dispatchUpdate(testEnv, page);
+    expect(await updateStatus(testEnv, user)).toMatchObject({
+      checking: true,
+      total: 1,
+      finished_at: 0,
+      candidates: [],
     });
-    await dispatchUpdate(testEnv, {
-      kind: "update-comic",
-      comicId: "upd-bad",
-      generation,
-      userId: "upd-user",
+    const item = sent.find((body) => body.kind === "update-comic")!;
+    await dispatchUpdate(testEnv, item);
+    await dispatchUpdate(testEnv, item);
+    expect(await updateStatus(testEnv, user)).toMatchObject({
+      checking: false,
+      total: 1,
+      completed: 1,
+      failed: 0,
+      candidates: [
+        {
+          comic_name: "upd-ok",
+          pending_chapters: 1,
+          remote_total_chapters: 2,
+          local_total_chapters: 1,
+          latest_chapter_title: "第二话",
+        },
+      ],
     });
-    const candidates = JSON.parse(await setting(testEnv, "update_candidates", "[]"));
-    expect(candidates).toEqual([
-      expect.objectContaining({
-        id: "upd-ok",
-        comic_name: "upd-ok",
-        status: "completed",
-        pending_chapters: 1,
-        remote_total_chapters: 2,
-        local_total_chapters: 1,
-        latest_chapter_title: "第二话",
-      }),
-      expect.objectContaining({
-        id: "upd-bad",
-        comic_name: "upd-bad",
-        status: "error",
-        error_message: "来源暂时不可用",
-      }),
-    ]);
-    expect(
-      await bindings.DB.prepare(
-        "SELECT COUNT(*) AS n FROM comic_jobs WHERE user_id='upd-user'",
-      ).first<{ n: number }>(),
-    ).toEqual({ n: 0 });
+    await dispatchUpdate(testEnv, { ...item, generation: "expired" });
   });
-
-  it("queues an automatic download only after that comic has new chapters", async () => {
+  it("automatic checks enqueue a download and retain pending gaps", async () => {
     await seedUser();
-    const source = "https://www.manhuagui.com/comic/22222/";
-    await addComic("upd-auto", 4, source);
+    await addComic("upd-auto", 1, "https://www.manhuagui.com/comic/22222/");
     fetchMock
       .get("https://www.manhuagui.com")
       .intercept({ path: "/comic/22222/" })
       .reply(
         200,
-        "<html><body><h1>自动</h1><a href=\"/comic/22222/1.html\">第一话</a></body></html>",
+        '<html><body><h1>自动</h1><a href="/comic/22222/1.html">第一话</a></body></html>',
       );
-    const generation = "upd-auto-gen";
-    await setSetting(testEnv, "update_check_generation", generation);
-    await setSetting(testEnv, "update_candidates", "[]");
-    sent.length = 0;
-    // Wake the scheduler without the shared Durable Object. A previous test
-    // file can invalidate it when the worker module reloads.
     const autoEnv = {
       ...testEnv,
       APPLICATION: {
         idFromName: () => "scheduler",
-        get: () => ({
-          fetch: async () => new Response("{}", { status: 200 }),
-        }),
+        get: () => ({ fetch: async () => new Response("{}") }),
       },
-    } as Env;
-    await dispatchUpdate(autoEnv, {
-      kind: "update-comic",
-      comicId: "upd-auto",
-      generation,
-      userId: "upd-user",
-      automatic: true,
-    });
+    } as unknown as Env;
+    await checkUpdates(autoEnv, user, true);
+    await dispatchUpdate(autoEnv, sent.shift()!);
+    await dispatchUpdate(
+      autoEnv,
+      sent.find((body) => body.kind === "update-comic")!,
+    );
     const job = await bindings.DB.prepare(
-      "SELECT kind,payload,state FROM comic_jobs WHERE user_id='upd-user'",
-    ).first<{ kind: string; payload: string; state: string }>();
-    expect(job?.kind).toBe("source");
-    expect(job?.state).toBe("queued");
-    expect(JSON.parse(job!.payload)).toMatchObject({
-      url: source,
+      "SELECT payload FROM comic_jobs WHERE user_id='upd-user'",
+    ).first<any>();
+    expect(JSON.parse(job.payload)).toMatchObject({
       is_update: true,
-      group: "upd-group",
+      max_chapters: 0,
     });
-    expect(sent.some((body) => body.kind === "comic" && body.id)).toBe(true);
+  });
+  it("maintenance recovers lost messages and dead-letters exhausted items", async () => {
+    await seedUser();
+    await addComic("upd-lost", 1, "https://example.com/a");
+    await checkUpdates(testEnv, user);
+    await dispatchUpdate(testEnv, sent.shift()!);
+    await sql(
+      "UPDATE update_check_items SET updated_at=0 WHERE comic_id='upd-lost'",
+    );
+    sent.length = 0;
+    await recoverUpdates(testEnv);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: "update-comic",
+      comicId: "upd-lost",
+    });
+    await sql(
+      "UPDATE update_check_items SET attempts=3,lease_until=0 WHERE comic_id='upd-lost'",
+    );
+    await recoverUpdates(testEnv);
+    expect(await updateStatus(testEnv, user)).toMatchObject({
+      checking: false,
+      failed: 1,
+      total: 1,
+    });
+  });
+  it("finishes a check after the last item committed but aggregation was lost", async () => {
+    await seedUser();
+    await addComic("upd-last", 1, "https://example.com/a");
+    await checkUpdates(testEnv, user);
+    await dispatchUpdate(testEnv, sent.shift()!);
+    await sql(
+      "UPDATE update_check_items SET state='completed',updated_at=? WHERE comic_id='upd-last'",
+      now(),
+    );
+    expect(await updateStatus(testEnv, user)).toMatchObject({
+      checking: true,
+      completed: 1,
+      total: 1,
+    });
+    await recoverUpdates(testEnv);
+    expect(await updateStatus(testEnv, user)).toMatchObject({
+      checking: false,
+      completed: 1,
+      total: 1,
+    });
   });
 });
 
@@ -445,9 +418,9 @@ describe("orphaned compute jobs", () => {
       bindings,
       admin,
     );
-    const listed = ((await response!.json()) as { data: { id: string }[] }).data.map(
-      (row) => row.id,
-    );
+    const listed = (
+      (await response!.json()) as { data: { id: string }[] }
+    ).data.map((row) => row.id);
     expect(listed).toContain("upd-live");
     expect(listed).toContain("upd-free");
     expect(listed).not.toContain("upd-orphan");

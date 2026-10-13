@@ -270,7 +270,7 @@ export async function statistics(
       LEFT JOIN comics c ON c.id=r.media_id
       LEFT JOIN books b ON r.media_id LIKE 'novel:%' AND b.id=substr(r.media_id,7)
       WHERE (c.id IS NULL OR ?='admin' OR EXISTS(SELECT 1 FROM group_permissions p WHERE p.user_id=? AND p.group_name=c.group_name))
-      AND (b.id IS NULL OR ?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM group_permissions np WHERE np.user_id=? AND np.group_name=b.group_name))
+      AND (b.id IS NULL OR ?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM novel_group_permissions np WHERE np.user_id=? AND np.group_name=b.group_name))
       ORDER BY r.duration DESC LIMIT 1000`,
       user.user_id,
       user.role,

@@ -61,7 +61,11 @@ export function libraryObjectKey(value: unknown, prefix = "") {
   let key = value;
   if (key.startsWith(LIBRARY_R2_PREFIX))
     key = key.slice(LIBRARY_R2_PREFIX.length);
-  else if (key.startsWith("r2://") || key.includes("://") || key.startsWith("/"))
+  else if (
+    key.startsWith("r2://") ||
+    key.includes("://") ||
+    key.startsWith("/")
+  )
     throw new HttpError(400, KEY_ERROR);
   if (!key) throw new HttpError(400, KEY_ERROR);
   assertSafePath(key, KEY_ERROR);
@@ -119,11 +123,7 @@ export async function runR2Scan(env: Env, job: Row, data: Row) {
       parts = relative.split("/").filter(Boolean);
     if (!parts.length) continue;
     await reserve(env, key, object.size);
-    await run(
-      env,
-      "UPDATE storage_ledger SET state='stored' WHERE key=?",
-      key,
-    );
+    await run(env, "UPDATE storage_ledger SET state='stored' WHERE key=?", key);
     const stem = parts.at(-1)!.replace(/\.(cbz|pdf|epub)$/i, ""),
       version = object.etag;
     if (/\.epub$/i.test(object.key)) {
@@ -177,9 +177,6 @@ export async function runR2Scan(env: Env, job: Row, data: Row) {
         version,
         parts.at(-1),
       ),
-      env.DB.prepare(
-        "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
-      ).bind(comicId, comicId),
     ]);
   }
   if (page.truncated)

@@ -1,5 +1,8 @@
 """Reuse the original provider parsers in an isolated CI process, without starting Flask or local daemons."""
 import ast,base64,hashlib,unicodedata,concurrent.futures,html,importlib.util,json,os,re,shutil,sys,time,types
+import logging,posixpath,xml.etree.ElementTree as ET
+from zipfile import ZipFile,BadZipFile
+from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin,urlparse,urlsplit,urlunsplit,parse_qs,quote,unquote,urlencode

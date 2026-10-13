@@ -15,6 +15,7 @@ import {
 } from "./library";
 import { getUser } from "./accounts";
 import { indexNovel, novelChapter } from "./novels";
+import { updateStatus } from "./updates";
 import { tasks } from "./downloads";
 import { statistics, serializeProgress } from "./reading";
 import { anilistSearch, metadataSearch } from "./integrations";
@@ -263,8 +264,21 @@ export async function pages(
       (n) => n.id === params.novel_id,
     );
     if (!novel) throw new HttpError(404, "小说不存在");
-    const index = await indexNovel(env, novel.id),
-      progress = await one(
+    let index;
+    try {
+      index = await indexNovel(env, novel.id);
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 503)
+        return show("novel_detail.html", {
+          novel,
+          chapters: [],
+          progress: null,
+          reading_time: 0,
+          index_pending: true,
+        });
+      throw error;
+    }
+    const progress = await one(
         env,
         "SELECT * FROM progress WHERE user_id=? AND book_id=?",
         user.user_id,
@@ -415,6 +429,14 @@ export async function pages(
     admin(user);
     const target = await getUser(env, params.user_id),
       names = await groups(env, user),
+      novelNames = await groups(env, user, "novel"),
+      novelAssigned = (
+        await all(
+          env,
+          "SELECT group_name FROM novel_group_permissions WHERE user_id=?",
+          target.id,
+        )
+      ).map((row) => row.group_name),
       assigned = (
         await all(
           env,
@@ -431,6 +453,8 @@ export async function pages(
       user: publicUser(target as any),
       groups: names,
       user_groups: assigned,
+      novel_groups: novelNames,
+      user_novel_groups: novelAssigned,
       login_logs: logs.map((log) => ({
         ...log,
         login_time: date(log.created_at),
@@ -487,14 +511,17 @@ export async function pages(
   if (endpoint === "update") {
     downloader(user);
     const data = await library(env, user, true),
-      candidates = JSON.parse(await setting(env, "update_candidates", "[]"));
+      status = await updateStatus(
+        env,
+        user,
+        url.searchParams.get("after") || "",
+      );
     return show("update.html", {
-      comics: data.comics,
-      update_candidates: candidates,
-      update_checking: false,
-      last_update_checked_at: date(
-        Number(await setting(env, "updates_checked_at", "0")) || null,
-      ),
+      comics: data.comics.map((row) => row.name),
+      update_candidates: status.candidates,
+      update_checking: status.checking,
+      update_check_status: status,
+      last_update_checked_at: date(status.finished_at || null),
       comic_update_mode: await setting(env, "comic_update_mode", "manual"),
     });
   }

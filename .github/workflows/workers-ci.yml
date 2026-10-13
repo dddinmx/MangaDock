@@ -1,10 +1,12 @@
 name: Workers tests
 on:
   pull_request:
-    paths: ['workers/**', 'templates/**', 'static/**', '.github/workflows/workers-*']
+    paths:
+      ["workers/**", "templates/**", "static/**", ".github/workflows/workers-*"]
   push:
-    branches: ['main', 'migration/cloudflare-full', 'migration/turso']
-    paths: ['workers/**', 'templates/**', 'static/**', '.github/workflows/workers-*']
+    branches: ["main", "migration/cloudflare-full", "migration/turso"]
+    paths:
+      ["workers/**", "templates/**", "static/**", ".github/workflows/workers-*"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,14 +20,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: workers/package-lock.json
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Install original-template reference dependencies
-        run: pip install Pillow==10.4.0 Jinja2==3.1.6
+        run: pip install Pillow==10.4.0 Jinja2==3.1.6 beautifulsoup4==4.12.3 requests==2.32.4
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run verify

@@ -1,4 +1,9 @@
-import { MAX_JOB_ATTEMPTS, MAX_REMOTE_POLLS, retryDelay } from "./downloads";
+import {
+  MAX_JOB_ATTEMPTS,
+  MAX_REMOTE_POLLS,
+  retryDelay,
+  completeParent,
+} from "./downloads";
 import { novelPermissionsEnforced } from "./library";
 import { cleanupStorage, cleanupUploads } from "./storage";
 import { loginGuard, type LoginGuard } from "./login-guard";
@@ -6,10 +11,10 @@ import { databasePaused, databaseRetryAfter } from "./database-budget";
 import { DurableObject } from "cloudflare:workers";
 import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { dispatchUpdate, scheduleUpdates } from "./updates";
+import { recoverUpdates, scheduleUpdates } from "./updates";
 import { cancelOrphanedCompute } from "./compute";
 import { publicUser } from "./public-user";
-import { databaseEnv, type Database } from "./database";
+import type { Database } from "./database";
 export { ApplicationService } from "./application";
 export type QueueBody = {
   id?: string;
@@ -644,7 +649,7 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
         ok: true,
         data: (
           await env.DB.prepare(
-            `SELECT id,title,author,size,created_at FROM books b WHERE (?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM group_permissions gp WHERE gp.user_id=? AND gp.group_name=b.group_name)) ORDER BY created_at DESC LIMIT 200`,
+            `SELECT id,title,author,size,created_at FROM books b WHERE (?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM novel_group_permissions gp WHERE gp.user_id=? AND gp.group_name=b.group_name)) ORDER BY created_at DESC LIMIT 200`,
           )
             .bind(
               user.role,
@@ -839,7 +844,7 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
 }
 function applicationStub(
   env: Env,
-  name: "web" | "jobs" | "login" | "compute" | "scheduler",
+  name: "web" | "jobs" | "login" | "compute" | "scheduler" | "updates",
 ) {
   return env.APPLICATION.get(
     env.APPLICATION.idFromName(name),
@@ -928,8 +933,12 @@ export default {
           message.body.kind === "update-page" ||
           message.body.kind === "update-comic"
         ) {
-          await dispatchUpdate(databaseEnv(env), message.body);
-          ok = true;
+          const result = await applicationStub(env, "updates").fetch(
+            "https://jobs.internal/update",
+            { method: "POST", body: JSON.stringify(message.body) },
+          );
+          ok = result.ok;
+          await result.body?.cancel();
         } else {
           const result = await applicationStub(env, "jobs").fetch(
             message.body.kind === "storage-gc"
@@ -959,9 +968,25 @@ export default {
   },
 };
 export async function maintenance(env: Env) {
+  // A last callback may have committed its child and then lost database access
+  // before aggregating its parent. Recover this independently of queue delivery.
+  const waiting = await env.DB.prepare(
+    "SELECT id FROM comic_jobs WHERE kind='source' AND state='waiting' AND updated_at<? ORDER BY updated_at,id LIMIT 20",
+  )
+    .bind(now() - 900)
+    .all<{ id: string }>();
+  for (const root of waiting.results) {
+    await completeParent(env, root.id);
+    await env.DB.prepare(
+      "UPDATE comic_jobs SET updated_at=? WHERE id=? AND state='waiting'",
+    )
+      .bind(now(), root.id)
+      .run();
+  }
   await cleanupUploads(env);
   await cleanupStorage(env);
   await scheduleUpdates(env);
+  await recoverUpdates(env);
   await cancelOrphanedCompute(env);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(now()),

@@ -17,8 +17,12 @@ on:
       comic_chapters:
         type: choice
         description: Maximum real comic chapters to verify
-        options: ['1', '2', '3']
-        default: '1'
+        options: ["1", "2", "3"]
+        default: "1"
+      preflight_only:
+        type: boolean
+        description: Check CI credential readiness only; do not call Cloudflare or the database
+        default: false
       verify_only:
         type: boolean
         description: Check the existing deployment without provisioning or deploying again
@@ -42,6 +46,7 @@ jobs:
     env:
       MANGADOCK_DB_DAILY_REQUESTS: ${{ vars.MANGADOCK_DB_DAILY_REQUESTS || '10000' }}
       MANGADOCK_DB_DAILY_STATEMENTS: ${{ vars.MANGADOCK_DB_DAILY_STATEMENTS || '50000' }}
+      MANGADOCK_MAX_LIBRARY_BYTES: ${{ vars.MANGADOCK_MAX_LIBRARY_BYTES }}
       DATABASE_PROVIDER: turso
       ENABLE_FANQIE_SOURCE: ${{ inputs.test_novels && 'true' || 'false' }}
       COMIC_MAX_CHAPTERS: ${{ inputs.comic_chapters || '1' }}
@@ -57,28 +62,39 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: workers/package-lock.json
-      - name: Check configured secrets
+      - name: Check configured secrets without exposing values
         run: |
-          node --input-type=module -e "for (const key of ['CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','MANGADOCK_ADMIN_PASSWORD','TURSO_DATABASE_URL','TURSO_AUTH_TOKEN']) if (!process.env[key]) throw new Error(key+' Secret is missing');"
+          node --input-type=module - <<'JS'
+          const required=['CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','MANGADOCK_ADMIN_PASSWORD','COMPUTE_WAKE_TOKEN','TURSO_DATABASE_URL','TURSO_AUTH_TOKEN'];
+          for (const key of required) console.log(key+': '+(process.env[key]?'configured':'missing'));
+          const missing=required.filter(key=>!process.env[key]);
+          if(missing.length)throw new Error('Missing CI Secrets: '+missing.join(', '));
+          const wake=process.env.COMPUTE_WAKE_TOKEN;
+          if(wake.length<32 || wake.length>4096 || /[\r\n]/.test(wake))throw new Error('COMPUTE_WAKE_TOKEN must be an independent value of at least 32 characters');
+          JS
       - uses: actions/setup-python@v5
+        if: ${{ !inputs.preflight_only }}
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Install original-template reference dependencies
-        run: pip install Pillow==10.4.0 Jinja2==3.1.6
+        if: ${{ !inputs.preflight_only }}
+        run: pip install Pillow==10.4.0 Jinja2==3.1.6 beautifulsoup4==4.12.3 requests==2.32.4
       - run: npm ci
+        if: ${{ !inputs.preflight_only }}
       - run: npx playwright install --with-deps chromium
+        if: ${{ !inputs.preflight_only }}
       - run: npm run verify
-        if: ${{ !inputs.verify_only }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only) }}
       - name: Provision and deploy without upgrading plan
-        if: ${{ !inputs.verify_only }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only) }}
         env:
           DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
         run: npm run bootstrap -- "$DEPLOY_TARGET"
       - name: Resolve existing deployment without accessing D1
-        if: ${{ inputs.verify_only }}
+        if: ${{ !inputs.preflight_only && (inputs.verify_only) }}
         env:
           DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
         run: |
@@ -91,39 +107,39 @@ jobs:
           await writeFile('deployment.json',JSON.stringify({url:`https://${name}.${result.result.subdomain}.workers.dev`,database_provider:'turso'}));
           JS
       - name: Measure deployed Turso login and library latency
-        if: ${{ !inputs.verify_only }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only) }}
         run: node scripts/latency-report.mjs
       - name: Deployed login, library and progress smoke test
-        if: ${{ !inputs.verify_only && inputs.test_novels }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only && inputs.test_novels) }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
           SOURCE_CHAPTER_IDS: ${{ inputs.source_chapter_ids || (!inputs.source_book_id && '6838937005267616264') || '' }}
         run: npm run test:live
       - name: Read real-source EPUB in deployed browser and restore progress
-        if: ${{ !inputs.verify_only && inputs.test_novels }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only && inputs.test_novels) }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
         run: node scripts/live-browser.mjs
       - name: Measure progress latency after the real-source test
-        if: ${{ !inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '' }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/latency-report.mjs
       - name: Run pending cloud conversions and original-model cover super-resolution
         id: cloud_compute
-        if: ${{ !inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '' }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: |
           pip install -r scripts/cloud-compute-requirements.txt
           python scripts/cloud-compute.py --limit 10
       - name: Real comic source, private R2 pages and progress
-        if: ${{ !inputs.verify_only && !cancelled() && steps.cloud_compute.conclusion == 'success' }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only && !cancelled() && steps.cloud_compute.conclusion == 'success') }}
         run: node scripts/live-comic.mjs
       - name: Read real comic in the original browser reader and restore progress
-        if: ${{ !inputs.verify_only && success() }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only && success()) }}
         run: node scripts/live-comic-browser.mjs
       - name: Measure real comic progress latency
-        if: ${{ !inputs.verify_only && success() }}
+        if: ${{ !inputs.preflight_only && (!inputs.verify_only && success()) }}
         run: node scripts/latency-report.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
-        if: ${{ !cancelled() && hashFiles('workers/deployment.json') != '' }}
+        if: ${{ !inputs.preflight_only && (!cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/cpu-report.mjs
       - uses: actions/upload-artifact@v4
         if: always()

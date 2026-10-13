@@ -53,23 +53,36 @@ export async function createUser(env: Env, user: Identity, data: Row) {
   );
   if (role === "user")
     await saveGroups(env, id, list(data.group_names || data.groups));
+  if (role === "user")
+    await saveNovelGroups(env, id, list(data.novel_group_names));
   return getUser(env, id);
 }
 export async function saveGroups(env: Env, id: string, names: any[]) {
+  return saveMediaGroups(env, id, names, "comic");
+}
+export async function saveNovelGroups(env: Env, id: string, names: any[]) {
+  return saveMediaGroups(env, id, names, "novel");
+}
+async function saveMediaGroups(
+  env: Env,
+  id: string,
+  names: any[],
+  kind: "comic" | "novel",
+) {
+  const table =
+    kind === "comic" ? "group_permissions" : "novel_group_permissions";
   const valid = await all(
       env,
-      "SELECT name FROM library_groups WHERE kind='comic'",
+      "SELECT name FROM library_groups WHERE kind=?",
+      kind,
     ),
     selected = [...new Set(names.map(groupName))].filter((name) =>
       valid.some((row) => row.name === name),
     );
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM group_permissions WHERE user_id=?").bind(id),
+    env.DB.prepare(`DELETE FROM ${table} WHERE user_id=?`).bind(id),
     ...selected.map((name) =>
-      env.DB.prepare("INSERT INTO group_permissions VALUES (?,?)").bind(
-        id,
-        name,
-      ),
+      env.DB.prepare(`INSERT INTO ${table} VALUES (?,?)`).bind(id, name),
     ),
   ]);
   return selected;
@@ -134,6 +147,7 @@ export async function deleteUser(env: Env, user: Identity, id: string) {
       "reading_reports",
       "reading_time",
       "group_permissions",
+      "novel_group_permissions",
       "hidden_items",
       "anilist_links",
       "anilist_accounts",

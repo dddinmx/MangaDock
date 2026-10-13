@@ -65,7 +65,13 @@ export async function bookById(env: Env, user: Identity, id: string) {
   if (!book) throw new HttpError(404, "小说不存在");
   if (
     novelPermissionsEnforced(env) &&
-    !(await canAccess(env, user, book))
+    user.role !== "admin" &&
+    !(await one(
+      env,
+      "SELECT 1 FROM novel_group_permissions WHERE user_id=? AND group_name=?",
+      user.user_id,
+      book.group_name,
+    ))
   )
     throw new HttpError(403, "当前账号未被授权访问该分组小说");
   return book;
@@ -93,7 +99,10 @@ export type LibraryRange = {
   group?: string | null;
 };
 const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, Number.isFinite(value) ? Math.trunc(value) : min));
+  Math.min(
+    max,
+    Math.max(min, Number.isFinite(value) ? Math.trunc(value) : min),
+  );
 export function encodeLibraryCursor(row: Row) {
   return btoa(JSON.stringify([row.updated_at, row.id]))
     .replaceAll("+", "-")
@@ -139,10 +148,16 @@ export async function library(
     paging && range.cursor ? decodeLibraryCursor(range.cursor) : null;
   if (paging && range.cursor && !cursor)
     throw new HttpError(400, "分页游标无效");
-  const offset = cursor ? 0 : paging ? clamp(range.offset ?? 0, 0, 1_000_000_000) : 0;
+  const offset = cursor
+    ? 0
+    : paging
+      ? clamp(range.offset ?? 0, 0, 1_000_000_000)
+      : 0;
   const query = (range?.query || "").trim().toLowerCase().slice(0, 100);
   const group =
-    range?.group && range.group !== "全部" ? String(range.group).slice(0, 50) : "";
+    range?.group && range.group !== "全部"
+      ? String(range.group).slice(0, 50)
+      : "";
   let where = `WHERE (?='admin' OR EXISTS(SELECT 1 FROM group_permissions gp WHERE gp.user_id=? AND gp.group_name=c.group_name))`;
   const args: unknown[] = [user.role, user.user_id];
   if (group) {
@@ -210,7 +225,9 @@ export async function library(
     hidden,
     total,
     next_cursor:
-      paging && (cursor ? hasExtra : offset + comics.length < total) && comics.at(-1)
+      paging &&
+      (cursor ? hasExtra : offset + comics.length < total) &&
+      comics.at(-1)
         ? encodeLibraryCursor(comics.at(-1)!)
         : null,
   };
@@ -219,7 +236,7 @@ export async function groups(env: Env, user: Identity, kind = "comic") {
   return (
     await all(
       env,
-      `SELECT name FROM library_groups WHERE kind=? AND (?='admin' OR ?='novel' OR EXISTS(SELECT 1 FROM group_permissions p WHERE p.user_id=? AND p.group_name=name)) ORDER BY name!='默认分组',created_at,name`,
+      `SELECT name FROM library_groups WHERE kind=? AND (?='admin' OR ?='novel' OR EXISTS(SELECT 1 FROM ${kind === "novel" ? "novel_group_permissions" : "group_permissions"} p WHERE p.user_id=? AND p.group_name=name)) ORDER BY name!='默认分组',created_at,name`,
       kind,
       user.role,
       !novelPermissionsEnforced(env) && kind === "novel" ? kind : "",
@@ -256,7 +273,7 @@ export async function novels(env: Env, user: Identity): Promise<Row[]> {
   return (
     await all(
       env,
-      `SELECT b.*,p.chapter,p.page,p.scroll,p.client_ms,p.updated_at AS last_read FROM books b LEFT JOIN progress p ON p.book_id=b.id AND p.user_id=? WHERE (?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM group_permissions gp WHERE gp.user_id=? AND gp.group_name=b.group_name)) ORDER BY p.updated_at DESC,b.created_at DESC LIMIT 10000`,
+      `SELECT b.*,p.chapter,p.page,p.scroll,p.client_ms,p.updated_at AS last_read FROM books b LEFT JOIN progress p ON p.book_id=b.id AND p.user_id=? WHERE (?='admin' OR ?=0 OR EXISTS(SELECT 1 FROM novel_group_permissions gp WHERE gp.user_id=? AND gp.group_name=b.group_name)) ORDER BY p.updated_at DESC,b.created_at DESC LIMIT 10000`,
       user.user_id,
       user.role,
       novelPermissionsEnforced(env) ? 1 : 0,

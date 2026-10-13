@@ -59,9 +59,47 @@ export async function seed({
       ".wrangler/e2e/fixture.epub",
       ...args,
     ]);
+    const index = { total_chapters: 2, chapters: [] };
+    for (const [i, title] of ["第一章", "第二章"].entries()) {
+      const chapterKey = `fixture/novel-chapter-${i}`;
+      const chapter = {
+        index: i,
+        title,
+        paragraphs: [
+          title,
+          ...Array.from(
+            { length: 50 },
+            (_, n) =>
+              `${n + 1}。故事在云端继续。这是一段用于验证翻页和阅读进度的测试内容。`,
+          ),
+        ],
+        total_chapters: 2,
+      };
+      await writeFile(`.wrangler/e2e/novel-${i}.json`, JSON.stringify(chapter));
+      cli([
+        "r2",
+        "object",
+        "put",
+        `mangadock-local/${chapterKey}`,
+        "--file",
+        `.wrangler/e2e/novel-${i}.json`,
+        ...args,
+      ]);
+      index.chapters.push({ index: i, title, key: chapterKey });
+    }
+    await writeFile(".wrangler/e2e/novel-index.json", JSON.stringify(index));
+    cli([
+      "r2",
+      "object",
+      "put",
+      "mangadock-local/fixture/novel-index",
+      "--file",
+      ".wrangler/e2e/novel-index.json",
+      ...args,
+    ]);
     sql += ` INSERT OR REPLACE INTO books (id,source_id,title,author,object_key,size,sha256,created_at) VALUES ('123456789','123456789','本地测试小说','测试作者','${key}',${bytes.length},'${digest}',${Math.floor(Date.now() / 1000)}); DELETE FROM progress; DELETE FROM jobs;`;
   }
-  sql += ` UPDATE books SET chapter_count=2 WHERE id='123456789'; DELETE FROM comic_progress; DELETE FROM comic_jobs; DELETE FROM chapters; DELETE FROM comics; INSERT INTO comics(id,name,provider,source_url,description,cover_key,created_at,updated_at) VALUES ('c_test','本地测试漫画','baozimh_org','https://baozimh.org/manga/test','这是用于原版界面和漫画阅读验证的作品简介。','fixture/cover',1700000000,1700000000); INSERT INTO chapters(id,comic_id,ordinal,title,source_id,manifest_key,page_count,state) VALUES ('ch_test','c_test',0,'第一话','test-source','fixture/manifest',2,'ready');`;
+  sql += ` UPDATE books SET chapter_count=2,index_key='fixture/novel-index',cover_key='fixture/cover' WHERE id='123456789'; DELETE FROM comic_progress; DELETE FROM comic_jobs; DELETE FROM chapters; DELETE FROM comics; INSERT INTO comics(id,name,provider,source_url,description,cover_key,created_at,updated_at) VALUES ('c_test','本地测试漫画','baozimh_org','https://baozimh.org/manga/test','这是用于原版界面和漫画阅读验证的作品简介。','fixture/cover',1700000000,1700000000); INSERT INTO chapters(id,comic_id,ordinal,title,source_id,manifest_key,page_count,state) VALUES ('ch_test','c_test',0,'第一话','test-source','fixture/manifest',2,'ready');`;
   const manifest = JSON.stringify([
     { key: "fixture/page0", width: 447, height: 626 },
     { key: "fixture/page1", width: 447, height: 626 },

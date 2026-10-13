@@ -171,13 +171,25 @@
                     {% else %}
                     <div class="md-ios-hint">还没有可授权的分组，请先创建漫画分组。</div>
                     {% endif %}
+                    {% if novel_groups is defined %}
+                    <input type="hidden" name="novel_groups_present" value="1">
+                    <div class="md-ios-hint" style="margin-top:0.75rem">小说分组</div>
+                    <div class="md-ios-pills">
+                        {% for group_name in novel_groups %}
+                        <label class="md-ios-pill">
+                            <input type="checkbox" name="novel_group_names" value="{{ group_name }}"{% if group_name in user_novel_groups %} checked{% endif %}>
+                            <span>{{ group_name }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                     <div class="md-ud-submit">
                         <button type="submit" class="md-btn-primary action-press">保存授权</button>
                     </div>
                 </form>
             </div>
         </div>
-        <p class="md-setting-group__note">不勾选任何分组时，该用户只能看到「默认分组」内容。</p>
+        <p class="md-setting-group__note">{% if novel_groups is defined %}漫画与小说分组分别授权；未勾选的分组不可见。{% else %}不勾选任何分组时，该用户只能看到「默认分组」内容。{% endif %}</p>
     </section>
     {% else %}
     <section class="md-setting-group">

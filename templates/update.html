@@ -104,7 +104,7 @@
                     </div>
                 </div>
                 <p class="md-ios-hint" id="updateModeHint" style="margin-top:0.55rem">
-                    {% if comic_update_mode == 'auto' %}
+                    {% if comic_update_mode == 'auto' and candidate.status != 'error' %}
                     当前为自动更新，扫描发现更新后会自动加入任务队列。
                     {% else %}
                     当前为手动更新，扫描结果需要手动选择漫画更新。
@@ -135,10 +135,14 @@
                     </button>
                     {% endif %}
                 </div>
+                {% if candidate.status == 'error' %}
+                <div class="md-upd-meta">{{ candidate.error_message }}</div>
+                {% else %}
                 <div class="md-upd-meta">发现 <strong>{{ candidate.pending_chapters }}</strong> 个新章节</div>
                 <div class="md-upd-meta">本地 {{ candidate.local_total_chapters }} 章 / 远端 {{ candidate.remote_total_chapters }} 章</div>
                 {% if candidate.latest_chapter_title %}
                 <div class="md-upd-meta">最新章节：{{ candidate.latest_chapter_title }}</div>
+                {% endif %}
                 {% endif %}
             </div>
             {% else %}
@@ -153,6 +157,7 @@
             </div>
             {% endfor %}
         </div>
+        {% if update_check_status is defined and update_check_status.next_cursor %}<a class="md-btn-primary" href="{{ url_for('update', after=update_check_status.next_cursor) }}">更多结果</a>{% endif %}
     </section>
 
     {% if not comics %}
@@ -307,42 +312,62 @@
             window.addEventListener('pageshow', resetUpdateButtonState);
         }
 
+        let updateChecking = {{ update_checking|tojson }};
+        let checkPollTimer = null;
+        let checkPollErrors = 0;
+        let checkPollDelay = 15000;
+        function checkButtonState() {
+            if (checkButton) checkButton.disabled = updateChecking;
+            if (checkIcon) checkIcon.classList.toggle('fa-spin', updateChecking);
+            if (checkLabel) checkLabel.textContent = updateChecking ? '检查中...' : '立即检查';
+        }
+        function scheduleCheckPoll() {
+            clearTimeout(checkPollTimer);
+            if (document.hidden || !updateChecking || checkPollErrors >= 3) return;
+            checkPollTimer = setTimeout(pollCheck, checkPollDelay);
+        }
+        async function pollCheck() {
+            try {
+                const response = await fetch('/api/v1/updates?status_only=1', {cache:'no-store'});
+                if (!response.ok) {
+                    const retry = Number(response.headers.get('Retry-After'));
+                    if (retry > 0) checkPollDelay = Math.max(checkPollDelay, retry * 1000);
+                    if ([401,403].includes(response.status)) checkPollErrors = 3;
+                    throw new Error('更新检查状态未同步，请刷新页面重试');
+                }
+                const result = await response.json();
+                if (!result.ok) throw new Error('无法获取更新检查状态');
+                checkPollErrors = 0;
+                if (!result.data.checking) { window.location.reload(); return; }
+            } catch(error) {
+                checkPollErrors++;
+                if (checkPollErrors >= 3) showError(error.message);
+            }
+            checkPollDelay = checkPollDelay > 60000 ? checkPollDelay : Math.min(60000, checkPollDelay * 2);
+            scheduleCheckPoll();
+        }
         if (checkForm && checkButton) {
             checkForm.addEventListener('submit', async (event) => {
                 event.preventDefault();
-                if (checkButton.disabled) {
-                    return;
-                }
-                hideError();
-                checkButton.disabled = true;
-                if (checkIcon) {
-                    checkIcon.classList.add('fa-spin');
-                }
-                if (checkLabel) {
-                    checkLabel.textContent = '检查中...';
-                }
+                if (updateChecking) return;
+                hideError(); updateChecking = true; checkButtonState();
                 try {
                     const result = await window.MangaDockApi.apiV1('POST', '/api/v1/updates/check', {}, { csrfToken });
-                    if (!result.ok) {
-                        showError(result.message || '加入检查队列失败');
-                        return;
-                    }
-                    showSuccess((result.data && result.data.message) || '已加入更新检查队列');
-                    window.setTimeout(() => window.location.reload(), 800);
-                } catch (error) {
-                    console.error(error);
-                    showError('网络错误，请稍后重试');
-                } finally {
-                    checkButton.disabled = false;
-                    if (checkIcon) {
-                        checkIcon.classList.remove('fa-spin');
-                    }
-                    if (checkLabel) {
-                        checkLabel.textContent = '立即检查';
-                    }
+                    if (!result.ok) throw new Error(result.message || '加入检查队列失败');
+                    showSuccess('更新检查已排队，完成后将显示结果');
+                    checkPollErrors = 0; checkPollDelay = 15000;
+                    scheduleCheckPoll();
+                } catch(error) {
+                    updateChecking = false; checkButtonState(); showError(error.message || '网络错误，请稍后重试');
                 }
             });
         }
+        document.addEventListener('visibilitychange', () => {
+            if(document.hidden) clearTimeout(checkPollTimer);
+            else if(updateChecking) {checkPollErrors=0;checkPollDelay=15000;scheduleCheckPoll();}
+        });
+        window.addEventListener('pagehide', () => clearTimeout(checkPollTimer));
+        checkButtonState(); scheduleCheckPoll();
 
         if (modeForm) {
             modeForm.querySelectorAll('.update-mode-button').forEach((modeButton) => {

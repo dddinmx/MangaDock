@@ -219,16 +219,23 @@
     let taskPageActive = true;
     const taskPollMin = 10000;
     const taskPollMax = 60000;
-    const taskPollDeadlineMs = 10 * 60 * 1000;
+    let taskPollErrors = 0;
+    let taskPollPaused = false;
     let taskPollDelay = taskPollMin;
-    let taskPollDeadline = 0;
+
 
     async function refreshTaskRecords() {
         if (document.hidden || !taskPageActive || isMutatingTasks || refreshPending) return;
         refreshPending = true;
         try {
             const response = await fetch(window.location.href, {cache: 'no-store'});
-            if (!response.ok) return;
+            if (!response.ok) {
+                if ([401,403].includes(response.status)) taskPollPaused = true;
+                const retry = Number(response.headers.get('Retry-After'));
+                if (retry > 0) taskPollDelay = Math.max(taskPollDelay, retry * 1000);
+                throw new Error('任务状态暂时不可用');
+            }
+            taskPollErrors = 0;
             const html = await response.text();
             if (!taskPageActive || document.hidden || isMutatingTasks) return;
             const next = new DOMParser().parseFromString(html, 'text/html').getElementById('task-records');
@@ -243,10 +250,20 @@
             if (!hasActiveTasks) {
                 stopTasksAutoRefresh();
                 taskPollDelay = taskPollMin;
-                taskPollDeadline = 0;
+
             }
         } catch (error) {
-            console.warn('任务状态暂时无法更新', error);
+            taskPollErrors++;
+            if (taskPollErrors >= 3 || taskPollPaused) {
+                taskPollPaused = true;
+                let notice = document.getElementById('task-refresh-notice');
+                if (!notice) {
+                    notice = document.createElement('button'); notice.id = 'task-refresh-notice'; notice.className = 'md-btn-primary';
+                    notice.textContent = '任务状态未同步，点击重试';
+                    document.getElementById('task-records').before(notice);
+                    notice.addEventListener('click', () => { taskPollPaused = false; taskPollErrors = 0; taskPollDelay = taskPollMin; notice.remove(); refreshTaskRecords().finally(startTasksAutoRefresh); });
+                }
+            }
         } finally {
             refreshPending = false;
         }
@@ -257,14 +274,13 @@
         autoRefreshTimer = null;
     }
     function startTasksAutoRefresh() {
-        if (!hasActiveTasks || autoRefreshTimer || document.hidden || !taskPageActive) return;
-        if (!taskPollDeadline) taskPollDeadline = Date.now() + taskPollDeadlineMs;
-        if (Date.now() >= taskPollDeadline) return;
+        if (!hasActiveTasks || autoRefreshTimer || document.hidden || !taskPageActive || taskPollPaused) return;
+
         autoRefreshTimer = window.setTimeout(() => {
             autoRefreshTimer = null;
             refreshTaskRecords().finally(() => {
                 if (!hasActiveTasks || document.hidden || !taskPageActive) return;
-                taskPollDelay = Math.min(taskPollMax, taskPollDelay * 2);
+                taskPollDelay = taskPollDelay > taskPollMax ? taskPollDelay : Math.min(taskPollMax, taskPollDelay * 2);
                 startTasksAutoRefresh();
             });
         }, taskPollDelay);
@@ -274,7 +290,7 @@
         if (document.hidden) stopTasksAutoRefresh();
         else {
             taskPollDelay = taskPollMin;
-            taskPollDeadline = Date.now() + taskPollDeadlineMs;
+            taskPollErrors = 0; taskPollPaused = false;
             refreshTaskRecords().finally(startTasksAutoRefresh);
         }
     });

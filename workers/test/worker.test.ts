@@ -137,6 +137,9 @@ beforeEach(async () => {
       "reading_reports",
       "reading_time",
       "hidden_items",
+      "update_check_items",
+      "update_checks",
+      "novel_group_permissions",
       "group_permissions",
       "comic_progress",
       "comic_jobs",
@@ -610,7 +613,7 @@ async function comicFixture() {
     { httpMetadata: { contentType: "image/png" } },
   );
 }
-async function novelFixture() {
+async function novelFixture(indexed = true) {
   const zip = zipSync({
     "META-INF/container.xml": strToU8(
       '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>',
@@ -631,6 +634,27 @@ async function novelFixture() {
   )
     .bind(zip.length, "1".repeat(64), Math.floor(Date.now() / 1000))
     .run();
+  if (indexed) {
+    await bindings.LIBRARY.put(
+      "fixture/novel-chapter",
+      JSON.stringify({
+        index: 0,
+        title: "第一章",
+        paragraphs: ["第一章", "原文内容"],
+        total_chapters: 1,
+      }),
+    );
+    await bindings.LIBRARY.put(
+      "fixture/novel-index",
+      JSON.stringify({
+        total_chapters: 1,
+        chapters: [{ index: 0, title: "第一章", key: "fixture/novel-chapter" }],
+      }),
+    );
+    await bindings.DB.prepare(
+      "UPDATE books SET index_key='fixture/novel-index',chapter_count=1 WHERE id='123456789'",
+    ).run();
+  }
 }
 describe("full legacy routes and permissions", () => {
   it("renders original home, shelves, settings, admin pages and readers", async () => {
@@ -786,21 +810,33 @@ describe("full legacy routes and permissions", () => {
       Object.keys(unzipSync(new Uint8Array(await file.arrayBuffer()))),
     ).toEqual(["00001.png"]);
   });
-  it("indexes EPUB nav and original paragraph order with scripts excluded", async () => {
+  it("queues fresh EPUB indexing without reading or unzipping the input", async () => {
+    await novelFixture(false);
+    await expect(indexNovel(bindings, "123456789")).rejects.toMatchObject({
+      status: 503,
+    });
+    await expect(indexNovel(bindings, "123456789")).rejects.toMatchObject({
+      status: 503,
+    });
+    const jobs = await bindings.DB.prepare(
+      "SELECT kind,payload FROM compute_jobs WHERE kind='index-epub'",
+    ).all<any>();
+    expect(jobs.results).toHaveLength(1);
+    expect(JSON.parse(jobs.results[0].payload)).toMatchObject({
+      book_id: "123456789",
+      sha256: "1".repeat(64),
+    });
+    expect(
+      (await bindings.LIBRARY.list({ prefix: "novels/" })).objects,
+    ).toHaveLength(0);
+  });
+  it("reads already generated indexes and paragraphs without conversion", async () => {
     await novelFixture();
     const index = await indexNovel(bindings, "123456789");
     expect(index.chapters[0].title).toBe("第一章");
-    const chapter = JSON.parse(
-      strFromU8(
-        gunzipSync(
-          new Uint8Array(
-            await (await bindings.LIBRARY.get(
-              index.chapters[0].key,
-            ))!.arrayBuffer(),
-          ),
-        ),
-      ),
-    ) as any;
+    const chapter = await (await bindings.LIBRARY.get(
+      index.chapters[0].key,
+    ))!.json<any>();
     expect(chapter.paragraphs).toEqual(["第一章", "原文内容"]);
     expect(JSON.stringify(chapter)).not.toContain("bad()");
   });

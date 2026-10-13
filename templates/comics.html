@@ -208,24 +208,25 @@
     let polling = false;
     const minDelay = 10000;
     const maxDelay = 60000;
-    const deadlineMs = 10 * 60 * 1000;
+    let pollErrors = 0;
     let delay = minDelay;
-    let deadlineAt = Date.now() + deadlineMs;
+
 
     function schedulePoll(next) {
         window.clearTimeout(pollTimer);
         pollTimer = null;
-        if (document.hidden || Date.now() >= deadlineAt) return;
+        if (document.hidden || pollErrors >= 3) return;
         pollTimer = window.setTimeout(poll, next);
     }
 
     async function poll() {
-        if (document.hidden || polling || Date.now() >= deadlineAt) return;
+        if (document.hidden || polling || pollErrors >= 3) return;
         polling = true;
         let active = false;
         try {
             const response = await fetch('{{ url_for("webdav_sync_progress") }}', {cache: 'no-store'});
             if (response.ok) {
+                pollErrors = 0;
                 const data = await response.json();
                 active = data.status === 'pending' || data.status === 'running';
                 if (version !== undefined && version !== data.version) {
@@ -250,15 +251,23 @@
                     version = data.version;
                 }
             } else {
-                active = true;
+                const retry = Number(response.headers.get('Retry-After'));
+                if (retry > 0) delay = Math.max(delay, retry * 1000);
+                if ([401,403].includes(response.status)) pollErrors = 3;
+                throw new Error('书架状态未同步');
             }
         } catch (_) {
-            active = true;
+            active = true; pollErrors++;
+            if (pollErrors >= 3 && !document.getElementById('library-refresh-notice')) {
+                const notice = document.createElement('button'); notice.id = 'library-refresh-notice'; notice.className = 'md-btn-primary'; notice.textContent = '书架状态未同步，点击重试';
+                document.getElementById('comic-library-results').before(notice);
+                notice.addEventListener('click', () => { pollErrors = 0; delay = minDelay; notice.remove(); poll(); });
+            }
         } finally {
             polling = false;
             if (!active) return;
             schedulePoll(delay);
-            delay = Math.min(maxDelay, delay * 2);
+            delay = delay > maxDelay ? delay : Math.min(maxDelay, delay * 2);
         }
     }
 
@@ -268,7 +277,7 @@
             pollTimer = null;
         } else if (!polling) {
             delay = minDelay;
-            deadlineAt = Date.now() + deadlineMs;
+            pollErrors = 0;
             schedulePoll(0);
         }
     });

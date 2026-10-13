@@ -2,6 +2,8 @@
 
 The ten findings in the 2026-10-13 review are addressed on `fix/review-hardening`:
 
+The follow-up review of PR #13 is addressed in [PR13-REGRESSIONS.md](PR13-REGRESSIONS.md), including whole-book batching, independent novel permissions, constant-cost counters, status polling and both executor environments. Its configuration instructions supersede the earlier staging-only description below.
+
 | Area | New behavior |
 | --- | --- |
 | Task polling / statistics | Two SQL calls for a task or task list; three for statistics, including permission filtering. Detail fetches only the selected task. |

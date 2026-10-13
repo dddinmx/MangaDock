@@ -305,9 +305,11 @@ test("comic chapter_count is backfilled and updated with ready chapters", async 
     directory = new URL("../migrations/", import.meta.url);
   try {
     for (const file of (await readdir(directory))
-      .filter((name) => name.endsWith(".sql") && !name.startsWith("0009"))
+      .filter((name) => name.endsWith(".sql") && name < "0009")
       .sort())
-      await client.executeMultiple(await readFile(new URL(file, directory), "utf8"));
+      await client.executeMultiple(
+        await readFile(new URL(file, directory), "utf8"),
+      );
     await client.execute(
       "INSERT INTO comics(id,name,provider,source_url,created_at,updated_at) VALUES ('c','n','p','',0,0)",
     );
@@ -315,10 +317,15 @@ test("comic chapter_count is backfilled and updated with ready chapters", async 
       "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,state) VALUES ('a','c',0,'a','a','ready'),('b','c',1,'b','b','pending')",
     );
     await client.executeMultiple(
-      await readFile(new URL("0009_comic_chapter_counts.sql", directory), "utf8"),
+      await readFile(
+        new URL("0009_comic_chapter_counts.sql", directory),
+        "utf8",
+      ),
     );
     const count = () =>
-      db.prepare("SELECT chapter_count AS n FROM comics WHERE id='c'").first("n");
+      db
+        .prepare("SELECT chapter_count AS n FROM comics WHERE id='c'")
+        .first("n");
     assert.equal(await count(), 1);
     await db
       .prepare(
@@ -359,12 +366,12 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 9);
+    assert.equal(first.applied.length, 10);
     assert.ok(first.applied.includes("0009_comic_chapter_counts.sql"));
     assert.ok(
-      (
-        await client.execute("PRAGMA table_info(comics)")
-      ).rows.some((row) => row.name === "chapter_count"),
+      (await client.execute("PRAGMA table_info(comics)")).rows.some(
+        (row) => row.name === "chapter_count",
+      ),
     );
     const hash = (
       await client.execute("SELECT password_hash FROM users WHERE id='admin'")
@@ -418,5 +425,34 @@ test("a failed migration rolls back its schema changes and is not marked applied
   } finally {
     client.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("new ACL migration preserves old novel access without granting same-name comic access", async () => {
+  const client = createClient({ url: "file::memory:" });
+  try {
+    const directory = new URL("../migrations/", import.meta.url);
+    for (const name of (await readdir(directory))
+      .filter((n) => n.endsWith(".sql") && n < "0010")
+      .sort())
+      await client.executeMultiple(
+        await readFile(new URL(name, directory), "utf8"),
+      );
+    await client.executeMultiple(
+      "INSERT INTO users(id,username,password_hash) VALUES ('reader','reader','hash'); INSERT INTO library_groups VALUES ('novel','private',1),('comic','private',1); INSERT INTO books(id,source_id,title,author,object_key,size,sha256,created_at,group_name) VALUES ('b','b','title','author','imports/b.epub',1,'hash',1,'private');",
+    );
+    await client.executeMultiple(
+      await readFile(new URL("0010_review_regressions.sql", directory), "utf8"),
+    );
+    const novel = await client.execute(
+      "SELECT group_name FROM novel_group_permissions WHERE user_id='reader' AND group_name='private'",
+    );
+    const comic = await client.execute(
+      "SELECT group_name FROM group_permissions WHERE user_id='reader' AND group_name='private'",
+    );
+    assert.equal(novel.rows.length, 1);
+    assert.equal(comic.rows.length, 0);
+  } finally {
+    client.close();
   }
 });

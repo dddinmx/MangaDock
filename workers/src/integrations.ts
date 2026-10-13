@@ -300,7 +300,11 @@ function prefixContains(rootPath: string, candidatePath: string) {
   return candidateKey.startsWith(rootKey);
 }
 
-function containWebdav(rootRaw: string, candidateRaw: string, baseRaw = rootRaw) {
+function containWebdav(
+  rootRaw: string,
+  candidateRaw: string,
+  baseRaw = rootRaw,
+) {
   if (typeof rootRaw !== "string" || typeof candidateRaw !== "string")
     return null;
   if (!rootRaw || FORBIDDEN_PATH.test(rootRaw) || FORBIDDEN_PATH.test(baseRaw))
@@ -672,9 +676,6 @@ async function registerRemoteFile(
       mount.id,
       etag,
     ),
-    env.DB.prepare(
-      "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
-    ).bind(comicId, comicId),
   ]);
 }
 export async function metadataSearch(query: string, provider: string) {

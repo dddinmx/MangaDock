@@ -254,6 +254,21 @@ export async function mediaApi(
     path = url.pathname,
     method = request.method;
   let match: RegExpMatchArray | null;
+  if (
+    method === "GET" &&
+    (match = path.match(/^\/api\/novels\/([^/]+)\/index-status$/))
+  ) {
+    const book = await bookById(env, user, decodeURIComponent(match[1]));
+    const job = await one(
+      env,
+      "SELECT state FROM compute_jobs WHERE kind='index-epub' AND input_key=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+      book.object_key,
+    );
+    return json({
+      ok: true,
+      data: { ready: !!book.index_key, error: job?.state === "error" },
+    });
+  }
   if ((match = path.match(/^\/comic\/([^/]+)\/banner$/))) {
     const comic = await comicById(env, user, decodeURIComponent(match[1]));
     if (!comic.banner_key) throw new HttpError(404, "横幅不存在");

@@ -77,6 +77,13 @@ def plan(args):
  records['hidden']=[{'user_id':str(row['user_id']),'kind':row['target_type'],'target':row['target_value']} for row in rows(db,'admin_hidden_library_item')]
  records['login-logs']=[{'username':row['username'],'ip_address':row.get('ip_address') or '','user_agent':row.get('user_agent') or '','success':bool(row.get('success')),'created_at':stamp(row.get('login_time'))} for row in rows(db,'login_log')][-1000:]
  records['settings']=[{'key':row['key'],'value':row['value']} for row in rows(db,'app_setting') if row['key'] in ('adult_content_enabled','comic_update_mode')]
+ # Legacy novels had an open shelf. Preserve old reader access without granting
+ # comic groups of the same name; new accounts use explicit novel grants.
+ novel_names={row['name'] for row in records['groups'] if row['kind']=='novel'}|{row['group_name'] for row in records['novels']}
+ for name in sorted(novel_names):
+  if not any(row['kind']=='novel' and row['name']==name for row in records['groups']):records['groups'].append({'kind':'novel','name':name,'created_at':0})
+ for user in records['users']:
+  if user['role']=='user':records['permissions'] += [{'kind':'novel','user_id':user['id'],'group_name':name} for name in sorted(novel_names)]
  db.close();return records,files
 
 def main():

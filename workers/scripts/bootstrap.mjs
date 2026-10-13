@@ -36,6 +36,26 @@ if (!/^[a-f0-9]{32}$/i.test(account || "") || !token)
   throw new Error("请配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN");
 if (!password || password.length < 6 || password.length > 512)
   throw new Error("请配置至少 6 字符的 MANGADOCK_ADMIN_PASSWORD Secret");
+// Fail before database migration or resource changes when CI cannot run the executor.
+const providedWake = process.env.COMPUTE_WAKE_TOKEN || "";
+if (
+  providedWake.length < 32 ||
+  providedWake.length > 4096 ||
+  /[\r\n]/.test(providedWake)
+)
+  throw new Error(
+    "请配置独立的 COMPUTE_WAKE_TOKEN CI Secret（至少 32 字符），部署和云执行器使用同一值",
+  );
+const libraryLimit = Number(
+  process.env.MANGADOCK_MAX_LIBRARY_BYTES ||
+    (target === "production" ? 8000000000 : 256000000),
+);
+if (
+  !Number.isSafeInteger(libraryLimit) ||
+  libraryLimit < 1 ||
+  libraryLimit > 1000000000000
+)
+  throw new Error("MANGADOCK_MAX_LIBRARY_BYTES 必须是有效的正整数，最多 1 TB");
 const prefix = `mangadock-${provider === "turso" ? "turso" : "full"}-${target}`;
 async function cf(path, method = "GET", data, allowMissing = false) {
   const response = await fetch(
@@ -196,7 +216,7 @@ const config = {
     DB_DAILY_STATEMENT_LIMIT:
       process.env.MANGADOCK_DB_DAILY_STATEMENTS || "50000",
     MAX_ARTIFACT_BYTES: "33554432",
-    MAX_LIBRARY_BYTES: target === "production" ? "8000000000" : "256000000",
+    MAX_LIBRARY_BYTES: String(libraryLimit),
   },
   d1_databases:
     provider === "d1"
@@ -272,20 +292,8 @@ const integrationKey = existingSecrets.some(
 )
   ? null
   : randomBytes(32).toString("base64url");
-// COMPUTE_WAKE_TOKEN is independent of the admin password. Prefer the Actions secret.
-// Generate with randomBytes only when the Worker and the environment both lack it.
-// The value is passed to wrangler on stdin and is never printed or committed.
-const providedWake = process.env.COMPUTE_WAKE_TOKEN || "";
-if (providedWake && (/[\r\n]/.test(providedWake) || providedWake.length > 4096))
-  throw new Error("COMPUTE_WAKE_TOKEN 格式无效");
-const hasWake = existingSecrets.some(
-  (secret) => secret.name === "COMPUTE_WAKE_TOKEN",
-);
-const computeWakeToken = providedWake
-  ? providedWake
-  : hasWake
-    ? null
-    : randomBytes(32).toString("base64url");
+// The deployment and Actions executor must have the same independently supplied secret.
+const computeWakeToken = providedWake;
 let sourceToken = process.env.FANQIE_API_TOKEN,
   instance = process.env.FANQIE_INSTANCE_ID;
 if (sourceToken && !instance)

@@ -67,6 +67,11 @@ export async function importApi(
         record.created_at || now(),
       );
     } else if (kind === "permissions") {
+      const mediaKind = record.kind || "comic";
+      if (!["comic", "novel"].includes(mediaKind))
+        throw new HttpError(400, "授权类型无效");
+      const permissionTable =
+        mediaKind === "novel" ? "novel_group_permissions" : "group_permissions";
       if (
         !(await one(
           env,
@@ -78,14 +83,15 @@ export async function importApi(
       if (
         !(await one(
           env,
-          "SELECT name FROM library_groups WHERE kind='comic' AND name=?",
+          "SELECT name FROM library_groups WHERE kind=? AND name=?",
+          mediaKind,
           record.group_name,
         ))
       )
         throw new HttpError(400, "分组映射不存在");
       await run(
         env,
-        "INSERT INTO group_permissions VALUES (?,?) ON CONFLICT DO NOTHING",
+        `INSERT INTO ${permissionTable} VALUES (?,?) ON CONFLICT DO NOTHING`,
         String(record.user_id),
         record.group_name,
       );
@@ -131,9 +137,6 @@ export async function importApi(
           record.public_id || null,
           record.legacy_filename || null,
         ),
-        env.DB.prepare(
-          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=? AND state='ready') WHERE id=?",
-        ).bind(record.comic_id, record.comic_id),
       ]);
     } else if (kind === "novels") {
       const key = importObjectKey(record.object_key);

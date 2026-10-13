@@ -8,7 +8,7 @@ on:
         default: staging
       limit:
         description: Maximum jobs in this run (1-20)
-        default: '10'
+        default: "10"
 permissions:
   contents: read
 concurrency:
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Resolve this account's deployed URL
         env:
           DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
@@ -49,7 +49,7 @@ jobs:
           python - <<'PY'
           import os, re, sys
           limit = os.environ.get("COMPUTE_LIMIT", "")
-          if not re.fullmatch(r"[1-9][0-9]?", limit):
+          if not re.fullmatch(r"[1-9][0-9]?", limit) or not 1 <= int(limit) <= 20:
               sys.exit("limit must match ^[1-9][0-9]?$")
           PY
           python workers/scripts/cloud-compute.py --limit "$COMPUTE_LIMIT"

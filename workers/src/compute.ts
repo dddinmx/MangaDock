@@ -41,7 +41,7 @@ export async function queueCompute(
   const id = crypto.randomUUID();
   const inserted = await run(
     env,
-    "INSERT INTO compute_jobs(id,kind,input_key,payload,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+    "INSERT INTO compute_jobs(id,kind,input_key,payload,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING",
     id,
     kind,
     inputKey,
@@ -49,7 +49,16 @@ export async function queueCompute(
     now(),
     now(),
   );
-  if (!inserted.meta.changes) throw new HttpError(409, "下载任务已停止");
+  if (!inserted.meta.changes) {
+    const concurrent = await one(
+      env,
+      "SELECT id FROM compute_jobs WHERE kind=? AND input_key=? AND state IN ('queued','running')",
+      kind,
+      inputKey,
+    );
+    if (concurrent) return concurrent.id;
+    throw new HttpError(409, "下载任务已停止");
+  }
   await notifyCompute(env);
   return id;
 }
@@ -65,6 +74,17 @@ export async function computeApi(
     url.pathname === "/api/admin/compute/discover" &&
     request.method === "POST"
   ) {
+    // Explicit administrator action may retry failed indexes. Ordinary reads
+    // never create endless replacement jobs for an unreadable EPUB.
+    for (const book of await all(
+      env,
+      "SELECT id,object_key,sha256 FROM books WHERE index_key IS NULL LIMIT 50",
+    )) {
+      await queueCompute(env, "index-epub", book.object_key, {
+        book_id: book.id,
+        sha256: book.sha256,
+      });
+    }
     for (const comic of await all(
       env,
       "SELECT id,name FROM comics c WHERE banner_key IS NULL AND NOT EXISTS (SELECT 1 FROM compute_jobs j WHERE j.kind='banner' AND j.input_key='banner/'||c.id AND j.state='completed') LIMIT 50",
@@ -299,9 +319,6 @@ export async function computeApi(
         env.DB.prepare(
           "UPDATE chapters SET object_key=?,format='pdf',state='ready' WHERE id=?",
         ).bind(key, data.chapter_id),
-        env.DB.prepare(
-          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=comics.id AND state='ready') WHERE id=(SELECT comic_id FROM chapters WHERE id=?)",
-        ).bind(data.chapter_id),
       ]);
     } else if (job.kind === "legacy-source") {
       const uploaded = await env.LIBRARY.get(`${outputPrefix}/source`);
@@ -345,9 +362,6 @@ export async function computeApi(
         env.DB.prepare(
           "UPDATE chapters SET object_key=?,size=?,format=?,state='ready' WHERE id=?",
         ).bind(key, object.size, data.format, data.chapter_id),
-        env.DB.prepare(
-          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=comics.id AND state='ready') WHERE id=(SELECT comic_id FROM chapters WHERE id=?)",
-        ).bind(data.chapter_id),
       ]);
     } else if (job.kind === "archive" || job.kind === "legacy-chapter") {
       if (job.kind === "archive") {
@@ -398,9 +412,6 @@ export async function computeApi(
         env.DB.prepare(
           "UPDATE chapters SET manifest_key=?,page_count=?,state='ready' WHERE id=?",
         ).bind(key, manifest.length, data.chapter_id),
-        env.DB.prepare(
-          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=comics.id AND state='ready') WHERE id=(SELECT comic_id FROM chapters WHERE id=?)",
-        ).bind(data.chapter_id),
       ]);
     }
     await assertComputeLease(originalEnv, id, token);

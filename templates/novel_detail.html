@@ -117,6 +117,7 @@
                 </div>
             </div>
             <div id="chapter-list" class="md-chapter-list">
+                {% if index_pending %}<p class="md-ios-hint" id="novel-index-notice">正在准备章节目录，完成后会自动打开。也可稍后刷新页面。</p>{% endif %}
                 {% for chapter in chapters %}
                 <a href="{{ url_for('novel_reader', novel_id=novel.novel_id, start_chapter=chapter.index) }}" class="chapter-item md-chapter-item{% if progress and chapter.index <= progress.last_chapter %} is-in-reading-progress{% endif %}" data-chapter="{{ chapter.index }}" data-loading-label="正在打开章节…">
                     <div class="min-w-0 flex-1">
@@ -137,4 +138,38 @@
     </div>
 </article>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ super() }}
+{% if index_pending %}
+<script>
+(() => {
+    let timer, errors = 0, paused = false;
+    const notice = document.getElementById('novel-index-notice');
+    function schedule(delay=60000) { clearTimeout(timer); if(!document.hidden && !paused) timer=setTimeout(poll,delay); }
+    async function poll() {
+        let delay=60000;
+        try {
+            const response=await fetch({{ ('/api/novels/' ~ novel.novel_id ~ '/index-status')|tojson }},{cache:'no-store'});
+            if(!response.ok) {
+                delay=Math.max(delay,(Number(response.headers.get('Retry-After'))||0)*1000);
+                if([401,403].includes(response.status)) errors=3;
+                throw new Error('目录状态未同步，点击重试');
+            }
+            const result=await response.json();
+            if(!result.ok) throw new Error('目录状态未同步，点击重试');
+            errors=0;
+            if(result.data.ready) { location.reload();return; }
+            if(result.data.error) {paused=true;notice.textContent='目录处理失败，请管理员检查任务后重试';return;}
+        } catch(error) { errors++; if(errors>=3){paused=true;notice.textContent=error.message;} }
+        schedule(delay);
+    }
+    notice.addEventListener('click',()=>{errors=0;paused=false;poll();});
+    document.addEventListener('visibilitychange',()=>document.hidden?clearTimeout(timer):schedule());
+    window.addEventListener('pagehide',()=>clearTimeout(timer));
+    schedule();
+})();
+</script>
+{% endif %}
 {% endblock %}
