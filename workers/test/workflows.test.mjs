@@ -156,3 +156,117 @@ test("bootstrap rejects inaccessible or malformed wake configuration before data
     assert.doesNotMatch(result.stdout, /initialization|部署地址/);
   }
 });
+
+test("delivery control pauses both staging queues but resumes only the current Turso queue", () => {
+  const source = readFileSync(
+    new URL("../scripts/queue-delivery.py", import.meta.url),
+    "utf8",
+  );
+  const probe = `import io,json,urllib.request
+calls=[]
+class Response(io.BytesIO):
+    def __enter__(self):return self
+    def __exit__(self,*args):self.close()
+def fake(request,timeout):
+    if request.get_method()=='PATCH':
+        calls.append(json.loads(request.data))
+        result={}
+    else:result=[{'queue_name':'mangadock-full-staging','queue_id':'old'},{'queue_name':'mangadock-turso-staging','queue_id':'new'},{'queue_name':'mangadock-turso-production','queue_id':'prod'}]
+    return Response(json.dumps({'success':True,'result':result}).encode())
+urllib.request.urlopen=fake
+exec(${JSON.stringify(source)})
+print(json.dumps(calls))`;
+  for (const action of ["pause", "resume"]) {
+    const result = spawnSync("python3", ["-c", probe], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        QUEUE_CONTROL: action,
+        DEPLOY_TARGET: "staging",
+        CLOUDFLARE_ACCOUNT_ID: "fixture",
+        CLOUDFLARE_API_TOKEN: "fixture",
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const calls = JSON.parse(result.stdout.trim().split("\n").at(-1));
+    assert.deepEqual(
+      calls.map((call) => call.queue_name),
+      action === "pause"
+        ? ["mangadock-full-staging", "mangadock-turso-staging"]
+        : ["mangadock-turso-staging"],
+    );
+    assert.ok(
+      calls.every(
+        (call) => call.settings.delivery_paused === (action === "pause"),
+      ),
+    );
+  }
+});
+test("idle queue recovery runs only after reset and through the reviewed-ref guard", () => {
+  const block = runBlocks(automatic)[0];
+  const start = block.indexOf("python - <<'PY'");
+  const lines = block.slice(start).split("\n");
+  const end = lines.findIndex((line, i) => i > 0 && line.trim() === "PY");
+  const indent = /^\s*/.exec(lines[1])[0].length;
+  const python = lines
+    .slice(1, end)
+    .map((line) => line.slice(indent))
+    .join("\n");
+  const root = mkdtempSync(join(tmpdir(), "md-queue-resume-"));
+  try {
+    for (const due of [false, true]) {
+      const output = join(root, "output");
+      writeFileSync(output, "");
+      const probe = `import io,json,time,urllib.request
+calls=[]
+class Response(io.BytesIO):
+    def __enter__(self):return self
+    def __exit__(self,*args):self.close()
+def fake(request,timeout):
+    calls.append([request.get_method(),request.full_url])
+    if 'workers/subdomain' in request.full_url:result={'result':{'subdomain':'fixture'}}
+    elif '/queues' in request.full_url:result={'result':[{'queue_name':'mangadock-turso-staging','settings':{'delivery_paused':True}},{'queue_name':'mangadock-full-staging','settings':{'delivery_paused':True}}]}
+    else:result={'data':{'pending':False,'ref':'a'*40,'queue_resume_after':time.time()+${due ? -60 : 60}}}
+    return Response(json.dumps(result).encode())
+urllib.request.urlopen=fake
+exec(${JSON.stringify(python)})
+print(json.dumps(calls))`;
+      const result = spawnSync("python3", ["-c", probe], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DEPLOY_TARGET: "staging",
+          EVENT_NAME: "schedule",
+          REQUEST_TARGET: "staging",
+          PRODUCTION_ENABLED: "false",
+          CLOUDFLARE_ACCOUNT_ID: "fixture",
+          CLOUDFLARE_API_TOKEN: "fixture",
+          COMPUTE_WAKE_TOKEN: "fixture-wake".repeat(4),
+          GITHUB_OUTPUT: output,
+          GITHUB_ENV: join(root, "env"),
+        },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const calls = JSON.parse(result.stdout.trim().split("\n").at(-1));
+      assert.ok(
+        calls.every(([method]) => method === "GET"),
+        "probe must not resume before ref verification",
+      );
+      assert.match(
+        readFileSync(output, "utf8"),
+        new RegExp(`resume_ready=${due}`),
+      );
+    }
+    const step = automatic
+      .split("name: Resume only the current queue")[1]
+      .split("- uses:")[0];
+    assert.match(step, /steps\.guard\.outcome == 'success'/);
+    assert.match(step, /steps\.pending\.outputs\.resume_ready == 'true'/);
+    assert.match(
+      automatic,
+      /steps\.guard\.outcome == 'success' && \(steps\.pending\.outputs\.ready == 'true' \|\| steps\.pending\.outputs\.resume_ready == 'true'\)/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -1,3 +1,8 @@
+import {
+  holdComic,
+  QueuePausedError,
+  QUEUE_PAUSED_MESSAGE,
+} from "./queue-safety";
 import { notifyCompute } from "./compute-scheduler";
 import {
   fencedEnv,
@@ -82,6 +87,7 @@ export async function enqueue(
   parent: string | null = null,
   comic: string | null = null,
   deterministicId?: string,
+  deliver = true,
 ) {
   if (kind === "webdav") {
     const known = await one(
@@ -112,9 +118,12 @@ export async function enqueue(
   );
   if (!inserted.meta.changes) throw new HttpError(409, "任务已停止");
   if (!parent) await notifyCompute(env);
-  try {
-    await env.DOWNLOADS.send({ id, kind: "comic" });
-  } catch {}
+  if (deliver)
+    try {
+      await env.DOWNLOADS.send({ id, kind: "comic" });
+    } catch (error) {
+      await holdComic(env, id, error);
+    }
   return id;
 }
 export async function createDownload(env: Env, user: Identity, data: Row) {
@@ -239,7 +248,12 @@ export async function completeParent(env: Env, rootId: string) {
         now(),
         rootId,
       );
-      if (continued) await env.DOWNLOADS.send({ id: rootId, kind: "comic" });
+      if (continued)
+        try {
+          await env.DOWNLOADS.send({ id: rootId, kind: "comic" });
+        } catch (error) {
+          if (!(await holdComic(env, rootId, error))) throw error;
+        }
       return "continued";
     }
   }
@@ -533,7 +547,39 @@ export async function runJob(env: Env, id: string) {
             },
             id,
             comic.id,
+            undefined,
+            false,
           );
+      const pages = await all(
+        env,
+        "SELECT id FROM comic_jobs WHERE parent_id=? AND kind='page' AND state='queued' AND lease_until<?",
+        id,
+        now(),
+      );
+      const batches: MessageSendRequest<import("./index").QueueBody>[] = [];
+      for (let i = 0; i < pages.length; i += 10)
+        batches.push({
+          body: {
+            kind: "comic-pages",
+            ids: pages.slice(i, i + 10).map((row) => row.id),
+          },
+        });
+      for (let i = 0; i < batches.length; i += 100) {
+        try {
+          await env.DOWNLOADS.sendBatch(batches.slice(i, i + 100));
+        } catch (error) {
+          if (!(error instanceof QueuePausedError)) throw error;
+          await holdComic(env, id, error);
+          await run(
+            env,
+            "UPDATE comic_jobs SET message=?,lease_until=? WHERE parent_id=? AND state='queued'",
+            QUEUE_PAUSED_MESSAGE,
+            now() + error.retryAfter,
+            id,
+          );
+          break;
+        }
+      }
       return;
     }
     if (["page", "cover"].includes(job.kind)) {
@@ -816,6 +862,7 @@ export async function tasks(
           WHERE child.parent_id=j.id AND child.state IN ('waiting','running') AND q.state IN ('queued','running')
         )
       ) ELSE NULL END AS cloud_phase,
+      EXISTS(SELECT 1 FROM comic_jobs held WHERE held.parent_id=j.id AND held.message='队列免费预算已暂停，等待重置后自动恢复' AND held.state IN ('queued','waiting')) AS queue_held,
       CASE WHEN j.state='waiting' THEN EXISTS(
         SELECT 1 FROM comic_jobs child WHERE child.parent_id=j.id AND child.state IN ('running','submitting') AND child.lease_until>?
       ) ELSE 0 END AS native_running
@@ -872,24 +919,31 @@ export async function tasks(
               ? "running"
               : row.state;
       const paused = row.state === "waiting" && row.message === "同步已暂停";
-      const statusLabel = paused
-        ? "已暂停"
-        : row.state === "waiting" &&
-            row.cloud_phase === 1 &&
-            !row.native_running
-          ? "等待云执行器"
-          : cloudRunning
-            ? "云端处理中"
-            : (
-                {
-                  pending: "等待启动",
-                  waiting: "等待章节执行",
-                  running: "下载中",
-                  completed: "已完成",
-                  cancelled: "已取消",
-                  error: "出错",
-                } as Record<string, string>
-              )[status] || status;
+      const queueHeld =
+        (row.message === QUEUE_PAUSED_MESSAGE ||
+          row.queue_held ||
+          Number(env.QUEUE_SEND_PAUSED_UNTIL || 0) > now()) &&
+        ["waiting", "pending"].includes(status);
+      const statusLabel = queueHeld
+        ? "等待队列额度重置"
+        : paused
+          ? "已暂停"
+          : row.state === "waiting" &&
+              row.cloud_phase === 1 &&
+              !row.native_running
+            ? "等待云执行器"
+            : cloudRunning
+              ? "云端处理中"
+              : (
+                  {
+                    pending: "等待启动",
+                    waiting: "等待章节执行",
+                    running: "下载中",
+                    completed: "已完成",
+                    cancelled: "已取消",
+                    error: "出错",
+                  } as Record<string, string>
+                )[status] || status;
       const logs = row.message ? [String(row.message)] : [];
       if (!logs.length) logs.push(statusLabel);
       if (statusLabel === "等待云执行器")

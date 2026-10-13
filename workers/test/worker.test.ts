@@ -948,6 +948,8 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
         send: async (value: any) => {
           sent.push(value);
         },
+        sendBatch: async (items: any[]) =>
+          sent.push(...items.map((item) => item.body)),
       } as any,
     };
     await bindings.DB.prepare(
@@ -1022,7 +1024,24 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
             "content-length": String(png.length),
           },
         });
-    for (const page of sent) await runJob(testEnv, page.id);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].kind).toBe("comic-pages");
+    for (const body of sent)
+      await worker.queue(
+        {
+          messages: [
+            {
+              body,
+              attempts: 1,
+              ack: () => {},
+              retry: () => {
+                throw new Error("Page batch must succeed");
+              },
+            },
+          ],
+        } as any,
+        testEnv,
+      );
     expect(
       (
         await bindings.DB.prepare(

@@ -9,3 +9,15 @@ Additive migration 0011 records actual execution and terminal times for comics a
 Reusing a compute job also sends a scheduler wake, so a deduplicated job can recover a lost wake without inserting another job. This does not remove the scheduler's existing daily budget or guarantee prompt GitHub scheduled runs. Staging/production and credential requirements remain separate.
 
 Regression checks cover queued/root/child tasks, expired leases, native downloads, comic/novel times, historical backfill and retries on workerd/libSQL. Browser checks cover desktop and mobile, string/array logs, literal HTML in logs, a seventeen-minute wait, execution times and stopping after completion. Deployment now validates a real task page in both viewports and saves screenshots and `live-task-results.json`. It prefers the reported comic when present. This page check does not claim that a new source chapter was downloaded.
+
+## Queue quota protection
+
+The reported account alert showed 90% of the daily free Queues operations in use. Both old and current staging queues were paused through the reversible CI control; no billing plan was changed. The alert alone does not identify which queue consumed the operations.
+
+Native comic pages now persist individual outbox rows but send up to ten page IDs per message. A 21-page regression requires three messages rather than 21. Maintenance also batches stale page IDs. Existing single-page messages remain compatible. Queue consumers acknowledge database/rate pauses and recover from the durable outbox later, instead of paying for repeated delivery; other infrastructure errors retry at most once.
+
+All runtime producers go through one persistent Durable Object admission counter per Worker. The default and maximum free configuration is 1,000 newly admitted messages per UTC day, with at most 16 KiB of JSON per message. Rejected sends do not call Queues or repeatedly write the counter. Failed or ambiguous sends still spend their reservation. The cap is conservative for retry costs; it is not a measurement of total account operations and cannot cover historical backlog or other applications. Deferred comic jobs retain their rows and display the queue-budget wait. Admission can be paused until a fixed UTC reset time.
+
+`workers-deploy.yml` accepts `queue_control=pause|resume` to perform only delivery control, without tests, migration or downloads. Pausing covers MangaDock staging queues; resuming covers only the current Turso queue. Normal deployment with `pause_queue_until_reset=true` pauses new sends through the next UTC midnight. The default-branch timer reads the reset timestamp, verifies the deployed commit against the reviewed staging ref/main and resumes only the current queue after reset. GitHub timer delays still apply; old staging queues stay paused.
+
+The deployment smoke test reads task pages while paused. It does not prove future scheduled resume or fresh chapter completion. Stored messages are subject to Cloudflare retention; durable outbox rows are the recovery source after expired messages.

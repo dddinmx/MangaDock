@@ -46,6 +46,16 @@ if (
   throw new Error(
     "请配置独立的 COMPUTE_WAKE_TOKEN CI Secret（至少 32 字符），部署和云执行器使用同一值",
   );
+const queueLimit = Number(process.env.MANGADOCK_QUEUE_DAILY_MESSAGES || 1000),
+  queuePause = Number(process.env.MANGADOCK_QUEUE_PAUSE_UNTIL || 0);
+if (
+  !Number.isInteger(queueLimit) ||
+  queueLimit < 1 ||
+  queueLimit > 1000 ||
+  !Number.isInteger(queuePause) ||
+  queuePause < 0
+)
+  throw new Error("Invalid free queue budget or pause time");
 const libraryLimit = Number(
   process.env.MANGADOCK_MAX_LIBRARY_BYTES ||
     (target === "production" ? 8000000000 : 256000000),
@@ -212,6 +222,8 @@ const config = {
         encoding: "utf8",
       }).stdout.trim(),
     FANQIE_API_URL: "https://fanqie.dddinmx.cn",
+    QUEUE_DAILY_MESSAGE_LIMIT: String(queueLimit),
+    QUEUE_SEND_PAUSED_UNTIL: String(queuePause),
     DB_DAILY_REQUEST_LIMIT: process.env.MANGADOCK_DB_DAILY_REQUESTS || "10000",
     DB_DAILY_STATEMENT_LIMIT:
       process.env.MANGADOCK_DB_DAILY_STATEMENTS || "50000",
@@ -233,7 +245,7 @@ const config = {
   queues: {
     producers: [{ binding: "DOWNLOADS", queue: prefix }],
     consumers: [
-      { queue: prefix, max_batch_size: 1, max_retries: 3, max_concurrency: 1 },
+      { queue: prefix, max_batch_size: 1, max_retries: 1, max_concurrency: 1 },
     ],
   },
   triggers: { crons: ["*/15 * * * *"] },

@@ -178,8 +178,8 @@ describe("review regression fixes", () => {
       );
     expect({ outgoing, acked, retried, routes }).toEqual({
       outgoing: 1,
-      acked: 1,
-      retried: 2,
+      acked: 3,
+      retried: 0,
       routes: ["updates", "updates", "updates"],
     });
   });

@@ -93,7 +93,14 @@ export async function schedulerRequest(
         limit: 5,
       };
     });
-    return json({ ok: true, data });
+    return json({
+      ok: true,
+      data: {
+        ref: env.COMPUTE_REF,
+        ...data,
+        queue_resume_after: Number(env.QUEUE_SEND_PAUSED_UNTIL || 0),
+      },
+    });
   }
   if (
     request.method === "POST" &&

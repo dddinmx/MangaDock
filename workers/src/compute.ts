@@ -1,3 +1,4 @@
+import { holdComic } from "./queue-safety";
 import { HttpError, now, json, type Env, type Identity } from "./index";
 import {
   all,
@@ -425,8 +426,13 @@ export async function computeApi(
       now(),
       id,
     );
-    if (job.kind === "legacy-source")
-      await env.DOWNLOADS.send({ id: data.parent_job, kind: "comic" });
+    if (job.kind === "legacy-source") {
+      try {
+        await env.DOWNLOADS.send({ id: data.parent_job, kind: "comic" });
+      } catch (error) {
+        if (!(await holdComic(env, data.parent_job, error))) throw error;
+      }
+    }
     if (data.parent_job && job.kind !== "legacy-source") {
       await run(
         env,

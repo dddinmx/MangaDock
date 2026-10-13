@@ -1,3 +1,6 @@
+import { HttpError } from "./errors";
+export { HttpError } from "./errors";
+import { QueuePausedError } from "./queue-safety";
 import {
   MAX_JOB_ATTEMPTS,
   MAX_REMOTE_POLLS,
@@ -18,6 +21,7 @@ import type { Database } from "./database";
 export { ApplicationService } from "./application";
 export type QueueBody = {
   id?: string;
+  ids?: string[];
   kind?: string;
   cursor?: string;
   budget?: number;
@@ -27,6 +31,8 @@ export type QueueBody = {
   comicId?: string;
 };
 export interface Env {
+  QUEUE_DAILY_MESSAGE_LIMIT?: string;
+  QUEUE_SEND_PAUSED_UNTIL?: string;
   COMPUTE_WAKE_TOKEN?: string;
   COMPUTE_REF?: string;
   LOGIN_GUARD?: LoginGuard;
@@ -48,14 +54,6 @@ export interface Env {
   MAX_LIBRARY_BYTES?: string;
   /** Set to "off" to show every novel group. Any other value enforces group_permissions. */
   NOVEL_GROUP_PERMISSIONS?: string;
-}
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
 }
 export const now = () => Math.floor(Date.now() / 1000);
 export const hex = (v: ArrayBuffer) =>
@@ -937,26 +935,36 @@ export default {
             "https://jobs.internal/update",
             { method: "POST", body: JSON.stringify(message.body) },
           );
-          ok = result.ok;
+          ok = result.ok || result.status === 429 || result.status === 503;
           await result.body?.cancel();
         } else {
           const result = await applicationStub(env, "jobs").fetch(
             message.body.kind === "storage-gc"
               ? "https://jobs.internal/storage-gc"
-              : message.body.kind === "comic"
-                ? "https://jobs.internal/run"
-                : "https://jobs.internal/run-novel",
-            { method: "POST", body: JSON.stringify({ id: message.body.id }) },
+              : message.body.kind === "comic-pages"
+                ? "https://jobs.internal/run-pages"
+                : message.body.kind === "comic"
+                  ? "https://jobs.internal/run"
+                  : "https://jobs.internal/run-novel",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                id: message.body.id,
+                ids: message.body.ids,
+              }),
+            },
           );
-          ok = result.ok;
+          ok = result.ok || result.status === 429 || result.status === 503;
           await result.body?.cancel();
         }
       } catch {}
       if (ok) message.ack();
-      // Infrastructure failure (e.g. D1 unavailable / quota exhausted): back off
-      // exponentially. After the consumer's max_retries the message is dropped;
-      // the job row stays in D1 and the maintenance cron re-sends it later.
-      else message.retry({ delaySeconds: retryDelay(message.attempts) });
+      // Rate/database pauses acknowledge the transport: durable outbox rows
+      // recover after the pause. Other infrastructure failures retry once;
+      // repeatedly redelivering a message spends free Queue operations.
+      else if (message.attempts < 2)
+        message.retry({ delaySeconds: retryDelay(message.attempts) });
+      else message.ack();
     }
   },
   async scheduled(_controller: ScheduledController, env: Env) {
@@ -1017,18 +1025,28 @@ export async function maintenance(env: Env) {
     ).bind(now(), now(), MAX_JOB_ATTEMPTS),
   ]);
   const comicPending = await env.DB.prepare(
-    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id",
+    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id,kind",
   )
     .bind(now(), now(), stale)
-    .all<{ id: string }>();
-  if (comicPending.results.length)
-    await env.DOWNLOADS.sendBatch(
-      comicPending.results.map((job) => ({
-        body: { id: job.id, kind: "comic" },
-      })),
-    );
-  if (pending.results.length)
-    await env.DOWNLOADS.sendBatch(pending.results.map((body) => ({ body })));
+    .all<{ id: string; kind: string }>();
+  const pageIds = comicPending.results
+    .filter((job) => job.kind === "page")
+    .map((job) => job.id);
+  const messages: MessageSendRequest<QueueBody>[] = comicPending.results
+    .filter((job) => job.kind !== "page")
+    .map((job) => ({ body: { id: job.id, kind: "comic" } }));
+  for (let i = 0; i < pageIds.length; i += 10)
+    messages.push({
+      body: { kind: "comic-pages", ids: pageIds.slice(i, i + 10) },
+    });
+  messages.push(...pending.results.map((body) => ({ body })));
+  if (messages.length) {
+    try {
+      await env.DOWNLOADS.sendBatch(messages);
+    } catch (error) {
+      if (!(error instanceof QueuePausedError)) throw error;
+    }
+  }
 }
 
 export async function pilotRoute(

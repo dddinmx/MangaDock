@@ -107,8 +107,9 @@ jobs:
         if: ${{ !inputs.preflight_only && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only) }}
         env:
           DEPLOY_TARGET: ${{ inputs.environment || 'staging' }}
+          PAUSE_QUEUE_UNTIL_RESET: ${{ inputs.pause_queue_until_reset && 'true' || 'false' }}
         run: |
-          if [ "${{ inputs.pause_queue_until_reset && 'true' || 'false' }}" = "true" ]; then
+          if [ "$PAUSE_QUEUE_UNTIL_RESET" = "true" ]; then
             export MANGADOCK_QUEUE_PAUSE_UNTIL="$(node -e 'process.stdout.write(String((Math.floor(Date.now()/86400000)+1)*86400))')"
           fi
           npm run bootstrap -- "$DEPLOY_TARGET"

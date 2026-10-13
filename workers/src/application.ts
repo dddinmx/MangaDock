@@ -1,3 +1,4 @@
+import { safeQueue, queueSend } from "./queue-safety";
 import { notifyCompute, schedulerRequest } from "./compute-scheduler";
 import { collectComicGarbage, cleanupStorage, cleanupUploads } from "./storage";
 import { LoginGuard } from "./login-guard";
@@ -92,11 +93,16 @@ const definitions = routes.map((route) => ({
   ),
 }));
 export class ApplicationService extends DurableObject<Env> {
+  private rawDownloads: Queue<import("./index").QueueBody>;
   constructor(state: DurableObjectState, env: Env) {
     super(
       state,
       databaseEnv(
-        { ...env, LOGIN_GUARD: new LoginGuard(state.storage) },
+        {
+          ...env,
+          DOWNLOADS: safeQueue(env),
+          LOGIN_GUARD: new LoginGuard(state.storage),
+        },
         new DatabaseBudget(state.storage, Date.now, {
           requests: env.DB_DAILY_REQUEST_LIMIT
             ? Number(env.DB_DAILY_REQUEST_LIMIT)
@@ -107,6 +113,7 @@ export class ApplicationService extends DurableObject<Env> {
         }),
       ),
     );
+    this.rawDownloads = env.DOWNLOADS;
   }
   async alarm() {
     await notifyCompute(this.env);
@@ -114,6 +121,17 @@ export class ApplicationService extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
+      if (
+        url.hostname === "queue.internal" &&
+        url.pathname === "/send" &&
+        request.method === "POST"
+      )
+        return await queueSend(
+          request,
+          this.env,
+          this.ctx.storage,
+          this.rawDownloads,
+        );
       const scheduled = await schedulerRequest(
         request,
         this.env,
@@ -157,10 +175,22 @@ export class ApplicationService extends DurableObject<Env> {
       if (
         url.hostname === "jobs.internal" &&
         request.method === "POST" &&
-        url.pathname === "/run"
+        (url.pathname === "/run" || url.pathname === "/run-pages")
       ) {
-        const { id } = (await request.json()) as { id: string };
-        await runJob(this.env, id);
+        const { id, ids } = (await request.json()) as {
+          id: string;
+          ids?: string[];
+        };
+        if (url.pathname === "/run-pages") {
+          if (
+            !Array.isArray(ids) ||
+            !ids.length ||
+            ids.length > 10 ||
+            ids.some((id) => typeof id !== "string")
+          )
+            throw new HttpError(400, "Invalid page batch");
+          for (const pageId of ids) await runJob(this.env, pageId);
+        } else await runJob(this.env, id);
         return json({ ok: true });
       }
       if (

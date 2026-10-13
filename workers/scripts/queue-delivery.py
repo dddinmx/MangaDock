@@ -22,7 +22,7 @@ for page in range(1, 101):
     queues = call('/queues?per_page=100&page=' + str(page))
     for queue in queues:
         name = queue['queue_name']
-        if not name.startswith('mangadock-') or not name.endswith('-' + target):
+        if not name.startswith('mangadock-') or not name.endswith('-' + target) or (action == 'resume' and name != 'mangadock-turso-' + target):
             continue
         call('/queues/' + queue['queue_id'], 'PATCH',
              {'queue_name': name, 'settings': {'delivery_paused': action == 'pause'}})
