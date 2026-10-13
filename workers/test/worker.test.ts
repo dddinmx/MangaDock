@@ -1,4 +1,10 @@
-import { env, SELF, fetchMock, applyD1Migrations } from "cloudflare:test";
+import {
+  env,
+  SELF,
+  fetchMock,
+  applyD1Migrations,
+  runInDurableObject,
+} from "cloudflare:test";
 import { zipSync, strToU8, strFromU8, unzipSync, gunzipSync } from "fflate";
 import { runJob, MAX_REMOTE_POLLS } from "../src/downloads";
 import { scanLibrary } from "../src/scans";
@@ -112,10 +118,16 @@ describe("Turso HTTP driver in actual workerd", () => {
   });
 });
 beforeEach(async () => {
+  for (const name of ["login", "web", "compute", "scheduler"])
+    await runInDurableObject(
+      bindings.APPLICATION.get(bindings.APPLICATION.idFromName(name)),
+      async (_instance, state) => state.storage.deleteAll(),
+    );
   fetchMock.activate();
   fetchMock.disableNetConnect();
   await bindings.DB.batch(
     [
+      "storage_gc",
       "upload_parts",
       "uploads",
       "compute_jobs",
@@ -341,7 +353,7 @@ describe("authentication and access", () => {
     expect(response.status).toBe(200);
     expect(((await response.json()) as any).data.token).toBe(fakeToken);
   });
-  it("rate limits in D1", async () => {
+  it("rate limits before the metered database", async () => {
     for (let i = 0; i < 5; i++)
       expect((await login("admin", "wrong")).response.status).toBe(401);
     expect((await login()).response.status).toBe(429);
@@ -1187,9 +1199,17 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
         )
       ).status,
     ).toBe(409);
+    const lease = (
+      await bindings.DB.prepare(
+        "SELECT claim_token FROM compute_jobs WHERE id=?",
+      )
+        .bind(job.id)
+        .first<any>()
+    ).claim_token;
+    Object.assign(headers, { "X-Compute-Lease": lease });
     for (const variant of ["original", "hero", "mobile"])
       await bindings.LIBRARY.put(
-        `compute/${job.id}/${variant}`,
+        `compute/${job.id}/${lease}/${variant}`,
         new Uint8Array([1]),
       );
     await bindings.DB.prepare("UPDATE comics SET cover_key='new-cover'").run();
@@ -1431,3 +1451,652 @@ describe("cloud R2 library scan", () => {
   });
 });
 import "./job-loop";
+
+import { computeApi as reviewCompute } from "../src/compute";
+import {
+  tasks as reviewTasks,
+  taskAction as reviewTask,
+} from "../src/downloads";
+import { statistics as reviewStats } from "../src/reading";
+import { putBytes as reviewPut } from "../src/library";
+const reviewUser = {
+  user_id: "admin",
+  username: "admin",
+  role: "admin",
+  can_download: 1,
+  can_view_adult: 1,
+  csrf: "x",
+  token_hash: "x",
+};
+function reviewCount() {
+  let count = 0;
+  const DB = {
+    prepare(sql: string) {
+      count++;
+      return bindings.DB.prepare(sql);
+    },
+    batch: bindings.DB.batch.bind(bindings.DB),
+  };
+  return { env: { ...bindings, DB } as Env, count: () => count };
+}
+describe("review regressions", () => {
+  it("single task status remains bounded with historical tasks", async () => {
+    await bindings.DB.batch(
+      Array.from({ length: 80 }, (_, i) =>
+        bindings.DB.prepare(
+          "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES (?,'admin','source','{}','completed',1,1)",
+        ).bind("review-task" + i),
+      ),
+    );
+    const counted = reviewCount();
+    expect((await reviewTasks(counted.env, reviewUser)).length).toBe(80);
+    expect(counted.count()).toBe(2);
+    const single = reviewCount();
+    expect(
+      (await reviewTasks(single.env, reviewUser, "review-task0")).map(
+        (row) => row.id,
+      ),
+    ).toEqual(["review-task0"]);
+    expect(single.count()).toBe(2);
+  });
+  it("cancelled source cannot be resurrected by compute completion", async () => {
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES ('review-parent','admin','source','{}','waiting',1,1)",
+    ).run();
+    await bindings.DB.prepare(
+      `INSERT INTO compute_jobs(id,kind,input_key,payload,state,created_at,updated_at) VALUES ('review-compute','legacy-source','legacy-source/review-parent','{"parent_job":"review-parent"}','running',1,1)`,
+    ).run();
+    await reviewTask(bindings, reviewUser, "review-parent", "cancel");
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='review-parent'",
+        ).first<any>()
+      ).state,
+    ).toBe("cancelled");
+    let sends = 0;
+    await expect(
+      reviewCompute(
+        new Request(
+          origin + "/api/admin/compute/jobs/review-compute/complete",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source: { title: "Review comic", chapters: [{ id: "1" }] },
+            }),
+          },
+        ),
+        {
+          ...bindings,
+          DOWNLOADS: {
+            send: async () => {
+              sends++;
+            },
+          },
+        } as any,
+        reviewUser,
+      ),
+    ).rejects.toThrow();
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='review-parent'",
+        ).first<any>()
+      ).state,
+    ).toBe("cancelled");
+    expect(sends).toBe(0);
+  });
+  it("deletion collects compute artifacts and storage accounting", async () => {
+    await comicFixture();
+    await reviewPut(
+      bindings,
+      "compute/review-cover/hero",
+      new Uint8Array(100),
+      "image/png",
+    );
+    await bindings.DB.prepare(
+      "UPDATE comics SET hero_key='compute/review-cover/hero' WHERE id='c_test'",
+    ).run();
+    const { cookie, payload } = await login();
+    const response = await SELF.fetch(origin + "/comic/delete", {
+      method: "POST",
+      headers: auth(cookie, payload.data.csrf_token),
+      body: JSON.stringify({ comic_name: "c_test" }),
+      redirect: "manual",
+    });
+    expect(response.status).toBe(303);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT id FROM comics WHERE id='c_test'",
+      ).first(),
+    ).toBe(null);
+    expect(await bindings.LIBRARY.head("compute/review-cover/hero")).toBe(null);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT size FROM storage_ledger WHERE key='compute/review-cover/hero'",
+      ).first(),
+    ).toBe(null);
+  });
+  it("statistics query count stays constant for 1000 ranked comics", async () => {
+    await bindings.DB.batch(
+      Array.from({ length: 1000 }, (_, i) =>
+        bindings.DB.prepare(
+          "INSERT INTO comics(id,name,provider,source_url,created_at,updated_at) VALUES (?,?, 'review','https://example.com',1,1)",
+        ).bind("review" + i, "review" + i),
+      ),
+    );
+    await bindings.DB.batch(
+      Array.from({ length: 1000 }, (_, i) =>
+        bindings.DB.prepare(
+          "INSERT INTO reading_time(user_id,media_id,day,seconds) VALUES ('admin',?,'2026-10-13',60)",
+        ).bind("review" + i),
+      ),
+    );
+    const counted = reviewCount();
+    await reviewStats(counted.env, reviewUser, "2026", "all");
+    expect(counted.count()).toBe(3);
+    await bindings.DB.prepare(
+      "INSERT INTO group_permissions(user_id,group_name) VALUES ('admin','默认分组')",
+    ).run();
+    const normal = reviewCount();
+    await reviewStats(
+      normal.env,
+      { ...reviewUser, role: "user" },
+      "2026",
+      "all",
+    );
+    expect(normal.count()).toBe(3);
+  });
+  it("already limited anonymous login performs no database operations", async () => {
+    const counted = reviewCount();
+    const request = () =>
+      new Request(origin + "/api/v1/auth/login", {
+        method: "POST",
+        headers: {
+          Origin: origin,
+          "Content-Type": "application/json",
+          "CF-Connecting-IP": "192.0.2.1",
+        },
+        body: JSON.stringify({ username: "nonexistent", password: "wrong" }),
+      });
+    for (let i = 0; i < 6; i++) await pilotRoute(request(), counted.env);
+    const before = counted.count();
+    const response = await pilotRoute(request(), counted.env);
+    expect(response.status).toBe(429);
+    expect(counted.count() - before).toBe(0);
+  });
+  it("failed R2 write releases its owned reservation", async () => {
+    await expect(
+      reviewPut(
+        {
+          ...bindings,
+          LIBRARY: {
+            head: bindings.LIBRARY.head.bind(bindings.LIBRARY),
+            put: async () => {
+              throw new Error("simulated storage failure");
+            },
+          },
+        } as any,
+        "compute/review-failed/artifact",
+        new Uint8Array(100),
+        "image/png",
+      ),
+    ).rejects.toThrow("simulated storage failure");
+    expect(
+      await bindings.DB.prepare(
+        "SELECT size,state FROM storage_ledger WHERE key='compute/review-failed/artifact'",
+      ).first(),
+    ).toBe(null);
+  });
+});
+import { boundedInflate } from "../src/remote-library";
+import { deflateSync } from "fflate";
+import {
+  cleanupStorage,
+  cleanupUploads,
+  releaseReservation,
+} from "../src/storage";
+import { LoginGuard } from "../src/login-guard";
+import { notifyCompute } from "../src/compute-scheduler";
+import { runWebdavScan } from "../src/integrations";
+async function seedCompute(
+  id = "lease-job",
+  payload: any = { parent_job: "lease-parent" },
+  kind = "legacy-source",
+) {
+  const time = Math.floor(Date.now() / 1000);
+  await bindings.DB.prepare(
+    "INSERT OR IGNORE INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES ('lease-parent','admin','source','{}','waiting',?,?)",
+  )
+    .bind(time, time)
+    .run();
+  await bindings.DB.prepare(
+    "INSERT INTO compute_jobs(id,kind,input_key,payload,created_at,updated_at) VALUES (?,?,?, ?,?,?)",
+  )
+    .bind(id, kind, "fixture/input", JSON.stringify(payload), time, time)
+    .run();
+  const response = await reviewCompute(
+    new Request(origin + `/api/admin/compute/jobs/${id}/claim`, {
+      method: "POST",
+      body: "{}",
+    }),
+    bindings,
+    reviewUser,
+  );
+  return ((await response!.json()) as any).data.lease_token;
+}
+const computeRequest = (
+  id: string,
+  action: string,
+  token: string,
+  data: any = {},
+) =>
+  new Request(origin + `/api/admin/compute/jobs/${id}/${action}`, {
+    method: action.startsWith("output/") ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json", "X-Compute-Lease": token },
+    body: JSON.stringify(data),
+  });
+describe("execution and storage safeguards", () => {
+  it("rejects stale execution outputs after lease reclaim", async () => {
+    const old = await seedCompute();
+    await bindings.DB.prepare(
+      "UPDATE compute_jobs SET lease_until=0 WHERE id='lease-job'",
+    ).run();
+    const next = (
+      (await (await reviewCompute(
+        computeRequest("lease-job", "claim", old),
+        bindings,
+        reviewUser,
+      ))!.json()) as any
+    ).data.lease_token;
+    expect(next).not.toBe(old);
+    await expect(
+      reviewCompute(
+        computeRequest("lease-job", "output/source", old, {
+          title: "old",
+          chapters: [{}],
+        }),
+        bindings,
+        reviewUser,
+      ),
+    ).rejects.toThrow(/租约/);
+    expect(
+      (await bindings.LIBRARY.list({ prefix: "compute/lease-job/" })).objects,
+    ).toHaveLength(0);
+    const fake = { ...bindings, DOWNLOADS: { send: async () => {} } } as any;
+    await reviewCompute(
+      computeRequest("lease-job", "complete", next, {
+        source: { title: "current", chapters: [{}] },
+      }),
+      fake,
+      reviewUser,
+    );
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='lease-parent'",
+        ).first<any>()
+      ).state,
+    ).toBe("queued");
+  });
+  it("cancelling during output upload cannot publish or restart a task", async () => {
+    const token = await seedCompute();
+    const library = new Proxy(bindings.LIBRARY, {
+      get(target, property) {
+        if (property === "put")
+          return async (...args: any[]) => {
+            const result = await (target.put as any)(...args);
+            await reviewTask(bindings, reviewUser, "lease-parent", "cancel");
+            return result;
+          };
+        const value = (target as any)[property];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await expect(
+      reviewCompute(
+        computeRequest("lease-job", "output/source", token, {
+          title: "late",
+          chapters: [{}],
+        }),
+        { ...bindings, LIBRARY: library },
+        reviewUser,
+      ),
+    ).rejects.toThrow();
+    await cleanupStorage(bindings);
+    expect(
+      (await bindings.LIBRARY.list({ prefix: "compute/lease-job/" })).objects,
+    ).toHaveLength(0);
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='lease-parent'",
+        ).first<any>()
+      ).state,
+    ).toBe("cancelled");
+  });
+  it("last successful conversion preserves partial chapter failure", async () => {
+    await comicFixture();
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,comic_id,kind,payload,state,created_at,updated_at) VALUES ('partial-root','admin','c_test','source','{}','waiting',1,1)",
+    ).run();
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,comic_id,parent_id,kind,payload,state,created_at,updated_at) VALUES ('bad-child','admin','c_test','partial-root','chapter','{}','error',1,1),('good-child','admin','c_test','partial-root','chapter','{}','waiting',1,1)",
+    ).run();
+    const token = await seedCompute(
+      "partial-compute",
+      { parent_job: "good-child", chapter_id: "ch_test" },
+      "legacy-chapter",
+    );
+    await bindings.LIBRARY.put(
+      `compute/partial-compute/${token}/page/0`,
+      new Uint8Array([1]),
+    );
+    await reviewCompute(
+      computeRequest("partial-compute", "complete", token, {
+        pages: [{ width: 1, height: 1 }],
+      }),
+      bindings,
+      reviewUser,
+    );
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='partial-root'",
+        ).first<any>()
+      ).state,
+    ).toBe("error");
+  });
+  it("failed multipart initialization releases the reservation", async () => {
+    const library = new Proxy(bindings.LIBRARY, {
+      get(target, property) {
+        if (property === "createMultipartUpload")
+          return async () => {
+            throw new Error("multipart unavailable");
+          };
+        const value = (target as any)[property];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const { uploadApi } = await import("../src/uploads");
+    await expect(
+      uploadApi(
+        new Request(origin + "/api/admin/uploads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            size: 123,
+            sha256: "a".repeat(64),
+            extension: "cbz",
+          }),
+        }),
+        { ...bindings, LIBRARY: library },
+        reviewUser,
+      ),
+    ).rejects.toThrow("multipart unavailable");
+    expect(
+      await bindings.DB.prepare("SELECT key FROM storage_ledger").all(),
+    ).toMatchObject({ results: [] });
+  });
+  it("shared import survives comic deletion until its final reference is removed", async () => {
+    await comicFixture();
+    const key = "imports/" + "b".repeat(64) + ".cbz";
+    await reviewPut(bindings, key, new Uint8Array(4), "application/zip");
+    await bindings.DB.prepare(
+      "UPDATE chapters SET object_key=?,manifest_key=NULL WHERE id='ch_test'",
+    )
+      .bind(key)
+      .run();
+    await bindings.DB.prepare(
+      "INSERT INTO books(id,source_id,title,author,object_key,size,sha256,created_at) VALUES ('shared','shared','shared','shared',?,4,?,1)",
+    )
+      .bind(key, "b".repeat(64))
+      .run();
+    const { cookie, payload } = await login();
+    expect(
+      (
+        await SELF.fetch(origin + "/comic/delete", {
+          method: "POST",
+          headers: auth(cookie, payload.data.csrf_token),
+          body: JSON.stringify({ comic_name: "c_test" }),
+          redirect: "manual",
+        })
+      ).status,
+    ).toBe(303);
+    expect(await bindings.LIBRARY.head(key)).not.toBeNull();
+    expect(
+      await bindings.DB.prepare("SELECT size FROM storage_ledger WHERE key=?")
+        .bind(key)
+        .first(),
+    ).toEqual({ size: 4 });
+  });
+  it("reservation owner prevents concurrent uploads and foreign releases", async () => {
+    const { reserve } = await import("../src/library");
+    const owner = await reserve(
+      bindings,
+      "imports/exclusive.cbz",
+      100,
+      "first-owner",
+    );
+    await expect(
+      reserve(bindings, "imports/exclusive.cbz", 100, "second-owner"),
+    ).rejects.toThrow(/上传/);
+    await releaseReservation(bindings, "imports/exclusive.cbz", "second-owner");
+    expect(
+      await bindings.DB.prepare("SELECT owner FROM storage_ledger").first(),
+    ).toEqual({ owner });
+    await releaseReservation(bindings, "imports/exclusive.cbz", owner);
+    expect(
+      await bindings.DB.prepare("SELECT owner FROM storage_ledger").first(),
+    ).toBeNull();
+  });
+  it("bounded inflate rejects forged lengths before full expansion", () => {
+    const content = new Uint8Array(10 * 1024 * 1024),
+      compressed = deflateSync(content);
+    expect(() => boundedInflate(compressed, 100)).toThrow(/上限/);
+    const normal = new TextEncoder().encode("normal page contents");
+    expect(boundedInflate(deflateSync(normal), normal.length)).toEqual(normal);
+  });
+  it("paused WebDAV performs no upstream request and resume keeps its checkpoint", async () => {
+    await bindings.DB.prepare(
+      "INSERT INTO remote_mounts(id,url,username,password,state) VALUES ('default','https://example.com/dav/','','unused','paused')",
+    ).run();
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,created_at,updated_at) VALUES ('scan','admin','webdav',?,1,1)",
+    )
+      .bind(
+        JSON.stringify({
+          mount_id: "default",
+          url: "https://example.com/dav/",
+          depth: 0,
+        }),
+      )
+      .run();
+    await runJob(
+      { ...bindings, DOWNLOADS: { send: async () => {} } } as any,
+      "scan",
+    );
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='scan'",
+        ).first<any>()
+      ).state,
+    ).toBe("waiting");
+    const { cookie, payload } = await login();
+    await SELF.fetch(origin + "/settings/webdav/control", {
+      method: "POST",
+      headers: auth(cookie, payload.data.csrf_token),
+      body: JSON.stringify({ action: "resume" }),
+      redirect: "manual",
+    });
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='scan'",
+        ).first<any>()
+      ).state,
+    ).toBe("queued");
+    await SELF.fetch(origin + "/settings/webdav/control", {
+      method: "POST",
+      headers: auth(cookie, payload.data.csrf_token),
+      body: JSON.stringify({ action: "stop" }),
+      redirect: "manual",
+    });
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='scan'",
+        ).first<any>()
+      ).state,
+    ).toBe("cancelled");
+  });
+  it("idle automation probes consume no database requests and wake sequence is not lost", async () => {
+    const stub = bindings.APPLICATION.get(
+      bindings.APPLICATION.idFromName("scheduler"),
+    );
+    const probe = () =>
+      stub
+        .fetch(origin + "/api/compute-ready", {
+          headers: { Authorization: "Bearer test-wake-token" },
+        })
+        .then((r) => r.json<any>());
+    expect((await probe()).data.pending).toBe(false);
+    await notifyCompute(bindings);
+    const observed = (await probe()).data;
+    expect(observed).toMatchObject({ pending: true, sequence: 1, limit: 5 });
+    expect((await probe()).data.pending).toBe(false); // leased/cooldown; no duplicate runner
+    await notifyCompute(bindings);
+    await stub.fetch(origin + "/api/compute-ready/finished", {
+      method: "POST",
+      headers: { Authorization: "Bearer test-wake-token" },
+      body: JSON.stringify({ sequence: observed.sequence, pending: false }),
+    });
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect((await state.storage.get<any>("compute-wake")).pending).toBe(true);
+    });
+  });
+});
+import { fencedEnv } from "../src/job-state";
+describe("terminal state fencing", () => {
+  it("failure callbacks mark both child and root without reviving cancelled tasks", async () => {
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES ('root-fail','admin','source','{}','waiting',1,1),('child-fail','admin','chapter','{}','waiting',1,1)",
+    ).run();
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET parent_id='root-fail' WHERE id='child-fail'",
+    ).run();
+    const token = await seedCompute(
+      "failure-callback",
+      { parent_job: "child-fail" },
+      "legacy-chapter",
+    );
+    await reviewCompute(
+      computeRequest("failure-callback", "fail", token),
+      bindings,
+      reviewUser,
+    );
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='child-fail'",
+        ).first<any>()
+      ).state,
+    ).toBe("error");
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='root-fail'",
+        ).first<any>()
+      ).state,
+    ).toBe("error");
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT state FROM compute_jobs WHERE id='failure-callback'",
+        ).first<any>()
+      ).state,
+    ).toBe("error");
+  });
+  it("mutation predicates cannot bypass cancellation through OR", async () => {
+    await comicFixture();
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,state,claim_token,created_at,updated_at) VALUES ('fenced','admin','source','{}','cancelled','old',1,1)",
+    ).run();
+    const restricted = fencedEnv(bindings, "comic_jobs", {
+      id: "fenced",
+      claim_token: "old",
+      payload: "{}",
+    });
+    await restricted.DB.prepare(
+      "UPDATE comics SET name='unexpected' WHERE id='c_test' OR name='原版漫画'",
+    ).run();
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT name FROM comics WHERE id='c_test'",
+        ).first<any>()
+      ).name,
+    ).toBe("原版漫画");
+  });
+  it("failed executions cannot publish subsequent chapter changes", async () => {
+    await comicFixture();
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,state,claim_token,created_at,updated_at) VALUES ('fenced','admin','source','{}','error','old',1,1)",
+    ).run();
+    const restricted = fencedEnv(bindings, "comic_jobs", {
+      id: "fenced",
+      claim_token: "old",
+      payload: "{}",
+    });
+    await restricted.DB.prepare(
+      "UPDATE chapters SET title='unexpected' WHERE id='ch_test'",
+    ).run();
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT title FROM chapters WHERE id='ch_test'",
+        ).first<any>()
+      ).title,
+    ).toBe("第一话");
+  });
+});
+it("root cancellation fences grandchildren before cancellation cascade completes", async () => {
+  await comicFixture();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES ('root-stop','admin','source','{}','cancelled',1,1),('child-stop','admin','chapter','{}','waiting',1,1)",
+  ).run();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET parent_id='root-stop' WHERE id='child-stop'",
+  ).run();
+  const token = await seedCompute(
+    "root-stopped-compute",
+    { parent_job: "child-stop", chapter_id: "ch_test" },
+    "legacy-chapter",
+  );
+  await expect(
+    reviewCompute(
+      computeRequest("root-stopped-compute", "complete", token, {
+        pages: [{}],
+      }),
+      bindings,
+      reviewUser,
+    ),
+  ).rejects.toThrow(/停止/);
+  const response = await reviewCompute(
+    new Request(origin + "/api/admin/compute/jobs"),
+    bindings,
+    reviewUser,
+  );
+  expect(((await response!.json()) as any).data).not.toContainEqual(
+    expect.objectContaining({ id: "root-stopped-compute" }),
+  );
+  expect(
+    (
+      await bindings.DB.prepare(
+        "SELECT state FROM comic_jobs WHERE id='root-stop'",
+      ).first<any>()
+    ).state,
+  ).toBe("cancelled");
+});

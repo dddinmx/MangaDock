@@ -1,8 +1,15 @@
+import { notifyCompute, schedulerRequest } from "./compute-scheduler";
+import { collectComicGarbage, cleanupStorage, cleanupUploads } from "./storage";
+import { LoginGuard } from "./login-guard";
 import { checkUpdates } from "./updates";
 import { publicUser } from "./public-user";
 import { DurableObject } from "cloudflare:workers";
 import { databaseEnv } from "./database";
-import { DatabaseBudget, databasePaused } from "./database-budget";
+import {
+  DatabaseBudget,
+  databasePaused,
+  databaseRetryAfter,
+} from "./database-budget";
 import {
   HttpError,
   now,
@@ -84,11 +91,59 @@ const definitions = routes.map((route) => ({
 }));
 export class ApplicationService extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
-    super(state, databaseEnv(env, new DatabaseBudget(state.storage)));
+    super(
+      state,
+      databaseEnv(
+        { ...env, LOGIN_GUARD: new LoginGuard(state.storage) },
+        new DatabaseBudget(state.storage, Date.now, {
+          requests: env.DB_DAILY_REQUEST_LIMIT
+            ? Number(env.DB_DAILY_REQUEST_LIMIT)
+            : 10000,
+          statements: env.DB_DAILY_STATEMENT_LIMIT
+            ? Number(env.DB_DAILY_STATEMENT_LIMIT)
+            : 50000,
+        }),
+      ),
+    );
+  }
+  async alarm() {
+    await notifyCompute(this.env);
   }
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
+      const scheduled = await schedulerRequest(
+        request,
+        this.env,
+        this.ctx.storage,
+      );
+      if (scheduled) return scheduled;
+      if (url.hostname === "login.internal" && request.method === "POST") {
+        const { username, ip, credential } = await request.json<{
+          username: string;
+          ip: string;
+          credential?: string;
+        }>();
+        if (url.pathname === "/check")
+          await this.env.LOGIN_GUARD!.check(username, ip, credential);
+        else if (url.pathname === "/success")
+          await this.env.LOGIN_GUARD!.success(username, credential);
+        else throw new HttpError(404, "接口不存在");
+        return json({ ok: true });
+      }
+      if (
+        url.hostname === "jobs.internal" &&
+        request.method === "POST" &&
+        url.pathname === "/storage-gc"
+      ) {
+        const removed = await cleanupStorage(this.env);
+        if (await one(this.env, "SELECT 1 FROM storage_gc LIMIT 1"))
+          await this.env.DOWNLOADS.send({
+            id: "storage-gc",
+            kind: "storage-gc",
+          });
+        return json({ ok: true });
+      }
       if (
         url.hostname === "jobs.internal" &&
         request.method === "POST" &&
@@ -156,6 +211,14 @@ export class ApplicationService extends DurableObject<Env> {
         });
       }
       const user = await csrfIdentity(request, this.env);
+      if (
+        url.pathname === "/api/admin/maintenance" &&
+        request.method === "POST"
+      ) {
+        admin(user);
+        await maintenance(this.env);
+        return json({ ok: true });
+      }
       if (url.pathname === "/reader") {
         const id = url.searchParams.get("book");
         if (!id) throw new HttpError(400, "请选择作品");
@@ -235,6 +298,11 @@ export class ApplicationService extends DurableObject<Env> {
             },
           },
           status,
+          databasePaused(error)
+            ? { "Retry-After": String(databaseRetryAfter(error)) }
+            : status === 429
+              ? { "Retry-After": "900" }
+              : {},
         );
       const context = {
         session: {},
@@ -242,7 +310,10 @@ export class ApplicationService extends DurableObject<Env> {
         get_flashed_messages: () => [],
         csrf_token: () => "",
       };
-      return render("error.html", { ...context, message }, status);
+      const response = render("error.html", { ...context, message }, status);
+      if (databasePaused(error))
+        response.headers.set("Retry-After", String(databaseRetryAfter(error)));
+      return response;
     }
   }
   async get(request: Request, user: Identity, endpoint: string, params: Row) {
@@ -299,7 +370,11 @@ export class ApplicationService extends DurableObject<Env> {
       endpoint === "list_tasks"
     ) {
       downloader(user);
-      const rows = await tasks(env, user);
+      const rows = await tasks(
+        env,
+        user,
+        endpoint === "list_tasks" ? undefined : params.task_id,
+      );
       if (endpoint === "list_tasks")
         return json({
           ok: true,
@@ -427,10 +502,11 @@ export class ApplicationService extends DurableObject<Env> {
             )
           )?.value || 0,
         ),
-        status: mount?.state || "idle",
+        status: mount?.state === "paused" ? "running" : mount?.state || "idle",
         state: mount?.state || "idle",
         message: mount?.message || "",
-        progress: 0,
+        progress: { _paused: mount?.state === "paused", _cancelled: false },
+        metadata: { total: 0 },
       });
     }
     if (endpoint === "list_scan_paths") {
@@ -849,13 +925,47 @@ export class ApplicationService extends DurableObject<Env> {
       redirect = "/settings/webdav";
     } else if (endpoint === "control_webdav_sync") {
       admin(user);
-      const state = ["pause", "stop"].includes(String(data.action))
-        ? "paused"
-        : "running";
-      await run(env, "UPDATE remote_mounts SET state=?", state);
+      const action = String(data.action);
+      if (!["pause", "stop", "resume"].includes(action))
+        throw new HttpError(400, "同步操作无效");
+      const state =
+        action === "pause" ? "paused" : action === "stop" ? "idle" : "running";
+      await run(
+        env,
+        "UPDATE remote_mounts SET state=?,message=?",
+        state,
+        action === "stop"
+          ? "同步已停止"
+          : action === "pause"
+            ? "同步已暂停"
+            : "同步已恢复",
+      );
+      if (action === "stop")
+        await run(
+          env,
+          "UPDATE comic_jobs SET state='cancelled',claim_token=NULL,lease_until=0 WHERE kind='webdav' AND state IN ('queued','running','waiting')",
+        );
+      if (action === "resume") {
+        await notifyCompute(env);
+        const resumed = await env.DB.prepare(
+          "UPDATE comic_jobs SET state='queued',lease_until=0 WHERE kind='webdav' AND state='waiting' RETURNING id",
+        ).all<Row>();
+        if (resumed.results.length)
+          await env.DOWNLOADS.sendBatch(
+            resumed.results.map((row) => ({
+              body: { id: row.id, kind: "comic" },
+            })),
+          );
+        else if (
+          !(await one(
+            env,
+            "SELECT 1 FROM comic_jobs WHERE kind='webdav' AND state IN ('queued','running') LIMIT 1",
+          ))
+        )
+          await scanWebdav(env, user);
+      }
       result = { state };
       redirect = "/settings/webdav";
-      if (state === "running") await scanWebdav(env, user);
     } else if (endpoint === "disconnect_webdav_route") {
       admin(user);
       await run(env, "UPDATE remote_mounts SET enabled=0,state='disconnected'");
@@ -896,6 +1006,7 @@ export class ApplicationService extends DurableObject<Env> {
         user,
         String(data.comic_name || data.task_id || ""),
       );
+      await collectComicGarbage(env, comic);
       await run(
         env,
         "UPDATE comic_jobs SET state='cancelled' WHERE comic_id=? AND state IN ('queued','running','waiting')",
@@ -914,17 +1025,8 @@ export class ApplicationService extends DurableObject<Env> {
         ).bind(comic.id),
         env.DB.prepare("DELETE FROM comics WHERE id=?").bind(comic.id),
       ]);
-      let cursor: string | undefined;
-      do {
-        const objects = await env.LIBRARY.list({
-          prefix: `comics/${comic.id}/`,
-          cursor,
-        });
-        await env.LIBRARY.delete(objects.objects.map((o) => o.key));
-        for (const object of objects.objects)
-          await run(env, "DELETE FROM storage_ledger WHERE key=?", object.key);
-        cursor = objects.truncated ? objects.cursor : undefined;
-      } while (cursor);
+      await cleanupStorage(env);
+      await env.DOWNLOADS.send({ id: "storage-gc", kind: "storage-gc" });
       result = { message: "漫画已删除" };
       redirect = "/comics";
     } else throw new HttpError(404, "接口不存在");

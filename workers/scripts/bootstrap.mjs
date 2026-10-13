@@ -1,5 +1,5 @@
 import { writeFile, readFile } from "node:fs/promises";
-import { pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
+import { pbkdf2Sync, randomBytes, randomUUID, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { checkD1Budget } from "./d1-budget.mjs";
 process.on("uncaughtException", (error) => {
@@ -144,7 +144,15 @@ const config = {
   },
   vars: {
     DATABASE_PROVIDER: provider,
+    COMPUTE_REF:
+      process.env.GITHUB_SHA ||
+      spawnSync("git", ["rev-parse", "HEAD"], {
+        encoding: "utf8",
+      }).stdout.trim(),
     FANQIE_API_URL: "https://fanqie.dddinmx.cn",
+    DB_DAILY_REQUEST_LIMIT: process.env.MANGADOCK_DB_DAILY_REQUESTS || "10000",
+    DB_DAILY_STATEMENT_LIMIT:
+      process.env.MANGADOCK_DB_DAILY_STATEMENTS || "50000",
     MAX_ARTIFACT_BYTES: "2147483648",
     MAX_LIBRARY_BYTES: target === "production" ? "8000000000" : "256000000",
   },
@@ -240,6 +248,9 @@ function secretBulk(values) {
   if (result.status !== 0) throw new Error("Worker Secret 配置失败");
 }
 secretBulk({
+  COMPUTE_WAKE_TOKEN: createHash("sha256")
+    .update(`mangadock-compute-wake:v1:${target}:${password}`)
+    .digest("hex"),
   ...(provider === "turso"
     ? {
         TURSO_DATABASE_URL: process.env.TURSO_DATABASE_URL,

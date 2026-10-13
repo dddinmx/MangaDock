@@ -280,6 +280,8 @@ export async function runWebdavScan(env: Env, job: Row, data: Row) {
     data.mount_id,
   );
   if (!mount) throw new HttpError(409, "WebDAV 已断开");
+  if (mount.state === "paused") throw new HttpError(425, "同步已暂停");
+  if (mount.state !== "running") throw new HttpError(409, "同步已停止");
   if (data.depth > 10) throw new HttpError(413, "WebDAV 目录层级过深");
   const response = await webdavRequest(env, mount, data.url, "PROPFIND");
   if (response.status !== 207 && !response.ok)
@@ -294,6 +296,14 @@ export async function runWebdavScan(env: Env, job: Row, data: Row) {
       ),
     nodes = localTags(document, "response");
   for (const item of nodes) {
+    const current = await one(
+      env,
+      "SELECT state,enabled FROM remote_mounts WHERE id=?",
+      mount.id,
+    );
+    if (current?.state === "paused") throw new HttpError(425, "同步已暂停");
+    if (!current?.enabled || current.state !== "running")
+      throw new HttpError(409, "同步已停止");
     const href = localTags(item, "href")[0]?.textContent;
     if (!href) continue;
     const url = new URL(href, mount.url);

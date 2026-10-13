@@ -294,17 +294,17 @@
         // 初始快速检查，完成后改为 3s 轮询
         let quickCheckCount = 0;
         quickCheckInterval = setInterval(() => {
-            if (initialLoadComplete || quickCheckCount >= 10) {
+            if (initialLoadComplete || quickCheckCount >= 3) {
                 clearInterval(quickCheckInterval);
                 quickCheckInterval = null;
-                if (!updateInterval) {
-                    updateInterval = setInterval(fetchTaskStatus, 3000);
+                if (!updateInterval && !statusTerminal) {
+                    updateInterval = setInterval(fetchTaskStatus, 15000);
                 }
                 return;
             }
             fetchTaskStatus();
             quickCheckCount += 1;
-        }, 200);
+        }, 750);
     });
 
     window.addEventListener('pageshow', () => {
@@ -350,6 +350,8 @@
     // 获取任务状态（/api/v1）
     let statusRequestPending = false;
     let lastStatusSignature = '';
+    let statusTerminal = false;
+    let statusFailures = 0;
     function fetchTaskStatus() {
         if (document.hidden || statusRequestPending) return;
         if (!window.MangaDockApi || typeof window.MangaDockApi.apiV1 !== 'function') {
@@ -360,8 +362,9 @@
         window.MangaDockApi.apiV1('GET', `/api/v1/tasks/${encodeURIComponent(taskId)}`)
             .then(result => {
                 if (!result.ok || !result.data) {
-                    throw new Error(result.message || '网络响应不正常');
+                    const error = new Error(result.message || '网络响应不正常'); error.status = result.status; throw error;
                 }
+                statusFailures = 0;
                 const data = Object.assign({}, result.data, {
                     start_time: window.MangaDockApi.formatClock(result.data.start_time),
                     end_time: window.MangaDockApi.formatClock(result.data.end_time),
@@ -389,6 +392,7 @@
                 }
 
                 if (['completed', 'cancelled', 'error'].includes(data.status)) {
+                    statusTerminal = true;
                     if (updateInterval) {
                         clearInterval(updateInterval);
                         updateInterval = null;
@@ -418,6 +422,13 @@
             })
             .catch(error => {
                 console.error('获取任务状态失败:', error);
+                statusFailures++;
+                if ([401, 403, 503].includes(error.status) || statusFailures >= 3) {
+                    clearInterval(updateInterval); clearInterval(quickCheckInterval);
+                    updateInterval = null; quickCheckInterval = null; statusTerminal = true;
+                    document.getElementById('error-message').classList.remove('hidden');
+                    document.getElementById('error-text').textContent = error.message + '；自动查询已暂停，请稍后刷新页面';
+                }
                 if (!initialLoadComplete) {
                     initialLoadComplete = true;
                     document.getElementById('initial-loader').classList.add('hidden');

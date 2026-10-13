@@ -1,3 +1,10 @@
+import { notifyCompute } from "./compute-scheduler";
+import {
+  fencedEnv,
+  assertComicActive,
+  cancelComputeForTask,
+} from "./job-state";
+import { putStream } from "./storage";
 import { checkUpdates } from "./updates";
 import { runR2Scan } from "./scans";
 import { imageResponse } from "./image-stream";
@@ -47,8 +54,17 @@ export async function enqueue(
   parent: string | null = null,
   comic: string | null = null,
 ) {
+  if (kind === "webdav") {
+    const known = await one(
+      env,
+      "SELECT id FROM comic_jobs WHERE kind='webdav' AND json_extract(payload,'$.mount_id')=? AND json_extract(payload,'$.url')=? AND state IN ('queued','running','waiting') LIMIT 1",
+      payload.mount_id,
+      payload.url,
+    );
+    if (known) return known.id;
+  }
   const id = crypto.randomUUID();
-  await run(
+  const inserted = await run(
     env,
     "INSERT INTO comic_jobs(id,user_id,comic_id,parent_id,kind,payload,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
     id,
@@ -60,6 +76,8 @@ export async function enqueue(
     now(),
     now(),
   );
+  if (!inserted.meta.changes) throw new HttpError(409, "任务已停止");
+  if (!parent) await notifyCompute(env);
   try {
     await env.DOWNLOADS.send({ id, kind: "comic" });
   } catch {}
@@ -135,7 +153,7 @@ async function currentCreator(env: Env, job: Row) {
   }
   return user;
 }
-async function completeParent(env: Env, rootId: string) {
+export async function completeParent(env: Env, rootId: string) {
   const pending = await one(
     env,
     "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state IN ('queued','submitting','running','waiting') LIMIT 1",
@@ -144,7 +162,7 @@ async function completeParent(env: Env, rootId: string) {
   if (pending) return;
   const failed = await one(
     env,
-    "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state='error' LIMIT 1",
+    "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state IN ('error','cancelled') LIMIT 1",
     rootId,
   );
   await run(
@@ -157,12 +175,14 @@ async function completeParent(env: Env, rootId: string) {
   );
 }
 export async function runJob(env: Env, id: string) {
+  const token = crypto.randomUUID();
   const job = await env.DB.prepare(
-    "UPDATE comic_jobs SET state='running',lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<? AND attempts<? RETURNING *",
+    "UPDATE comic_jobs SET state='running',claim_token=?,lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<? AND attempts<? RETURNING *",
   )
-    .bind(now() + 300, now(), id, now(), MAX_JOB_ATTEMPTS)
+    .bind(token, now() + 300, now(), id, now(), MAX_JOB_ATTEMPTS)
     .first<Row>();
   if (!job) return;
+  env = fencedEnv(env, "comic_jobs", job);
   try {
     const user = await currentCreator(env, job),
       data = JSON.parse(job.payload);
@@ -224,6 +244,7 @@ export async function runJob(env: Env, id: string) {
       const group = existing?.group_name || data.group;
       if (!(await canAccess(env, user, { group_name: group })))
         throw new HttpError(403, "下载分组权限已撤销");
+      await assertComicActive(env, job);
       await run(
         env,
         "INSERT INTO comics(id,name,provider,source_url,description,group_name,adult,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET description=excluded.description,updated_at=excluded.updated_at",
@@ -302,6 +323,7 @@ export async function runJob(env: Env, id: string) {
         ? source.chapters.slice(0, data.max_chapters)
         : source.chapters;
       for (const chapter of selected) {
+        await assertComicActive(env, job);
         const chapterId =
           "ch_" + (await hash(comicId + "|" + chapter.id)).slice(0, 24);
         const local = await one(
@@ -355,6 +377,7 @@ export async function runJob(env: Env, id: string) {
     }
     if (job.kind === "chapter") {
       const images = await chapterImages(data.provider, data.chapter);
+      await assertComicActive(env, job);
       const keys = images.map((url, i) => ({
         key: `comics/${comic.id}/chapters/${data.chapter_id}/${String(i).padStart(5, "0")}`,
         url,
@@ -420,6 +443,7 @@ export async function runJob(env: Env, id: string) {
           await response.body?.cancel();
           throw new HttpError(502, `图片 HTTP ${response.status}`);
         }
+        await assertComicActive(env, job);
         response = await imageResponse(response);
         const mime = response.headers.get("Content-Type")?.split(";")[0] || "";
         if (!mime.startsWith("image/")) {
@@ -432,23 +456,8 @@ export async function runJob(env: Env, id: string) {
             await response.body!.cancel();
             throw new HttpError(413, "图片超过 20 MB");
           }
-          await reserve(env, data.key, length);
-          const fixed = new FixedLengthStream(length),
-            transfer = response.body!.pipeTo(fixed.writable);
-          const results = await Promise.allSettled([
-            transfer,
-            env.LIBRARY.put(data.key, fixed.readable, {
-              httpMetadata: { contentType: mime },
-            }),
-          ]);
-          if (results.some((r) => r.status === "rejected"))
-            throw new HttpError(502, "图片传输长度不一致");
+          await putStream(env, data.key, response.body!, length, mime);
           size = length;
-          await run(
-            env,
-            "UPDATE storage_ledger SET state='stored' WHERE key=?",
-            data.key,
-          );
         } else {
           const reader = response.body!.getReader(),
             parts: Uint8Array[] = [];
@@ -471,6 +480,7 @@ export async function runJob(env: Env, id: string) {
           await putBytes(env, data.key, bytes, mime);
         }
       }
+      await assertComicActive(env, job);
       if (job.kind === "cover") {
         await run(
           env,
@@ -548,6 +558,16 @@ export async function runJob(env: Env, id: string) {
       "SELECT state FROM comic_jobs WHERE id=?",
       job.id,
     );
+    if (!latest || ["cancelled", "error", "completed"].includes(latest.state))
+      return;
+    if (error instanceof HttpError && error.status === 425) {
+      await run(
+        env,
+        "UPDATE comic_jobs SET state='waiting',lease_until=0,message='同步已暂停' WHERE id=?",
+        id,
+      );
+      return;
+    }
     if (latest?.state === "submitting") {
       await run(
         env,
@@ -605,13 +625,13 @@ export async function runJob(env: Env, id: string) {
         );
         await run(
           env,
-          "UPDATE comic_jobs SET state='cancelled',message='改由云端兼容下载' WHERE parent_id=?",
+          "UPDATE comic_jobs SET state='waiting',message='正在由云端兼容作业下载章节',lease_until=0,updated_at=? WHERE id=?",
+          now(),
           parent.id,
         );
         await run(
           env,
-          "UPDATE comic_jobs SET state='waiting',message='正在由云端兼容作业下载章节',lease_until=0,updated_at=? WHERE id=?",
-          now(),
+          "UPDATE comic_jobs SET state='cancelled',message='改由云端兼容下载' WHERE parent_id=?",
           parent.id,
         );
         return;
@@ -671,27 +691,32 @@ export async function runJob(env: Env, id: string) {
     }
   }
 }
-export async function tasks(env: Env, user: Identity): Promise<Row[]> {
+export async function tasks(
+  env: Env,
+  user: Identity,
+  taskId?: string,
+): Promise<Row[]> {
   const rows = await all(
     env,
-    "SELECT j.*,c.name AS comic_name FROM comic_jobs j LEFT JOIN comics c ON c.id=j.comic_id WHERE j.kind='source' AND (?='admin' OR j.user_id=?) ORDER BY j.created_at DESC LIMIT 100",
+    `SELECT j.*,c.name AS comic_name,
+      (SELECT COUNT(*) FROM comic_jobs x WHERE x.parent_id=j.id AND x.kind='chapter') AS total_chapters,
+      (SELECT COUNT(*) FROM comic_jobs x WHERE x.parent_id=j.id AND x.kind='chapter' AND x.state='completed') AS completed_chapters
+      FROM comic_jobs j LEFT JOIN comics c ON c.id=j.comic_id
+      WHERE j.kind='source' AND (?='admin' OR j.user_id=?) ${taskId ? "AND j.id=?" : ""}
+      ORDER BY j.created_at DESC LIMIT 100`,
     user.role,
     user.user_id,
+    ...(taskId ? [taskId] : []),
   );
   const novels = await all(
     env,
-    "SELECT j.*,b.title AS comic_name FROM jobs j LEFT JOIN books b ON b.id=j.source_id WHERE (?='admin' OR j.user_id=?) ORDER BY j.created_at DESC LIMIT 100",
+    `SELECT j.*,b.title AS comic_name FROM jobs j LEFT JOIN books b ON b.id=j.source_id
+      WHERE (?='admin' OR j.user_id=?) ${taskId ? "AND j.id=?" : ""} ORDER BY j.created_at DESC LIMIT 100`,
     user.role,
     user.user_id,
+    ...(taskId ? [taskId] : []),
   );
   for (const row of rows) {
-    const counts = await one(
-      env,
-      "SELECT COUNT(*) AS total,SUM(state='completed') AS done FROM comic_jobs WHERE parent_id=? AND kind='chapter'",
-      row.id,
-    );
-    row.total_chapters = counts?.total || 0;
-    row.completed_chapters = counts?.done || 0;
     row.progress_percent = row.total_chapters
       ? Math.round((row.completed_chapters / row.total_chapters) * 100)
       : row.state === "completed"
@@ -728,7 +753,7 @@ export async function taskAction(
   id: string,
   action: string,
 ) {
-  const task = (await tasks(env, user)).find((row) => row.id === id);
+  const task = (await tasks(env, user, id)).find((row) => row.id === id);
   if (!task) throw new HttpError(404, "任务不存在或无权访问");
   const table = task.is_novel ? "jobs" : "comic_jobs";
   if (action === "cancel") {
@@ -750,6 +775,7 @@ export async function taskAction(
       `UPDATE ${table} SET state='cancelled',message='用户取消任务'${table === "jobs" ? ",reserved_bytes=0" : ""} WHERE id=? AND state IN ('queued','submitting','running','waiting')`,
       id,
     );
+    if (table === "comic_jobs") await cancelComputeForTask(env, id);
     if (table === "comic_jobs")
       await run(
         env,
@@ -844,6 +870,7 @@ async function fanqieChapter(env: Env, job: Row, data: Row) {
     );
     return;
   }
+  await assertComicActive(env, job);
   const artifact = remote.artifact;
   if (
     remote.status !== "completed" ||
@@ -857,22 +884,18 @@ async function fanqieChapter(env: Env, job: Row, data: Row) {
     throw new HttpError(502, "番茄漫画产物无效");
   const key = `fanqie/${data.chapter.book_id}/${artifact.sha256}.zip`;
   if (!(await env.LIBRARY.head(key))) {
-    await reserve(env, key, artifact.size);
     const response = await source(env, artifact.url);
     if (!response.body) throw new HttpError(502, "产物为空");
-    const fixed = new FixedLengthStream(artifact.size),
-      transfer = response.body!.pipeTo(fixed.writable);
-    const results = await Promise.allSettled([
-      transfer,
-      env.LIBRARY.put(key, fixed.readable, {
-        sha256: artifact.sha256,
-        httpMetadata: { contentType: "application/zip" },
-      }),
-    ]);
-    if (results.some((r) => r.status === "rejected"))
-      throw new HttpError(502, "产物校验失败");
-    await run(env, "UPDATE storage_ledger SET state='stored' WHERE key=?", key);
+    await putStream(
+      env,
+      key,
+      response.body,
+      artifact.size,
+      "application/zip",
+      artifact.sha256,
+    );
   }
+  await assertComicActive(env, job);
   await queueCompute(env, "fanqie-archive", key, {
     chapter_id: data.chapter_id,
     source_id: data.chapter.id,

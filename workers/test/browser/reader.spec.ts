@@ -132,3 +132,58 @@ for (const width of [1280, 390])
     expect(errors).toEqual([]);
     await page.screenshot({ path: `test-results/comic-reader-${width}.png` });
   });
+for (const [path, trigger] of [
+  ["/reader/c_test", "comic"],
+  ["/novel/123456789/read", "novel"],
+])
+  test(`${trigger} reader preserves unsynced progress and retries after recovery`, async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    await page.getByLabel("用户名").fill("admin");
+    await page.getByLabel("密码").fill("local-e2e-password-2026");
+    await page.locator("#loginButton").click();
+    await expect(page.locator(".md-topnav")).toBeVisible();
+    let attempts = 0;
+    await page.route("**/save_progress", (route) => {
+      attempts++;
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          error: { message: "test quota protection" },
+        }),
+      });
+    });
+    await page.goto(path);
+    if (trigger === "comic") {
+      await expect(page.locator(".comic-page")).toHaveCount(2);
+      await page.evaluate(() => window.scrollTo(0, 1000));
+    } else {
+      await expect(
+        page.locator("#reader-flow .novel-reader-title"),
+      ).toBeVisible();
+      await page.keyboard.press("ArrowRight");
+    }
+    await expect(page.locator("#progress-sync-status")).toBeVisible({
+      timeout: 10000,
+    });
+    expect(
+      await page.evaluate(() =>
+        Object.keys(localStorage).some(
+          (k) =>
+            k.startsWith("mangadock-pending-progress:") &&
+            JSON.parse(localStorage.getItem(k) || "[]").length,
+        ),
+      ),
+    ).toBe(true);
+    await page.clock.install();
+    await page.clock.fastForward(30 * 60 * 1000);
+    expect(attempts).toBeLessThanOrEqual(5);
+    await page.unroute("**/save_progress");
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(page.locator("#progress-sync-status")).toBeHidden({
+      timeout: 10000,
+    });
+  });

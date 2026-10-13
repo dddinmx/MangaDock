@@ -255,24 +255,29 @@ export async function statistics(
   }
   const rows = await all(
       env,
-      "SELECT media_id,MAX(media_name) AS media_name,SUM(seconds) AS duration FROM reading_time WHERE user_id=? AND media_id NOT LIKE 'drama:%' GROUP BY media_id ORDER BY duration DESC LIMIT 1000",
+      `SELECT r.media_id,r.media_name,r.duration,c.name AS comic_name,b.title AS novel_title,b.author AS novel_author,
+      CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END AS comic_exists
+      FROM (SELECT media_id,MAX(media_name) AS media_name,SUM(seconds) AS duration FROM reading_time
+        WHERE user_id=? AND media_id NOT LIKE 'drama:%' GROUP BY media_id) r
+      LEFT JOIN comics c ON c.id=r.media_id
+      LEFT JOIN books b ON r.media_id LIKE 'novel:%' AND b.id=substr(r.media_id,7)
+      WHERE (c.id IS NULL OR ?='admin' OR EXISTS(SELECT 1 FROM group_permissions p WHERE p.user_id=? AND p.group_name=c.group_name))
+      ORDER BY r.duration DESC LIMIT 1000`,
+      user.user_id,
+      user.role,
       user.user_id,
     ),
     rank: Row[] = [];
   for (const item of rows) {
     const novel = item.media_id.startsWith("novel:"),
       media = novel
-        ? await one(
-            env,
-            "SELECT title,author FROM books WHERE id=?",
-            item.media_id.slice(6),
-          )
-        : await one(env, "SELECT * FROM comics WHERE id=?", item.media_id);
-    if (
-      (!novel && media && !(await canAccess(env, user, media))) ||
-      (api && (novel || !media))
-    )
-      continue;
+        ? item.novel_title
+          ? { title: item.novel_title, author: item.novel_author }
+          : null
+        : item.comic_exists
+          ? { name: item.comic_name }
+          : null;
+    if (api && (novel || !media)) continue;
     const name =
       (novel ? media?.title : media?.name) || item.media_name || "已移除作品";
     rank.push({

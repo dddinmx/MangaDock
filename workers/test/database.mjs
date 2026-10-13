@@ -303,7 +303,7 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 7);
+    assert.equal(first.applied.length, 8);
     const hash = (
       await client.execute("SELECT password_hash FROM users WHERE id='admin'")
     ).rows[0].password_hash;

@@ -1,5 +1,7 @@
 import { MAX_JOB_ATTEMPTS, MAX_REMOTE_POLLS, retryDelay } from "./downloads";
-import { databasePaused } from "./database-budget";
+import { cleanupStorage, cleanupUploads } from "./storage";
+import { loginGuard, type LoginGuard } from "./login-guard";
+import { databasePaused, databaseRetryAfter } from "./database-budget";
 import { DurableObject } from "cloudflare:workers";
 import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -8,9 +10,14 @@ import { publicUser } from "./public-user";
 import type { Database } from "./database";
 export { ApplicationService } from "./application";
 export interface Env {
+  COMPUTE_WAKE_TOKEN?: string;
+  COMPUTE_REF?: string;
+  LOGIN_GUARD?: LoginGuard;
   AUTH_SERVICE: DurableObjectNamespace;
   APPLICATION: DurableObjectNamespace;
   DB: Database;
+  DB_DAILY_REQUEST_LIMIT?: string;
+  DB_DAILY_STATEMENT_LIMIT?: string;
   DATABASE_PROVIDER?: "d1" | "turso";
   TURSO_DATABASE_URL?: string;
   TURSO_AUTH_TOKEN?: string;
@@ -157,15 +164,7 @@ export async function identity(request: Request, env: Env): Promise<Identity> {
       throw new HttpError(401, "认证信息无效");
     const name = credentials.slice(0, split),
       password = credentials.slice(split + 1);
-    const key = await hash("user:" + name),
-      window = Math.floor(now() / 900);
-    const attempt = await env.DB.prepare(
-      "INSERT INTO login_attempts(key,attempts,window) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN window=excluded.window THEN attempts+1 ELSE 1 END,window=excluded.window RETURNING attempts",
-    )
-      .bind(key, window)
-      .first<{ attempts: number }>();
-    if (!attempt || attempt.attempts > 5)
-      throw new HttpError(429, "登录尝试过多，请 15 分钟后重试");
+    await loginGuard(env, "check", name, request, basic);
     const row = await env.DB.prepare(
       "SELECT id AS user_id,username,role,can_download,can_view_adult,password_hash FROM users WHERE username=?",
     )
@@ -180,9 +179,7 @@ export async function identity(request: Request, env: Env): Promise<Identity> {
     });
     if (!response.ok || !((await response.json()) as { valid: boolean }).valid)
       throw new HttpError(401, "用户名或密码错误");
-    await env.DB.prepare("DELETE FROM login_attempts WHERE key=?")
-      .bind(key)
-      .run();
+    await loginGuard(env, "success", name, request, basic);
     return {
       user_id: row.user_id,
       username: row.username,
@@ -455,6 +452,7 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
       data.password.length > 512
     )
       throw new HttpError(400, "用户名或密码无效");
+    await loginGuard(env, "check", data.username, request);
     const loginLog = await env.DB.prepare(
       "INSERT INTO login_logs(username,ip_address,user_agent,success,created_at) VALUES (?,?,?,0,?) RETURNING id",
     )
@@ -465,24 +463,6 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
         now(),
       )
       .first<{ id: number }>();
-    // Count every attempt before expensive password work; D1 makes the budget shared across isolates.
-    const key = await hash(`user:${data.username}`),
-      ipKey = await hash(
-        `ip:${request.headers.get("CF-Connecting-IP") || "local"}`,
-      ),
-      window = Math.floor(now() / 900);
-    for (const [budgetKey, limit] of [
-      [key, 5],
-      [ipKey, 30],
-    ] as const) {
-      const attempt = await env.DB.prepare(
-        "INSERT INTO login_attempts(key, attempts, window) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN window=excluded.window THEN attempts+1 ELSE 1 END, window=excluded.window RETURNING attempts",
-      )
-        .bind(budgetKey, window)
-        .first<{ attempts: number }>();
-      if (!attempt || attempt.attempts > limit)
-        throw new HttpError(429, "登录尝试过多，请 15 分钟后再试");
-    }
     const user = await env.DB.prepare("SELECT * FROM users WHERE username=?")
       .bind(data.username)
       .first<{
@@ -519,11 +499,8 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
         csrf,
         now() + 604800,
       ),
-      env.DB.prepare("DELETE FROM login_attempts WHERE key IN (?,?)").bind(
-        key,
-        ipKey,
-      ),
     ]);
+    await loginGuard(env, "success", data.username, request);
     const next =
       typeof data.next === "string" &&
       data.next.startsWith("/") &&
@@ -812,7 +789,10 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
     return env.ASSETS.fetch(request);
   return applicationStub(env, "web").fetch(request);
 }
-function applicationStub(env: Env, name: "web" | "jobs") {
+function applicationStub(
+  env: Env,
+  name: "web" | "jobs" | "login" | "compute" | "scheduler",
+) {
   return env.APPLICATION.get(
     env.APPLICATION.idFromName(name),
     env.DATABASE_PROVIDER === "turso" ? { locationHint: "apac" } : undefined,
@@ -839,7 +819,22 @@ export default {
         )
       )
         response = await env.ASSETS.fetch(request);
-      else response = await applicationStub(env, "web").fetch(request);
+      else
+        response = await applicationStub(
+          env,
+          path.startsWith("/api/compute-ready")
+            ? "scheduler"
+            : path.startsWith("/api/admin/compute/") ||
+                path.startsWith("/api/admin/uploads") ||
+                path === "/api/admin/maintenance"
+              ? "compute"
+              : request.method === "POST" &&
+                  ["/login", "/api/auth/login", "/api/v1/auth/login"].includes(
+                    path,
+                  )
+                ? "login"
+                : "web",
+        ).fetch(request);
     } catch (error) {
       if (!(error instanceof HttpError))
         console.error(
@@ -882,9 +877,11 @@ export default {
       let ok = false;
       try {
         const result = await applicationStub(env, "jobs").fetch(
-          message.body.kind === "comic"
-            ? "https://jobs.internal/run"
-            : "https://jobs.internal/run-novel",
+          message.body.kind === "storage-gc"
+            ? "https://jobs.internal/storage-gc"
+            : message.body.kind === "comic"
+              ? "https://jobs.internal/run"
+              : "https://jobs.internal/run-novel",
           { method: "POST", body: JSON.stringify({ id: message.body.id }) },
         );
         ok = result.ok;
@@ -906,6 +903,8 @@ export default {
   },
 };
 export async function maintenance(env: Env) {
+  await cleanupUploads(env);
+  await cleanupStorage(env);
   await scheduleUpdates(env);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(now()),
@@ -1003,6 +1002,11 @@ export async function pilotRoute(
         : error instanceof HttpError
           ? error.status
           : 500,
+      databasePaused(error)
+        ? { "Retry-After": String(databaseRetryAfter(error)) }
+        : error instanceof HttpError && error.status === 429
+          ? { "Retry-After": "900" }
+          : {},
     );
   }
 }

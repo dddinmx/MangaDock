@@ -48,3 +48,16 @@ class CompleteMigrationTests(unittest.TestCase):
                     image.verify()
 
 if __name__=='__main__':unittest.main()
+
+class BoundedComputeTests(unittest.TestCase):
+    def test_job_timeout_terminates_child_process(self):
+        import time
+        class Client:
+            def request(self,*args,**kwargs):return {'data':{'kind':'cover','lease_token':'synthetic'}}
+        with tempfile.TemporaryDirectory() as temporary,patch.object(compute,'process',side_effect=lambda *args:time.sleep(5)):
+            with self.assertRaises(TimeoutError):compute.process_bounded(Client(),{'id':'test'},Path(temporary),0.05)
+    def test_successful_child_returns_only_result(self):
+        class Client:
+            def request(self,*args,**kwargs):return {'data':{'kind':'cover','lease_token':'synthetic'}}
+        with tempfile.TemporaryDirectory() as temporary,patch.object(compute,'process',return_value={'pages':2}):
+            self.assertEqual(compute.process_bounded(Client(),{'id':'test'},Path(temporary),2),{'pages':2})

@@ -1,4 +1,5 @@
 import { HttpError, now, identity, type Env, type Identity } from "./index";
+import { releaseReservation } from "./storage";
 import { date } from "./render";
 export type Row = Record<string, any>;
 export const all = async (env: Env, sql: string, ...args: any[]) =>
@@ -169,7 +170,12 @@ export async function novels(env: Env, user: Identity): Promise<Row[]> {
     fanqie_book_id: /^\d{8,24}$/.test(b.source_id) ? b.source_id : "",
   }));
 }
-export async function reserve(env: Env, key: string, size: number) {
+export async function reserve(
+  env: Env,
+  key: string,
+  size: number,
+  owner = crypto.randomUUID(),
+) {
   if (!Number.isSafeInteger(size) || size < 0)
     throw new HttpError(502, "文件长度无效");
   const existing = await one(
@@ -179,14 +185,31 @@ export async function reserve(env: Env, key: string, size: number) {
   );
   if (existing) {
     if (existing.size !== size) throw new HttpError(409, "存储预留冲突");
-    return;
+    if (existing.state === "stored") return null;
+    if (existing.owner && existing.owner !== owner)
+      throw new HttpError(409, "文件正在上传，请稍后重试");
+    const claimed = await env.DB.prepare(
+      "UPDATE storage_ledger SET owner=? WHERE key=? AND state='reserved' AND (owner IS NULL OR owner=?) RETURNING key",
+    )
+      .bind(owner, key, owner)
+      .first();
+    if (!claimed) throw new HttpError(409, "存储预留冲突");
+    return owner;
   }
   const row = await env.DB.prepare(
-    `INSERT INTO storage_ledger(key,size,created_at) SELECT ?,?,? FROM storage_totals WHERE id=1 AND book_bytes+ledger_bytes-overlap_bytes+reservation_bytes+?<=? RETURNING key`,
+    `INSERT INTO storage_ledger(key,size,created_at,owner) SELECT ?,?,?,? FROM storage_totals WHERE id=1 AND book_bytes+ledger_bytes-overlap_bytes+reservation_bytes+?<=? RETURNING key`,
   )
-    .bind(key, size, now(), size, Number(env.MAX_LIBRARY_BYTES) || 256000000)
+    .bind(
+      key,
+      size,
+      now(),
+      owner,
+      size,
+      Number(env.MAX_LIBRARY_BYTES) || 256000000,
+    )
     .first();
   if (!row) throw new HttpError(507, "书库已达到存储预算上限，未写入文件");
+  return owner;
 }
 export async function putBytes(
   env: Env,
@@ -194,9 +217,20 @@ export async function putBytes(
   bytes: Uint8Array,
   contentType: string,
 ) {
-  await reserve(env, key, bytes.byteLength);
-  await env.LIBRARY.put(key, bytes, { httpMetadata: { contentType } });
-  await run(env, "UPDATE storage_ledger SET state='stored' WHERE key=?", key);
+  const owner = await reserve(env, key, bytes.byteLength);
+  if (!owner) return;
+  try {
+    await env.LIBRARY.put(key, bytes, { httpMetadata: { contentType } });
+    await run(
+      env,
+      "UPDATE storage_ledger SET state='stored',owner=NULL WHERE key=? AND owner=?",
+      key,
+      owner,
+    );
+  } catch (error) {
+    await releaseReservation(env, key, owner).catch(() => {});
+    throw error;
+  }
 }
 export async function stored(
   env: Env,

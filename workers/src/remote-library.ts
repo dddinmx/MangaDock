@@ -1,4 +1,4 @@
-import { inflateSync } from "fflate";
+import { Inflate } from "fflate";
 import { HttpError, type Env } from "./index";
 import { one, run, putBytes, type Row } from "./library";
 import { webdavRequest } from "./integrations";
@@ -163,6 +163,30 @@ export async function remoteManifest(env: Env, chapter: Row) {
   );
   return pages;
 }
+export function boundedInflate(compressed: Uint8Array, expected: number) {
+  if (!Number.isSafeInteger(expected) || expected < 1 || expected > 20971520)
+    throw new HttpError(422, "CBZ 图片长度无效");
+  const output = new Uint8Array(expected);
+  let size = 0;
+  const decoder = new Inflate((chunk) => {
+    size += chunk.length;
+    if (size > expected) throw new HttpError(422, "CBZ 图片超过解压上限");
+    output.set(chunk, size - chunk.length);
+  });
+  // Small input chunks bound each inflate step, including a forged directory size.
+  try {
+    for (let offset = 0; offset < compressed.length; offset += 256)
+      decoder.push(
+        compressed.subarray(offset, offset + 256),
+        offset + 256 >= compressed.length,
+      );
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(422, "CBZ 图片解压失败");
+  }
+  if (size !== expected) throw new HttpError(422, "CBZ 图片长度不一致");
+  return output;
+}
 export async function remotePage(env: Env, chapter: Row, page: Row) {
   const header = await range(env, chapter, page.offset, page.offset + 29),
     view = new DataView(header.buffer);
@@ -171,7 +195,10 @@ export async function remotePage(env: Env, chapter: Row, page: Row) {
   const start =
       page.offset + 30 + view.getUint16(26, true) + view.getUint16(28, true),
     compressed = await range(env, chapter, start, start + page.compressed - 1),
-    bytes = page.method === 8 ? inflateSync(compressed) : compressed;
+    bytes =
+      page.method === 8
+        ? boundedInflate(compressed, page.original)
+        : compressed;
   if (bytes.length !== page.original || crc32(bytes) !== page.crc)
     throw new HttpError(422, "CBZ 图片校验失败");
   const mime = /\.png$/i.test(page.name)

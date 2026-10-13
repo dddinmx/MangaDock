@@ -1097,6 +1097,7 @@
     <!-- 屏幕点击唤醒区域 -->
     <div class="screen-click-trigger" id="screenClickTrigger"></div>
 
+    <script src="{{ asset_url('js/progress-sync.js') }}"></script>
     <script>
         // 全局变量
         const comicName = {{ task.comic_name|tojson }};
@@ -2524,42 +2525,16 @@
             });
         }
 
-        function postProgress(saveData, keepalive = false) {
-            return fetch("{{ url_for('save_progress') }}", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken
-                },
-                credentials: 'include', // 确保携带认证信息
-                body: saveData,
-                keepalive
-            });
-        }
-
+        const progressSync = window.MangaDockProgressSync({
+            url: "{{ url_for('save_progress') }}", csrf: csrfToken,
+            key: 'mangadock-pending-progress:' + {{ current_user.id|tojson }} + ':' + comicName,
+            onSaved: snapshot => {
+                if (snapshot.reading_session_id === readingSessionId) reportedReadingSeconds = Math.max(reportedReadingSeconds, snapshot.reading_time || 0);
+            }
+        });
         function submitProgressSnapshot({ keepalive = false, includeReadingTime = false } = {}) {
             if (chapters.length === 0) return;
-
-            const readingSeconds = includeReadingTime ? getAccumulatedReadingSeconds() : 0;
-            if (includeReadingTime && readingSeconds > 0) {
-                const previousReportedSeconds = reportedReadingSeconds;
-                reportedReadingSeconds = Math.max(reportedReadingSeconds, readingSeconds);
-                const saveData = buildProgressPayload(true);
-                postProgress(saveData, keepalive).catch(err => {
-                    if (!keepalive) {
-                        reportedReadingSeconds = previousReportedSeconds;
-                    }
-                    console.error('保存阅读状态失败:', err);
-                });
-                return;
-            }
-
-            const saveData = buildProgressPayload(false);
-            postProgress(saveData, keepalive).then(response => {
-                console.log('保存进度响应:', response.status);
-            }).catch(err => {
-                console.error('保存进度失败:', err);
-            });
+            progressSync.save(JSON.parse(buildProgressPayload(includeReadingTime)), keepalive);
         }
 
         // 保存进度

@@ -26,9 +26,11 @@ type PipelineResponse = {
 };
 const KEY = "database-outbound-budget-v1";
 export class DatabasePausedError extends Error {
-  constructor() {
+  retryAfter: number;
+  constructor(retryAfter = 3600) {
     super("数据库保护已暂停请求，请稍后重试并检查额度");
     this.name = "DatabasePausedError";
+    this.retryAfter = retryAfter;
   }
 }
 export function databasePaused(error: unknown) {
@@ -38,13 +40,35 @@ export function databasePaused(error: unknown) {
   }
   return false;
 }
+export function databaseRetryAfter(error: unknown) {
+  for (let i = 0; i < 5 && error instanceof Error; i++) {
+    if (error instanceof DatabasePausedError) return error.retryAfter;
+    error = error.cause;
+  }
+  return 60;
+}
 export class DatabaseBudget {
   storage: BudgetStorage;
   clock: () => number;
   private pausedUntil = 0;
-  constructor(storage: BudgetStorage, clock = Date.now) {
+  private limits: { requests: number; statements: number };
+  constructor(
+    storage: BudgetStorage,
+    clock = Date.now,
+    limits: { requests?: number; statements?: number } = {},
+  ) {
     this.storage = storage;
     this.clock = clock;
+    this.limits = {
+      requests: limits.requests ?? 2000,
+      statements: limits.statements ?? 10000,
+    };
+    if (
+      !Object.values(this.limits).every(
+        (value) => Number.isSafeInteger(value) && value > 0 && value <= 1000000,
+      )
+    )
+      throw new Error("数据库保护上限必须是 1–1000000 的整数");
   }
   private async update(fn: (state: BudgetState, time: number) => void | false) {
     return this.storage.transaction(async (tx) => {
@@ -70,15 +94,18 @@ export class DatabaseBudget {
     });
   }
   async reserve(statements: number) {
-    if (this.pausedUntil > this.clock()) throw new DatabasePausedError();
+    if (this.pausedUntil > this.clock())
+      throw new DatabasePausedError(
+        Math.max(1, Math.ceil((this.pausedUntil - this.clock()) / 1000)),
+      );
     if (!Number.isSafeInteger(statements) || statements < 0)
       throw new DatabasePausedError();
     let reserved = false;
     const state = await this.update((state, time) => {
       if (
         state.blockedUntil > time ||
-        state.requests >= 2000 ||
-        state.statements + statements > 10000
+        state.requests >= this.limits.requests ||
+        state.statements + statements > this.limits.statements
       )
         return false;
       state.requests++;
@@ -90,7 +117,9 @@ export class DatabaseBudget {
         state.blockedUntil > this.clock()
           ? state.blockedUntil
           : Date.parse(state.day + "T00:00:00Z") + 86400000;
-      throw new DatabasePausedError();
+      throw new DatabasePausedError(
+        Math.max(1, Math.ceil((this.pausedUntil - this.clock()) / 1000)),
+      );
     }
   }
   async guardedFetch(input: RequestInfo, init: RequestInit = {}) {

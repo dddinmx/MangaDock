@@ -1,3 +1,6 @@
+import { notifyCompute } from "./compute-scheduler";
+import { assertComputeLease } from "./job-state";
+import { releaseReservation, queueGarbage } from "./storage";
 import { HttpError, now, json, hex, type Env, type Identity } from "./index";
 import {
   admin,
@@ -31,17 +34,14 @@ export async function uploadApi(
       throw new HttpError(400, "文件长度或校验和无效");
     let key: string;
     if (data.job_id) {
-      const job = await one(
+      const job = await assertComputeLease(
         env,
-        "SELECT id FROM compute_jobs WHERE id=? AND state='running'",
-        data.job_id,
+        String(data.job_id),
+        request.headers.get("X-Compute-Lease"),
       );
-      if (
-        !job ||
-        !["artifact", "original", "hero", "mobile"].includes(data.variant)
-      )
+      if (!["artifact", "original", "hero", "mobile"].includes(data.variant))
         throw new HttpError(400, "计算输出无效");
-      key = `compute/${job.id}/${data.variant}`;
+      key = `compute/${job.id}/${job.claim_token}/${data.variant}`;
     } else {
       const ext = String(data.extension || "").toLowerCase();
       if (!["epub", "cbz", "pdf", "jpg", "png", "webp", "json"].includes(ext))
@@ -51,24 +51,34 @@ export async function uploadApi(
     const existing = await env.LIBRARY.head(key);
     if (existing && existing.size === size)
       return json({ ok: true, data: { key, already_stored: true } });
-    await reserve(env, key, size);
-    const multipart = await env.LIBRARY.createMultipartUpload(key, {
+    const id = crypto.randomUUID();
+    const owner = await reserve(env, key, size, id);
+    let multipart: R2MultipartUpload | undefined;
+    try {
+      multipart = await env.LIBRARY.createMultipartUpload(key, {
         httpMetadata: { contentType: mime },
         customMetadata: { sha256: sha },
-      }),
-      id = crypto.randomUUID();
-    await run(
-      env,
-      "INSERT INTO uploads(id,user_id,object_key,upload_id,size,sha256,mime,created_at) VALUES (?,?,?,?,?,?,?,?)",
-      id,
-      user.user_id,
-      key,
-      multipart.uploadId,
-      size,
-      sha,
-      mime,
-      now(),
-    );
+      });
+      await run(
+        env,
+        "INSERT INTO uploads(id,user_id,object_key,upload_id,size,sha256,mime,created_at,compute_job_id,claim_token) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        id,
+        user.user_id,
+        key,
+        multipart.uploadId,
+        size,
+        sha,
+        mime,
+        now(),
+        data.job_id || null,
+        data.job_id ? request.headers.get("X-Compute-Lease") : null,
+      );
+    } catch (error) {
+      if (multipart) await multipart.abort().catch(() => {});
+      await releaseReservation(env, key, owner).catch(() => {});
+      throw error;
+    }
+    await notifyCompute(env, now() + 86400);
     return json({ ok: true, data: { id, key, part_size: 5242880 } });
   }
   const match = url.pathname.match(
@@ -77,6 +87,12 @@ export async function uploadApi(
   if (!match) throw new HttpError(404, "上传接口不存在");
   const row = await one(env, "SELECT * FROM uploads WHERE id=?", match[1]);
   if (!row) throw new HttpError(404, "上传不存在");
+  if (row.compute_job_id)
+    await assertComputeLease(
+      env,
+      row.compute_job_id,
+      request.headers.get("X-Compute-Lease"),
+    );
   if (match[2] === "file" && request.method === "GET")
     return stored(env, row.object_key, request);
   if (row.state !== "uploading") throw new HttpError(409, "上传已结束");
@@ -141,16 +157,25 @@ export async function uploadApi(
       )
     )
       throw new HttpError(409, "上传分段不完整");
+    if (row.compute_job_id)
+      await assertComputeLease(env, row.compute_job_id, row.claim_token);
     await multipart.complete(
       parts.map((p) => ({ partNumber: p.part_number, etag: p.etag })),
     );
+    if (row.compute_job_id)
+      await assertComputeLease(env, row.compute_job_id, row.claim_token).catch(
+        async (error) => {
+          await queueGarbage(env, row.object_key);
+          throw error;
+        },
+      );
     await env.DB.batch([
       env.DB.prepare("UPDATE uploads SET state='completed' WHERE id=?").bind(
         row.id,
       ),
       env.DB.prepare(
-        "UPDATE storage_ledger SET state='stored' WHERE key=?",
-      ).bind(row.object_key),
+        "UPDATE storage_ledger SET state='stored',owner=NULL WHERE key=? AND owner=?",
+      ).bind(row.object_key, row.id),
     ]);
     return json({
       ok: true,
@@ -159,14 +184,8 @@ export async function uploadApi(
   }
   if (match[2] === "abort" && request.method === "POST") {
     await multipart.abort();
-    await env.DB.batch([
-      env.DB.prepare("UPDATE uploads SET state='aborted' WHERE id=?").bind(
-        row.id,
-      ),
-      env.DB.prepare(
-        "DELETE FROM storage_ledger WHERE key=? AND state='reserved'",
-      ).bind(row.object_key),
-    ]);
+    await run(env, "UPDATE uploads SET state='aborted' WHERE id=?", row.id);
+    await releaseReservation(env, row.object_key, row.id);
     return json({ ok: true });
   }
   throw new HttpError(405, "不支持的上传操作");

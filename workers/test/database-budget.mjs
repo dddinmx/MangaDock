@@ -193,3 +193,23 @@ test("ordinary constraint errors do not lock out valid work", async () => {
     globalThis.fetch = original;
   }
 });
+test("configured budgets admit more normal traffic and expose recovery time", async () => {
+  const store = storage(),
+    clock = () => Date.UTC(2026, 9, 13, 23, 59),
+    budget = new DatabaseBudget(store, clock, {
+      requests: 10000,
+      statements: 50000,
+    });
+  for (let i = 0; i < 2100; i++) await budget.reserve(1);
+  await budget.reserve(47900);
+  await assert.rejects(
+    budget.reserve(1),
+    (error) => error instanceof DatabasePausedError && error.retryAfter === 60,
+  );
+});
+test("invalid budget configuration is rejected", () => {
+  assert.throws(() => new DatabaseBudget(storage(), Date.now, { requests: 0 }));
+  assert.throws(
+    () => new DatabaseBudget(storage(), Date.now, { statements: Infinity }),
+  );
+});
