@@ -24,7 +24,8 @@ for(const queue of await api('/queues?page=1&per_page=100')){
   if(!targetNames.has(queue.queue_name))continue;
   try {
     for(const consumer of await api(`/queues/${queue.queue_id}/consumers`)) {
-      if(consumer.type==='worker' && !targetNames.has(consumer.script_name))continue;
+      const script=consumer.script || consumer.script_name || consumer.service;
+      if(consumer.type==='worker' && script && !targetNames.has(script))continue;
       await api(`/queues/${queue.queue_id}/consumers/${consumer.consumer_id}`,'DELETE');
       result.paused.push({queue:queue.queue_name,kind:'queue-consumer'});
     }
