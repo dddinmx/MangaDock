@@ -13,9 +13,6 @@ on:
       source_chapter_ids:
         description: Optional comma-separated real chapter IDs
         required: false
-  push:
-    branches: ['migration/cloudflare-full']
-    paths: ['workers/**', '.github/workflows/workers-*']
 permissions:
   contents: read
 concurrency:
@@ -66,10 +63,13 @@ jobs:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
         run: node scripts/live-browser.mjs
       - name: Run pending cloud conversions and original-model cover super-resolution
+        id: cloud_compute
+        if: ${{ !cancelled() && hashFiles('workers/deployment.json') != '' }}
         run: |
           pip install -r scripts/cloud-compute-requirements.txt
           python scripts/cloud-compute.py --limit 10
       - name: Real comic source, private R2 pages and progress
+        if: ${{ !cancelled() && steps.cloud_compute.conclusion == 'success' }}
         run: node scripts/live-comic.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
         if: ${{ !cancelled() && hashFiles('workers/deployment.json') != '' }}

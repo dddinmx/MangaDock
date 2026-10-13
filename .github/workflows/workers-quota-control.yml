@@ -1,0 +1,29 @@
+name: Pause migration traffic and inspect D1 quota
+on:
+  push:
+    branches: ['migration/cloudflare-full']
+    paths: ['.github/workflows/workers-quota-control.yml', 'workers/scripts/pause-migration.mjs']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: workers-quota-control
+  cancel-in-progress: false
+jobs:
+  pause:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node workers/scripts/pause-migration.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: migration-quota-control
+          path: workers/quota-control-results.json
+          if-no-files-found: ignore
