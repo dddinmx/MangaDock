@@ -15,6 +15,8 @@ type Wake = {
   day: string;
   runs: number;
   next: number;
+  /** Sequence held by a probe. The daily run is counted only after dispatch succeeds. */
+  leasedSequence?: number;
 };
 export async function schedulerRequest(
   request: Request,
@@ -65,12 +67,23 @@ export async function schedulerRequest(
       const state = await tx.get<Wake>("compute-wake");
       if (!state?.pending) return { pending: false };
       const day = new Date().toISOString().slice(0, 10);
+      let dirty = false;
       if (state.day !== day) {
         state.day = day;
         state.runs = 0;
+        dirty = true;
       }
-      if (state.runs >= 24 || state.next > now()) return { pending: false };
-      state.runs++;
+      // `next` only stops a second probe. An abandoned hold expires with it
+      // and does not spend one of the 24 daily runs.
+      if (state.leasedSequence && state.next <= now()) {
+        state.leasedSequence = 0;
+        dirty = true;
+      }
+      if (state.runs >= 24 || state.next > now()) {
+        if (dirty) await tx.put("compute-wake", state);
+        return { pending: false };
+      }
+      state.leasedSequence = state.sequence;
       state.next = now() + 900;
       await tx.put("compute-wake", state);
       return {
@@ -86,13 +99,31 @@ export async function schedulerRequest(
     request.method === "POST" &&
     url.pathname === "/api/compute-ready/finished"
   ) {
-    const data = await request.json<{ sequence: number; pending: boolean }>();
+    const data = await request.json<{
+      sequence: number;
+      pending: boolean;
+      ok?: boolean;
+    }>();
     await storage.transaction(async (tx) => {
       const state = await tx.get<Wake>("compute-wake");
-      if (state && state.sequence === data.sequence && !data.pending) {
-        state.pending = false;
-        await tx.put("compute-wake", state);
+      if (!state) return;
+      const failed = data.ok === false;
+      if (state.leasedSequence && state.leasedSequence === data.sequence) {
+        if (failed) state.next = 0;
+        else {
+          const day = new Date().toISOString().slice(0, 10);
+          if (state.day !== day) {
+            state.day = day;
+            state.runs = 0;
+          }
+          state.runs++;
+        }
+        state.leasedSequence = 0;
       }
+      // A failed dispatch keeps the wake so a later probe can retry.
+      if (!failed && state.sequence === data.sequence && !data.pending)
+        state.pending = false;
+      await tx.put("compute-wake", state);
     });
     return json({ ok: true });
   }

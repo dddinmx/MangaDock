@@ -16,6 +16,15 @@ import { completeParent } from "./downloads";
 import { webdavRequest } from "./integrations";
 import { remotePage } from "./remote-library";
 import { chapterManifest } from "./media";
+const ORPHAN_COMPUTE =
+  "json_extract(compute_jobs.payload,'$.parent_job') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM comic_jobs p LEFT JOIN comic_jobs r ON r.id=p.parent_id WHERE p.id=json_extract(compute_jobs.payload,'$.parent_job') AND p.state IN ('queued','running','waiting','submitting') AND (r.id IS NULL OR r.state NOT IN ('cancelled','error')))";
+/** Parent-job cancellation is maintenance work, not the jobs poll. */
+export async function cancelOrphanedCompute(env: Env) {
+  await run(
+    env,
+    `UPDATE compute_jobs SET state='cancelled',claim_token=NULL,lease_until=0 WHERE state IN ('queued','running') AND ${ORPHAN_COMPUTE}`,
+  );
+}
 export async function queueCompute(
   env: Env,
   kind: string,
@@ -78,10 +87,6 @@ export async function computeApi(
   if (url.pathname === "/api/admin/compute/jobs" && request.method === "GET") {
     await run(
       env,
-      "UPDATE compute_jobs SET state='cancelled',claim_token=NULL,lease_until=0 WHERE state IN ('queued','running') AND json_extract(payload,'$.parent_job') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM comic_jobs p LEFT JOIN comic_jobs r ON r.id=p.parent_id WHERE p.id=json_extract(compute_jobs.payload,'$.parent_job') AND p.state IN ('queued','running','waiting','submitting') AND (r.id IS NULL OR r.state NOT IN ('cancelled','error')))",
-    );
-    await run(
-      env,
       "UPDATE compute_jobs SET state='error',message='云端转换重试次数已用尽',updated_at=? WHERE state IN ('queued','running') AND attempts>=3 AND lease_until<?",
       now(),
       now(),
@@ -96,7 +101,7 @@ export async function computeApi(
       )),
       data: await all(
         env,
-        "SELECT id,kind,payload,state FROM compute_jobs WHERE attempts<3 AND (state='queued' OR state='running' AND lease_until<?) ORDER BY created_at LIMIT 20",
+        `SELECT id,kind,payload,state FROM compute_jobs WHERE attempts<3 AND (state='queued' OR state='running' AND lease_until<?) AND NOT (${ORPHAN_COMPUTE}) ORDER BY created_at LIMIT 20`,
         now(),
       ),
     });
@@ -290,12 +295,14 @@ export async function computeApi(
       const key = `${outputPrefix}/artifact`;
       if (!(await env.LIBRARY.head(key)))
         throw new HttpError(409, "PDF 产物不存在");
-      await run(
-        env,
-        "UPDATE chapters SET object_key=?,format='pdf',state='ready' WHERE id=?",
-        key,
-        data.chapter_id,
-      );
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE chapters SET object_key=?,format='pdf',state='ready' WHERE id=?",
+        ).bind(key, data.chapter_id),
+        env.DB.prepare(
+          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=comics.id AND state='ready') WHERE id=(SELECT comic_id FROM chapters WHERE id=?)",
+        ).bind(data.chapter_id),
+      ]);
     } else if (job.kind === "legacy-source") {
       const uploaded = await env.LIBRARY.get(`${outputPrefix}/source`);
       if (uploaded && uploaded.size > 2097152)
@@ -334,14 +341,14 @@ export async function computeApi(
       const key = `${outputPrefix}/artifact`,
         object = await env.LIBRARY.head(key);
       if (!object) throw new HttpError(409, "章节文件未上传");
-      await run(
-        env,
-        "UPDATE chapters SET object_key=?,size=?,format=?,state='ready' WHERE id=?",
-        key,
-        object.size,
-        data.format,
-        data.chapter_id,
-      );
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE chapters SET object_key=?,size=?,format=?,state='ready' WHERE id=?",
+        ).bind(key, object.size, data.format, data.chapter_id),
+        env.DB.prepare(
+          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=comics.id AND state='ready') WHERE id=(SELECT comic_id FROM chapters WHERE id=?)",
+        ).bind(data.chapter_id),
+      ]);
     } else if (job.kind === "archive" || job.kind === "legacy-chapter") {
       if (job.kind === "archive") {
         const chapter = await one(
@@ -387,13 +394,14 @@ export async function computeApi(
         new TextEncoder().encode(JSON.stringify(manifest)),
         "application/json",
       );
-      await run(
-        env,
-        "UPDATE chapters SET manifest_key=?,page_count=?,state='ready' WHERE id=?",
-        key,
-        manifest.length,
-        data.chapter_id,
-      );
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE chapters SET manifest_key=?,page_count=?,state='ready' WHERE id=?",
+        ).bind(key, manifest.length, data.chapter_id),
+        env.DB.prepare(
+          "UPDATE comics SET chapter_count=(SELECT COUNT(*) FROM chapters WHERE comic_id=comics.id AND state='ready') WHERE id=(SELECT comic_id FROM chapters WHERE id=?)",
+        ).bind(data.chapter_id),
+      ]);
     }
     await assertComputeLease(originalEnv, id, token);
     await run(
