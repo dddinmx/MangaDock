@@ -78,7 +78,10 @@ try {
     JSON.stringify(
       {
         url,
-        source,
+        source: comic.source_url
+          ? new URL(comic.source_url).origin +
+            new URL(comic.source_url).pathname
+          : null,
         comic_id: comic.id,
         chapter_id: chapterId,
         pages,
