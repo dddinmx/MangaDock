@@ -161,7 +161,7 @@ async function diagnostics() {
         : { available: false, status: response.status };
   }
   const contentResponse = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${worker}/content`,
+    `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${worker}`,
     {
       headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
       redirect: "error",
