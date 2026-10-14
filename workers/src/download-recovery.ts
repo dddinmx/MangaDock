@@ -110,6 +110,14 @@ export async function reclaimDeferred(env: Env, ids: string[]) {
   return { recovered, pending };
 }
 
+export async function recoverExpiredNativePages(env: Env) {
+  return env.DB.prepare(
+    "UPDATE comic_jobs SET state='queued',lease_until=0,claim_token=NULL,updated_at=? WHERE id IN (SELECT j.id FROM comic_jobs j INDEXED BY comic_page_recovery JOIN comic_jobs p ON p.id=j.parent_id JOIN comic_jobs r ON r.id=p.parent_id WHERE j.kind='page' AND j.remote_poll_at IS NULL AND j.state IN ('queued','running') AND j.lease_until<? AND j.attempts<5 AND (j.state='running' OR j.updated_at<?) AND p.kind='chapter' AND p.state IN ('queued','running','waiting') AND r.kind='source' AND r.state IN ('queued','running','waiting') ORDER BY j.state,j.lease_until,j.updated_at,j.id LIMIT 100) RETURNING id,kind",
+  )
+    .bind(now(), now(), now() - 300)
+    .all<{ id: string; kind: string }>();
+}
+
 async function change(
   storage: DurableObjectStorage,
   selected: Held[],

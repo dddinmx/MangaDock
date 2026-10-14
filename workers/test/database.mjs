@@ -492,7 +492,10 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 15);
+    const expected = (await readdir(new URL("../migrations/", import.meta.url)))
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    assert.deepEqual(first.applied, expected);
     assert.ok(first.applied.includes("0009_comic_chapter_counts.sql"));
     assert.ok(
       (await client.execute("PRAGMA table_info(comics)")).rows.some(

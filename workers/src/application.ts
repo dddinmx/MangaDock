@@ -233,6 +233,7 @@ export class ApplicationService extends DurableObject<Env> {
           id: string;
           ids?: string[];
         };
+        let retry = 0;
         if (url.pathname === "/run-pages") {
           if (
             !Array.isArray(ids) ||
@@ -241,8 +242,15 @@ export class ApplicationService extends DurableObject<Env> {
             ids.some((id) => typeof id !== "string")
           )
             throw new HttpError(400, "Invalid page batch");
-          for (const pageId of ids) await runJob(this.env, pageId);
-        } else await runJob(this.env, id);
+          for (const pageId of ids)
+            retry = Math.max(retry, (await runJob(this.env, pageId)) || 0);
+        } else {
+          retry = (await runJob(this.env, id)) || 0;
+        }
+        if (retry > 0)
+          return json({ ok: false, deferred: true }, 503, {
+            "Retry-After": String(retry),
+          });
         return json({ ok: true });
       }
       if (

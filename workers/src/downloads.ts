@@ -351,7 +351,18 @@ export async function runJob(env: Env, id: string) {
   )
     .bind(token, now() + 300, now() + 300, now(), id, now(), MAX_JOB_ATTEMPTS)
     .first<Row>();
-  if (!job) return;
+  if (!job) {
+    // Redelivery during a previous claim must retain a durable wake. A 200
+    // here used to acknowledge the only message while a crashed lease lived.
+    const held = await one(
+      env,
+      "SELECT j.lease_until FROM comic_jobs j WHERE j.id=? AND j.state IN ('queued','running') AND j.attempts<? AND NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.id IN (j.parent_id,(SELECT parent_id FROM comic_jobs WHERE id=j.parent_id)) AND p.state IN ('completed','cancelled','error'))",
+      id,
+      MAX_JOB_ATTEMPTS,
+    );
+    if (held) return Math.max(1, Number(held.lease_until) - now() + 1);
+    return;
+  }
   env = fencedEnv(env, "comic_jobs", job);
   try {
     const user = await currentCreator(env, job),

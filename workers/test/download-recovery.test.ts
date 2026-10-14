@@ -5,6 +5,7 @@ import {
   recoveryAlarm,
   recoveryRequest,
   reclaimDeferred,
+  recoverExpiredNativePages,
 } from "../src/download-recovery";
 import { QueuePausedError } from "../src/queue-safety";
 const bindings = env as unknown as Env & {
@@ -268,4 +269,134 @@ describe("durable database-pause recovery", () => {
       expect(await state.storage.get("compute-wake")).toBeUndefined();
     });
   });
+});
+
+it("expired native executions recover before thirty minutes, preserving attempts and excluding live leases, backoff and stopped parents", async () => {
+  await bindings.DB.prepare(
+    "INSERT OR IGNORE INTO users(id,username,password_hash,role) VALUES ('lease-user','lease-user','unused','admin')",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES ('lease-root','lease-user','source','{}','waiting',1,1)",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,parent_id,kind,payload,state,created_at,updated_at) VALUES ('lease-chapter','lease-user','lease-root','chapter','{}','waiting',1,1),('lease-stopped-chapter','lease-user','lease-root','chapter','{}','cancelled',1,1)",
+  ).run();
+  for (const [id, state, lease, updated, attempts, parent] of [
+    ["expired", "running", now() - 1, now(), 2, "lease-chapter"],
+    ["lost", "queued", 0, now() - 301, 0, "lease-chapter"],
+    ["recent", "queued", 0, now(), 0, "lease-chapter"],
+    ["live", "running", now() + 120, now(), 1, "lease-chapter"],
+    ["backoff", "queued", now() + 120, now() - 900, 1, "lease-chapter"],
+    ["finished", "completed", 0, 1, 1, "lease-chapter"],
+    ["cancelled", "cancelled", 0, 1, 1, "lease-chapter"],
+    ["exhausted", "running", now() - 1, 1, 5, "lease-chapter"],
+    ["stopped", "running", now() - 1, 1, 1, "lease-stopped-chapter"],
+  ] as const)
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,parent_id,kind,payload,state,lease_until,attempts,claim_token,created_at,updated_at) VALUES (?,'lease-user',?,'page','{}',?,?,?,'old-execution',1,?)",
+    )
+      .bind("lease-" + id, parent, state, lease, attempts, updated)
+      .run();
+  const result = await recoverExpiredNativePages(bindings);
+  expect(
+    result.results
+      .filter((r) => r.id.startsWith("lease-"))
+      .map((r) => r.id)
+      .sort(),
+  ).toEqual(["lease-expired", "lease-lost"]);
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,attempts,lease_until,claim_token FROM comic_jobs WHERE id='lease-expired'",
+    ).first(),
+  ).toMatchObject({
+    state: "queued",
+    attempts: 2,
+    lease_until: 0,
+    claim_token: null,
+  });
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='cancelled' WHERE id='lease-root'",
+  ).run();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET lease_until=0 WHERE id='lease-live'",
+  ).run();
+  expect(
+    (await recoverExpiredNativePages(bindings)).results.some((r) =>
+      r.id.startsWith("lease-"),
+    ),
+  ).toBe(false);
+});
+
+it("redelivery during a live claim records recovery before acknowledging instead of silently dropping the job", async () => {
+  await bindings.DB.prepare(
+    "INSERT OR IGNORE INTO users(id,username,password_hash,role) VALUES ('held-user','held-user','unused','admin')",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES ('held-root','held-user','source','{}','waiting',1,1)",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,parent_id,kind,payload,state,created_at,updated_at) VALUES ('held-chapter','held-user','held-root','chapter','{}','waiting',1,1)",
+  ).run();
+  const lease = now() + 120;
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,parent_id,kind,payload,state,lease_until,claim_token,attempts,created_at,updated_at) VALUES ('held-leaf','held-user','held-chapter','page','{}','running',?,'live-token',1,1,1)",
+  )
+    .bind(lease)
+    .run();
+  const stub = bindings.APPLICATION.get(
+    bindings.APPLICATION.idFromName("lease-deferral-execution-test"),
+  );
+  const response = await stub.fetch("https://jobs.internal/run", {
+    method: "POST",
+    body: JSON.stringify({ id: "held-leaf" }),
+  });
+  expect(response.status).toBe(503);
+  expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(100);
+  let ack = 0,
+    retry = 0;
+  // Isolate live test instances from other files' lazy module recompilation.
+  const local = {
+    ...bindings,
+    APPLICATION: {
+      idFromName: (name: string) =>
+        bindings.APPLICATION.idFromName(
+          name === "jobs"
+            ? "lease-deferral-execution-test"
+            : name === "download-recovery"
+              ? "lease-deferral-record-test"
+              : name,
+        ),
+      get: (id: DurableObjectId) => bindings.APPLICATION.get(id),
+    },
+  } as unknown as Env;
+  await worker.queue(
+    {
+      messages: [
+        {
+          body: { kind: "comic-pages", ids: ["held-leaf"] },
+          attempts: 2,
+          ack: () => ack++,
+          retry: () => retry++,
+        },
+      ],
+    } as any,
+    local,
+  );
+  expect(ack).toBe(1);
+  expect(retry).toBe(0);
+  await runInDurableObject(
+    bindings.APPLICATION.get(
+      bindings.APPLICATION.idFromName("lease-deferral-record-test"),
+    ),
+    async (_instance, state) => {
+      const held = await state.storage.get<any>("download-hold/held-leaf");
+      expect(held.id).toBe("held-leaf");
+      expect(held.due).toBeGreaterThanOrEqual(lease * 1000);
+    },
+  );
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,attempts,claim_token FROM comic_jobs WHERE id='held-leaf'",
+    ).first(),
+  ).toMatchObject({ state: "running", attempts: 1, claim_token: "live-token" });
 });

@@ -2702,3 +2702,54 @@ it("administrator diagnostics remain available through the jobs component when t
     pause_reason: "request_limit",
   });
 });
+it("an R2 rejection before reading an image aborts the backpressured transfer and releases its reservation", async () => {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(1024 * 1024));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const key = "comics/stream-rejection/page";
+  const library = new Proxy(bindings.LIBRARY, {
+    get(target, property) {
+      if (property === "put")
+        return async () => {
+          throw new Error("synthetic R2 unavailable");
+        };
+      const value = (target as any)[property];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const { putStream } = await import("../src/storage");
+  let timer: any;
+  try {
+    await expect(
+      Promise.race([
+        putStream(
+          { ...bindings, LIBRARY: library },
+          key,
+          body,
+          1024 * 1024,
+          "image/png",
+        ),
+        new Promise((_resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("transfer remained stuck")),
+            1000,
+          );
+        }),
+      ]),
+    ).rejects.toThrow("文件传输失败");
+    expect(cancelled).toBe(true);
+    expect(
+      await bindings.DB.prepare("SELECT key FROM storage_ledger WHERE key=?")
+        .bind(key)
+        .first(),
+    ).toBeNull();
+  } finally {
+    clearTimeout(timer);
+  }
+});

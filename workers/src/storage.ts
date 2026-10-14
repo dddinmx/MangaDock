@@ -39,17 +39,21 @@ export async function putStream(
     await body.cancel();
     return;
   }
+  const abort = new AbortController();
+  let fixed: FixedLengthStream | undefined;
+  let transferring = true;
   try {
-    const fixed = new FixedLengthStream(length);
-    const results = await Promise.allSettled([
-      body.pipeTo(fixed.writable),
+    fixed = new FixedLengthStream(length);
+    // Fail immediately if R2 rejects without draining the readable side.
+    // allSettled could wait forever on the backpressured pipe in that case.
+    await Promise.all([
+      body.pipeTo(fixed.writable, { signal: abort.signal }),
       env.LIBRARY.put(key, fixed.readable, {
         httpMetadata: { contentType: mime },
         ...(sha256 ? { sha256 } : {}),
       }),
     ]);
-    if (results.some((r) => r.status === "rejected"))
-      throw new HttpError(502, "文件传输失败或长度不一致");
+    transferring = false;
     await run(
       env,
       "UPDATE storage_ledger SET state='stored',owner=NULL WHERE key=? AND owner=?",
@@ -57,7 +61,11 @@ export async function putStream(
       owner,
     );
   } catch (error) {
+    abort.abort();
+    // A rejected upload may not have locked its readable stream at all.
+    await fixed?.readable.cancel().catch(() => {});
     await releaseReservation(env, key, owner).catch(() => {});
+    if (transferring) throw new HttpError(502, "文件传输失败或长度不一致");
     throw error;
   }
 }
