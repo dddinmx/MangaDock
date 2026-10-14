@@ -81,10 +81,24 @@ test("active tasks keep polling across a fifteen-minute compute wait and stop af
   await page.goto("/tasks");
   await page.clock.runFor(10000);
   await expect.poll(() => requests).toBe(2);
+  // The route counter advances before the response is parsed and the next
+  // timer is installed. Await that timer before advancing mocked time.
+  const pollSettled = (scheduled: boolean) =>
+    expect
+      .poll(() =>
+        page.evaluate(() => ({
+          pending: eval("refreshPending"),
+          scheduled: eval("autoRefreshTimer") !== null,
+        })),
+      )
+      .toEqual({ pending: false, scheduled });
+  await pollSettled(true);
   await page.clock.fastForward(10 * 60000);
   await expect.poll(() => requests).toBe(3);
+  await pollSettled(true);
   await page.clock.fastForward(5 * 60000);
   await expect.poll(() => requests).toBe(4);
+  await pollSettled(false);
   await page.clock.fastForward(2 * 60000);
   expect(requests).toBe(4);
 });
