@@ -243,6 +243,11 @@ async function diagnostics() {
       completeness_check: code.includes(
         "aggregate.total !== aggregate.page_count",
       ),
+      web_budget_override: code.includes("DB_WEB_DAILY_REQUEST_LIMIT"),
+      component_snapshots:
+        /\[\s*"jobs",\s*"web",\s*"compute",\s*"login",\s*"updates"\s*\]/.test(
+          code,
+        ),
     };
   } else
     report.deployed_code = { available: false, status: contentResponse.status };
@@ -336,6 +341,7 @@ async function diagnostics() {
                     b.type === "plain_text" &&
                     [
                       "MAX_LIBRARY_BYTES",
+                      "COMPUTE_REF",
                       "DB_JOB_DAILY_REQUEST_LIMIT",
                       "DB_JOB_DAILY_STATEMENT_LIMIT",
                       "DB_WEB_DAILY_REQUEST_LIMIT",
