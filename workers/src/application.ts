@@ -1,5 +1,6 @@
 import { safeQueue, queueSend } from "./queue-safety";
 import { notifyCompute, schedulerRequest } from "./compute-scheduler";
+import { remotePollAlarm, remotePollRequest } from "./remote-polls";
 import { collectComicGarbage, cleanupStorage, cleanupUploads } from "./storage";
 import { LoginGuard } from "./login-guard";
 import { checkUpdates, dispatchUpdate, updateStatus } from "./updates";
@@ -116,11 +117,17 @@ export class ApplicationService extends DurableObject<Env> {
     this.rawDownloads = env.DOWNLOADS;
   }
   async alarm() {
+    if (this.ctx.id.equals(this.env.APPLICATION.idFromName("remote-polls"))) {
+      await remotePollAlarm(this.env, this.ctx.storage);
+      return;
+    }
     await notifyCompute(this.env);
   }
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
+      const pollWake = await remotePollRequest(request, this.ctx.storage);
+      if (pollWake) return pollWake;
       if (
         url.hostname === "queue.internal" &&
         url.pathname === "/send" &&

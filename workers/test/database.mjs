@@ -19,6 +19,70 @@ async function fixture() {
     );
   return { client, db: new TursoDatabase(client) };
 }
+test("remote polling migration adopts only active Fanqie comics and due queries use the partial index on libSQL", async () => {
+  const client = createClient({ url: "file::memory:", intMode: "number" });
+  try {
+    const directory = new URL("../migrations/", import.meta.url);
+    for (const name of (await readdir(directory))
+      .filter((name) => name.endsWith(".sql") && name < "0012")
+      .sort())
+      await client.executeMultiple(
+        await readFile(new URL(name, directory), "utf8"),
+      );
+    await client.execute(
+      "INSERT INTO users(id,username,password_hash) VALUES ('poll-user','poll-user','x')",
+    );
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    for (const [id, state, payload] of [
+      ["active", "queued", { provider: "fanqie", remote_id: "remote" }],
+      ["cancelled", "cancelled", { provider: "fanqie", remote_id: "remote" }],
+      ["importing", "waiting", { provider: "fanqie", remote_id: "remote" }],
+      ["native", "queued", { provider: "baozimh_org", remote_id: "remote" }],
+      ["unsubmitted", "queued", { provider: "fanqie" }],
+    ])
+      await client.execute({
+        sql: "INSERT INTO comic_jobs(id,user_id,kind,payload,state,lease_until,created_at,updated_at) VALUES (?,'poll-user','chapter',?,?,?,0,0)",
+        args: [id, JSON.stringify(payload), state, future],
+      });
+    await client.executeMultiple(
+      await readFile(new URL("0012_remote_polling.sql", directory), "utf8"),
+    );
+    const rows = (
+      await client.execute(
+        "SELECT id,remote_poll_at FROM comic_jobs ORDER BY id",
+      )
+    ).rows;
+    assert.equal(rows.find((r) => r.id === "active").remote_poll_at, future);
+    assert.ok(
+      rows
+        .filter((r) => r.id !== "active")
+        .every((r) => r.remote_poll_at === null),
+    );
+    for (const query of [
+      "SELECT id FROM comic_jobs WHERE remote_poll_at IS NOT NULL AND remote_poll_at<=0 ORDER BY remote_poll_at,id LIMIT 5",
+      "SELECT remote_poll_at FROM comic_jobs WHERE remote_poll_at IS NOT NULL ORDER BY remote_poll_at,id LIMIT 1",
+    ]) {
+      const plan = (await client.execute("EXPLAIN QUERY PLAN " + query)).rows
+        .map((r) => r.detail)
+        .join(" ");
+      assert.match(plan, /comic_jobs_remote_poll/);
+      assert.doesNotMatch(plan, /TEMP B-TREE/);
+    }
+    await client.execute(
+      "UPDATE comic_jobs SET state='cancelled' WHERE id='active'",
+    );
+    assert.equal(
+      (
+        await client.execute(
+          "SELECT remote_poll_at FROM comic_jobs WHERE id='active'",
+        )
+      ).rows[0].remote_poll_at,
+      null,
+    );
+  } finally {
+    client.close();
+  }
+});
 test("task timestamp migration preserves unknown history and tracks execution, finish and retry on libSQL", async () => {
   const client = createClient({ url: "file::memory:", intMode: "number" });
   try {
@@ -428,7 +492,7 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 11);
+    assert.equal(first.applied.length, 12);
     assert.ok(first.applied.includes("0009_comic_chapter_counts.sql"));
     assert.ok(
       (await client.execute("PRAGMA table_info(comics)")).rows.some(

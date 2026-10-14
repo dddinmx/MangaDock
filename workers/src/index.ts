@@ -1,6 +1,7 @@
 import { HttpError } from "./errors";
 export { HttpError } from "./errors";
 import { QueuePausedError } from "./queue-safety";
+import { recoverRemotePolls } from "./remote-polls";
 import {
   MAX_JOB_ATTEMPTS,
   MAX_REMOTE_POLLS,
@@ -976,6 +977,7 @@ export default {
   },
 };
 export async function maintenance(env: Env) {
+  await recoverRemotePolls(env);
   // A last callback may have committed its child and then lost database access
   // before aggregating its parent. Recover this independently of queue delivery.
   const waiting = await env.DB.prepare(
@@ -1025,7 +1027,7 @@ export async function maintenance(env: Env) {
     ).bind(now(), now(), MAX_JOB_ATTEMPTS),
   ]);
   const comicPending = await env.DB.prepare(
-    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id,kind",
+    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND remote_poll_at IS NULL AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id,kind",
   )
     .bind(now(), now(), stale)
     .all<{ id: string; kind: string }>();

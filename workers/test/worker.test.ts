@@ -21,6 +21,18 @@ const bindings = env as unknown as Env & {
 };
 const origin = "https://mangadock.test",
   password = "test-password-strong-2026";
+it("the real SQLite DO alarm uses the poller, not the compute wake handler", async () => {
+  const stub = bindings.APPLICATION.get(
+    bindings.APPLICATION.idFromName("remote-polls"),
+  );
+  await runInDurableObject(stub, async (instance, ctx) => {
+    await ctx.storage.deleteAll();
+    await ctx.storage.deleteAlarm();
+    await instance.alarm();
+    expect(await ctx.storage.getAlarm()).toBeNull();
+    expect(await ctx.storage.get("compute-wake")).toBeUndefined();
+  });
+});
 let encoded: string;
 beforeAll(async () => {
   await applyD1Migrations(bindings.DB, bindings.TEST_MIGRATIONS);
@@ -118,7 +130,7 @@ describe("Turso HTTP driver in actual workerd", () => {
   });
 });
 beforeEach(async () => {
-  for (const name of ["login", "web", "compute", "scheduler"])
+  for (const name of ["login", "web", "compute", "scheduler", "remote-polls"])
     await runInDurableObject(
       bindings.APPLICATION.get(bindings.APPLICATION.idFromName(name)),
       async (_instance, state) => state.storage.deleteAll(),
@@ -1160,7 +1172,7 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
     expect(JSON.parse(row.payload).polls).toBe(1);
     expect(row.lease_until).toBeGreaterThanOrEqual(time + 59);
     await runJob(testEnv, "poll");
-    expect(sent).toBe(1);
+    expect(sent).toBe(0);
     await bindings.DB.prepare(
       "UPDATE comic_jobs SET payload=?,lease_until=0 WHERE id='poll'",
     )
@@ -1178,7 +1190,7 @@ describe("comic downloads, cloud compute, migration and remote reading", () => {
         ).first<any>()
       ).state,
     ).toBe("error");
-    expect(sent).toBe(1);
+    expect(sent).toBe(0);
   });
   it("stops reclaiming a crashed compute job after three claims", async () => {
     const { cookie, payload } = await login(),

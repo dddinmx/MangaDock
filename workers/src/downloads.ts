@@ -4,6 +4,7 @@ import {
   QUEUE_PAUSED_MESSAGE,
 } from "./queue-safety";
 import { notifyCompute } from "./compute-scheduler";
+import { wakeRemotePolls } from "./remote-polls";
 import {
   fencedEnv,
   assertComicActive,
@@ -269,9 +270,9 @@ export async function completeParent(env: Env, rootId: string) {
 export async function runJob(env: Env, id: string) {
   const token = crypto.randomUUID();
   const job = await env.DB.prepare(
-    "UPDATE comic_jobs SET state='running',claim_token=?,lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<? AND attempts<? RETURNING *",
+    "UPDATE comic_jobs SET state='running',claim_token=?,lease_until=?,remote_poll_at=CASE WHEN remote_poll_at IS NOT NULL THEN ? ELSE NULL END,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<=? AND attempts<? RETURNING *",
   )
-    .bind(token, now() + 300, now(), id, now(), MAX_JOB_ATTEMPTS)
+    .bind(token, now() + 300, now() + 300, now(), id, now(), MAX_JOB_ATTEMPTS)
     .first<Row>();
   if (!job) return;
   env = fencedEnv(env, "comic_jobs", job);
@@ -708,7 +709,7 @@ export async function runJob(env: Env, id: string) {
   } catch (error) {
     const latest = await one(
       env,
-      "SELECT state FROM comic_jobs WHERE id=?",
+      "SELECT state,payload FROM comic_jobs WHERE id=?",
       job.id,
     );
     if (!latest || ["cancelled", "error", "completed"].includes(latest.state))
@@ -817,10 +818,24 @@ export async function runJob(env: Env, id: string) {
         id,
       );
       try {
-        await env.DOWNLOADS.send(
-          { id, kind: "comic" },
-          { delaySeconds: delay },
-        );
+        const data = JSON.parse(latest.payload);
+        if (
+          job.kind === "chapter" &&
+          data.provider === "fanqie" &&
+          data.remote_id
+        ) {
+          await run(
+            env,
+            "UPDATE comic_jobs SET remote_poll_at=? WHERE id=? AND state='queued'",
+            now() + delay,
+            id,
+          );
+          await wakeRemotePolls(env, now() + delay);
+        } else
+          await env.DOWNLOADS.send(
+            { id, kind: "comic" },
+            { delaySeconds: delay },
+          );
       } catch {}
     } else if (job.parent_id) {
       await run(
@@ -1089,16 +1104,14 @@ async function fanqieChapter(env: Env, job: Row, data: Row) {
     const delay = Math.min(retryDelay(data.polls), 300);
     await run(
       env,
-      "UPDATE comic_jobs SET state='queued',attempts=MAX(0,attempts-1),payload=?,lease_until=?,updated_at=?,message='番茄服务生成章节中' WHERE id=?",
+      "UPDATE comic_jobs SET state='queued',attempts=MAX(0,attempts-1),payload=?,lease_until=?,remote_poll_at=?,updated_at=?,message='番茄服务生成章节中' WHERE id=?",
       JSON.stringify(data),
+      now() + delay,
       now() + delay,
       now(),
       job.id,
     );
-    await env.DOWNLOADS.send(
-      { id: job.id, kind: "comic" },
-      { delaySeconds: delay },
-    );
+    await wakeRemotePolls(env, now() + delay);
     return;
   }
   await assertComicActive(env, job);

@@ -23,3 +23,13 @@ All runtime producers go through one persistent Durable Object admission counter
 The deployment smoke test reads task pages while paused. It does not prove future scheduled resume or fresh chapter completion. Stored messages are subject to Cloudflare retention; durable outbox rows are the recovery source after expired messages.
 
 The delivery-control helper also inspects obsolete staging Workers' schedules when pausing them. If present, it removes only those old schedules so they cannot keep producing messages while delivery is paused. Their data and readers are retained; the current Turso Worker timer is retained. This helper/fixture change does not change the deployed Worker JavaScript.
+
+## Upstream comic waiting without Queues
+
+Fanqie comic archives now wait on alarms in the existing SQLite `ApplicationService` Durable Object, using one `remote-polls` instance. Each sweep checks at most five due jobs, with at least 60 seconds between sweeps. Per-job delays remain 60, 120, 240 and then 300 seconds. The existing 30-check, two-hour and five-failed-attempt limits remain. This uses Durable Object requests/storage and Turso queries; it does not make all Cloudflare operations free of quota.
+
+Additive migration 0012 stores `remote_poll_at` and a partial `(remote_poll_at,id)` index. It adopts only active, already-submitted Fanqie comic jobs. Pending polling rows are excluded from Queue recovery. Cancelled, failed and importing/completed jobs leave the polling index automatically; cancelled tasks are never restarted. Old delayed Queue messages remain compatible and use the same lease fence, so they cannot duplicate a simultaneous alarm execution or resubmit the saved upstream job.
+
+The alarm stops when the index is empty. A watchdog, a serialized wake generation and the regular maintenance recovery handle interruptions and lost/racing wakes. Database pauses retain their retry time in DO storage; new wakes cannot shorten that pause. Other sweep errors back off to one hour rather than using immediate platform alarm retries.
+
+Regression tests assert zero Queue sends during repeated upstream waits, including transient failures, and verify bounded batches, cancellation, lost-wake recovery, racing wakes, submission deduplication, R2 storage and exactly one archive conversion job. Actual libSQL query plans use the new partial index without a temporary sort. Novel source polling is unchanged and remains disabled in staging; this change makes no request to the live novel API and requires no change to the external Fanqie server.
