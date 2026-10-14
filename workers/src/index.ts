@@ -1094,8 +1094,23 @@ export async function maintenance(env: Env) {
       "UPDATE comic_jobs SET state='error',lease_until=0,message='重试次数已用尽',updated_at=? WHERE state IN ('queued','running') AND lease_until<? AND attempts>=?",
     ).bind(now(), now(), MAX_JOB_ATTEMPTS),
   ]);
+  // A crashed final attempt has no callback. Propagate its finite failure so
+  // the source cannot remain waiting forever behind an exhausted image.
+  const failedChapters = await env.DB.prepare(
+    "UPDATE comic_jobs SET state='error',claim_token=NULL,lease_until=0,message='图片重试次数已用尽',updated_at=? WHERE id IN (SELECT c.id FROM comic_jobs r INDEXED BY comic_source_wait JOIN comic_jobs c INDEXED BY comic_jobs_parent ON c.parent_id=r.id WHERE r.kind='source' AND r.state IN ('queued','running','waiting') AND c.kind='chapter' AND c.state IN ('queued','running','waiting') AND EXISTS(SELECT 1 FROM comic_jobs p WHERE p.parent_id=c.id AND p.kind='page' AND p.state='error') ORDER BY c.updated_at,c.id LIMIT 4) RETURNING parent_id",
+  )
+    .bind(now())
+    .all<{ parent_id: string }>();
+  for (const rootId of new Set(
+    failedChapters.results.map((chapter) => chapter.parent_id),
+  ))
+    await env.DB.prepare(
+      "UPDATE comic_jobs SET state='error',claim_token=NULL,lease_until=0,message='图片下载失败，请查看日志后重试',updated_at=? WHERE id=? AND state IN ('queued','running','waiting')",
+    )
+      .bind(now(), rootId)
+      .run();
   const comicPending = await env.DB.prepare(
-    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs INDEXED BY comic_jobs_recovery_age WHERE state IN ('queued','running') AND remote_poll_at IS NULL AND lease_until<? AND updated_at<? ORDER BY updated_at,id LIMIT 1000) RETURNING id,kind",
+    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT j.id FROM comic_jobs j INDEXED BY comic_jobs_recovery_age WHERE j.state IN ('queued','running') AND j.remote_poll_at IS NULL AND j.lease_until<? AND j.updated_at<? AND NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.id IN (j.parent_id,(SELECT parent_id FROM comic_jobs WHERE id=j.parent_id)) AND p.state IN ('completed','cancelled','error')) ORDER BY j.updated_at,j.id LIMIT 1000) RETURNING id,kind",
   )
     .bind(now(), now(), stale)
     .all<{ id: string; kind: string }>();

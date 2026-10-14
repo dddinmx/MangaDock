@@ -2435,6 +2435,72 @@ function nativeImageReply() {
       },
     });
 }
+it("a normal image stays below ten SQL statements while actually persisting the image and fencing completion", async () => {
+  const { local } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='queued' WHERE id='native-good'",
+  ).run();
+  let statements = 0;
+  const wrap = (raw: any): any => ({
+    bind: (...args: any[]) => wrap(raw.bind(...args)),
+    first: (...args: any[]) => {
+      statements++;
+      return raw.first(...args);
+    },
+    all: (...args: any[]) => {
+      statements++;
+      return raw.all(...args);
+    },
+    run: (...args: any[]) => {
+      statements++;
+      return raw.run(...args);
+    },
+  });
+  const db = {
+    prepare: (sql: string) => wrap(bindings.DB.prepare(sql)),
+    batch: bindings.DB.batch.bind(bindings.DB),
+  };
+  nativeImageReply();
+  await runJob({ ...local, DB: db } as Env, "native-bad");
+  expect(statements).toBeLessThan(10);
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='native-bad'",
+    ).first("state"),
+  ).toBe("completed");
+  expect((await bindings.LIBRARY.head("fixture/missing-page"))?.size).toBe(
+    reservationPng.length,
+  );
+});
+it("stopped ancestors prevent image claims and maintenance re-enqueueing instead of repeatedly spending quota", async () => {
+  const { local, sends } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='error' WHERE id='native-root'",
+  ).run();
+  await runJob(local, "native-bad");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,attempts FROM comic_jobs WHERE id='native-bad'",
+    ).first(),
+  ).toEqual({ state: "queued", attempts: 0 });
+  const { maintenance } = await import("../src/index");
+  await maintenance(local);
+  expect(sends).toHaveLength(0);
+});
+it("a crashed final page attempt terminates its chapter and source rather than waiting forever", async () => {
+  const { local } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='running',attempts=5,lease_until=0 WHERE id='native-bad'",
+  ).run();
+  const { maintenance } = await import("../src/index");
+  await maintenance(local);
+  for (const id of ["native-bad", "native-child", "native-root"])
+    expect(
+      await bindings.DB.prepare("SELECT state FROM comic_jobs WHERE id=?")
+        .bind(id)
+        .first("state"),
+    ).toBe("error");
+});
 it.each([
   "legacy abandoned reservation",
   "expired leased reservation",

@@ -189,6 +189,31 @@ it("live page grandchildren report an active download until their lease expires"
     status: "waiting",
     status_label: "等待章节执行",
   });
+  await sql(
+    "UPDATE comic_jobs SET state='queued',message='队列免费预算已暂停，等待重置后自动恢复' WHERE id='timing-page'",
+  );
+  expect(await detail()).toMatchObject({
+    status: "waiting",
+    status_label: "等待队列额度重置",
+  });
+  await sql(
+    "UPDATE comic_jobs SET state='waiting',message='正在由云端兼容作业补下载图片' WHERE id='timing-page'",
+  );
+  await sql(
+    "INSERT INTO compute_jobs(id,kind,input_key,payload,created_at,updated_at) VALUES ('timing-compute','legacy-page','timing-input','{\"parent_job\":\"timing-page\"}',100,100)",
+  );
+  expect(await detail()).toMatchObject({
+    status: "waiting",
+    status_label: "等待云执行器",
+  });
+  await sql(
+    "UPDATE compute_jobs SET state='running',lease_until=? WHERE id='timing-compute'",
+    now() + 120,
+  );
+  expect(await detail()).toMatchObject({
+    status: "running",
+    status_label: "云端处理中",
+  });
 });
 
 it("cancellation preserves completed children and counters, and cannot cancel a completed task", async () => {

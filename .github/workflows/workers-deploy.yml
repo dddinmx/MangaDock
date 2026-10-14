@@ -62,7 +62,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: workers-deploy-${{ inputs.environment || 'staging' }}
+  group: workers-${{ inputs.verify_only && 'inspect' || 'rollout' }}-${{ inputs.environment || 'staging' }}
   cancel-in-progress: false
 jobs:
   deploy:

@@ -10,7 +10,7 @@ import {
   assertComicActive,
   cancelComputeForTask,
 } from "./job-state";
-import { putStream } from "./storage";
+import { putStream, queueGarbage } from "./storage";
 import { StorageBusyError } from "./errors";
 import { checkUpdates } from "./updates";
 import { runR2Scan } from "./scans";
@@ -353,7 +353,7 @@ export async function recoverNativeChapters(env: Env) {
 export async function runJob(env: Env, id: string) {
   const token = crypto.randomUUID();
   const job = await env.DB.prepare(
-    "UPDATE comic_jobs SET state='running',claim_token=?,lease_until=?,remote_poll_at=CASE WHEN remote_poll_at IS NOT NULL THEN ? ELSE NULL END,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<=? AND attempts<? RETURNING *",
+    "UPDATE comic_jobs AS j SET state='running',claim_token=?,lease_until=?,remote_poll_at=CASE WHEN remote_poll_at IS NOT NULL THEN ? ELSE NULL END,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<=? AND attempts<? AND NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.id IN (j.parent_id,(SELECT parent_id FROM comic_jobs WHERE id=j.parent_id)) AND p.state IN ('cancelled','error')) RETURNING *",
   )
     .bind(token, now() + 300, now() + 300, now(), id, now(), MAX_JOB_ATTEMPTS)
     .first<Row>();
@@ -767,8 +767,8 @@ export async function runJob(env: Env, id: string) {
           await putBytes(env, data.key, bytes, mime);
         }
       }
-      await assertComicActive(env, job);
       if (job.kind === "cover") {
+        await assertComicActive(env, job);
         await run(
           env,
           "UPDATE comics SET cover_key=? WHERE id=?",
@@ -780,13 +780,21 @@ export async function runJob(env: Env, id: string) {
           media_id: comic.id,
         });
       }
-      await run(
+      const published = await run(
         env,
         "UPDATE comic_jobs SET state='completed',size=?,lease_until=0,updated_at=? WHERE id=?",
         size,
         now(),
         id,
       );
+      // The completion UPDATE already contains the claim and ancestor fence.
+      // Avoid a redundant SELECT for every image; a rejected stale completion
+      // cannot publish the chapter. If deletion won the race, retain cleanup.
+      if (!published.meta.changes) {
+        if (!(await one(env, "SELECT 1 FROM comics WHERE id=?", comic.id)))
+          await queueGarbage(env, data.key);
+        return;
+      }
       if (job.kind === "page") {
         await completeNativeChapter(env, job.parent_id, data);
       } else if (job.parent_id) await completeParent(env, job.parent_id);
@@ -974,9 +982,16 @@ export async function tasks(
           SELECT CASE WHEN q.state='running' AND q.lease_until>? THEN 2 ELSE 1 END AS phase
           FROM comic_jobs child JOIN compute_jobs q ON json_extract(q.payload,'$.parent_job')=child.id
           WHERE child.parent_id=j.id AND child.state IN ('waiting','running') AND q.state IN ('queued','running')
+          UNION ALL
+          SELECT CASE WHEN q.state='running' AND q.lease_until>? THEN 2 ELSE 1 END AS phase
+          FROM comic_jobs child JOIN comic_jobs leaf ON leaf.parent_id=child.id
+          JOIN compute_jobs q ON json_extract(q.payload,'$.parent_job')=leaf.id
+          WHERE child.parent_id=j.id AND child.state IN ('queued','waiting','running')
+          AND leaf.state IN ('waiting','running') AND q.state IN ('queued','running')
         )
       ) ELSE NULL END AS cloud_phase,
-      EXISTS(SELECT 1 FROM comic_jobs held WHERE held.parent_id=j.id AND held.message='队列免费预算已暂停，等待重置后自动恢复' AND held.state IN ('queued','waiting')) AS queue_held,
+      (EXISTS(SELECT 1 FROM comic_jobs held WHERE held.parent_id=j.id AND held.message='队列免费预算已暂停，等待重置后自动恢复' AND held.state IN ('queued','waiting'))
+      OR EXISTS(SELECT 1 FROM comic_jobs child JOIN comic_jobs held ON held.parent_id=child.id WHERE child.parent_id=j.id AND child.state IN ('queued','waiting','running') AND held.message='队列免费预算已暂停，等待重置后自动恢复' AND held.state IN ('queued','waiting'))) AS queue_held,
       CASE WHEN j.state IN ('waiting','running') THEN EXISTS(
         SELECT 1 FROM comic_jobs child WHERE child.parent_id=j.id AND child.state IN ('running','submitting') AND child.lease_until>?
       ) OR EXISTS (
@@ -987,6 +1002,7 @@ export async function tasks(
       FROM comic_jobs j LEFT JOIN comics c ON c.id=j.comic_id
       WHERE j.kind='source' AND (?='admin' OR j.user_id=?) ${taskId ? "AND j.id=?" : ""}
       ORDER BY j.created_at DESC LIMIT 100`,
+    now(),
     now(),
     now(),
     now(),
