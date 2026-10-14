@@ -113,10 +113,13 @@ export class DatabaseBudget {
     const stored = await this.storage.get<BudgetState>(KEY);
     const requests = stored?.day === day ? stored.requests : 0;
     const statements = stored?.day === day ? stored.statements : 0;
+    const owned = this.credits.day === day ? this.credits : { requests: 0, statements: 0 };
+    const requestsExhausted = requests >= this.limits.requests && owned.requests === 0;
+    const statementsExhausted = statements >= this.limits.statements && owned.statements === 0;
     const pausedUntil = Math.max(
       this.pausedUntil,
       stored?.blockedUntil || 0,
-      requests >= this.limits.requests || statements >= this.limits.statements
+      requestsExhausted || statementsExhausted
         ? Date.parse(day + "T00:00:00Z") + 86400000
         : 0,
     );
@@ -124,6 +127,8 @@ export class DatabaseBudget {
       day,
       requests,
       statements,
+      unused_request_credits: owned.requests,
+      unused_statement_credits: owned.statements,
       request_limit: this.limits.requests,
       statement_limit: this.limits.statements,
       paused: pausedUntil > time,
@@ -131,9 +136,9 @@ export class DatabaseBudget {
       pause_reason:
         pausedUntil <= time
           ? null
-          : requests >= this.limits.requests
+          : requestsExhausted
             ? "request_limit"
-            : statements >= this.limits.statements
+            : statementsExhausted
               ? "statement_limit"
               : stored?.lastFailure?.kind || "temporary_hold",
       last_failure: stored?.lastFailure || null,

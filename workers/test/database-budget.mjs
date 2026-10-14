@@ -63,6 +63,18 @@ test("partial credit blocks stop at the exact ceiling and failed persistence gra
   await assert.rejects(broken.reserve(1), /write failed/);
   await assert.rejects(broken.reserve(1), /write failed/);
 });
+test("a snapshot does not pause usable leased credits, while reconstruction still loses them conservatively", async () => {
+  const store = storage();
+  const budget = new DatabaseBudget(store, Date.now, { requests: 64, statements: 64 }, 64);
+  await budget.reserve(1);
+  const active = await budget.snapshot();
+  assert.equal(active.requests, 64);
+  assert.equal(active.unused_request_credits, 63);
+  assert.equal(active.paused, false);
+  assert.equal((await new DatabaseBudget(store, Date.now, { requests: 64, statements: 64 }, 64).snapshot()).paused, true);
+  for (let i = 0; i < 63; i++) await budget.reserve(1);
+  assert.equal((await budget.snapshot()).paused, true);
+});
 test("reconstruction loses unused credits conservatively and a new UTC day discards old credits", async () => {
   let time = Date.UTC(2026, 9, 14, 23, 59);
   const store = storage();

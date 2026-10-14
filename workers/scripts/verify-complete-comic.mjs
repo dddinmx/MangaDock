@@ -15,6 +15,7 @@ if (
   );
 let cookie = "",
   csrf = "";
+let adminSession, validationUser;
 const auditPath = `/api/admin/comics/${comicId}/audit`;
 const report = {
   comic_id: comicId,
@@ -24,13 +25,17 @@ const report = {
   complete: false,
 };
 async function request(path, method = "GET", body) {
+  const session =
+    path.startsWith("/api/admin/") && adminSession
+      ? adminSession
+      : { cookie, csrf };
   const response = await fetch(url + path, {
     method,
     headers: {
       Origin: url,
-      Cookie: cookie,
+      Cookie: session.cookie,
       "Content-Type": "application/json",
-      "X-CSRFToken": csrf,
+      "X-CSRFToken": session.csrf,
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(60000),
@@ -48,7 +53,8 @@ const audit = (params) =>
     .then((r) => r.data);
 let originalProgress, browser;
 let checkId;
-const checkCommit = process.env.COMPLETE_COMIC_CHECK_SHA || process.env.GITHUB_SHA;
+const checkCommit =
+  process.env.COMPLETE_COMIC_CHECK_SHA || process.env.GITHUB_SHA;
 async function publishStatus(snapshot, conclusion) {
   // Update one CI check rather than polling the database from multiple tools.
   if (
@@ -113,6 +119,7 @@ try {
   });
   cookie = login.headers.get("set-cookie")?.split(";")[0] || "";
   csrf = (await login.json()).data.csrf_token;
+  adminSession = { cookie, csrf };
   // Full books take longer than a smoke test; keep the check finite without
   // treating a healthy multi-hour native download as a 45-minute failure.
   const deadline = Date.now() + 240 * 60000;
@@ -155,6 +162,28 @@ try {
   );
   const expectedIds = new Set(snapshot.source_chapter_ids);
   assert.equal(expectedIds.size, snapshot.source_chapter_ids.length);
+  // Progress checks must not overwrite the owner's reading while this long
+  // verification runs overnight. Use a removable ordinary reader scoped to
+  // the comic's existing group; administrative audits keep the admin session.
+  const detail = (await (await request(`/api/comics/${comicId}`)).json()).item;
+  const username = `md-verify-${crypto.randomUUID().slice(0, 12)}`;
+  const password = crypto.randomUUID() + crypto.randomUUID();
+  const created = await request("/api/v1/users", "POST", {
+    username,
+    password,
+    role: "user",
+    group_names: detail.group_name ? [detail.group_name] : [],
+  });
+  validationUser = (await created.json()).data;
+  assert.equal(validationUser.role, "user");
+  assert.match(String(validationUser.id), /^\d{1,20}$/);
+  const readerLogin = await request("/api/v1/auth/login", "POST", {
+    username,
+    password,
+  });
+  cookie = readerLogin.headers.get("set-cookie")?.split(";")[0] || "";
+  csrf = (await readerLogin.json()).data.csrf_token;
+  report.original_user_progress_untouched = true;
   assert.equal(snapshot.chapters.length, expectedIds.size);
   assert.deepEqual(
     new Set(snapshot.chapters.map((c) => String(c.source_id))),
@@ -323,6 +352,18 @@ try {
       })
       .catch(() => {
         report.original_progress_restored = false;
+        process.exitCode = 1;
+      });
+  }
+  if (validationUser && adminSession) {
+    cookie = adminSession.cookie;
+    csrf = adminSession.csrf;
+    await request(`/api/v1/users/${validationUser.id}`, "DELETE")
+      .then(() => {
+        report.validation_user_removed = true;
+      })
+      .catch(() => {
+        report.validation_user_removed = false;
         process.exitCode = 1;
       });
   }
