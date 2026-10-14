@@ -299,6 +299,31 @@ async function diagnostics() {
           args: [task.id],
         })
       ).rows;
+      const failures = (
+        await client.execute({
+          sql: "SELECT j.id,j.message,j.attempts,j.updated_at,json_extract(j.payload,'$.key') AS object_key,l.state AS reservation_state,l.size AS reserved_size,l.created_at AS reserved_at,(l.owner IS NOT NULL) AS reservation_owned FROM comic_jobs j LEFT JOIN storage_ledger l ON l.key=json_extract(j.payload,'$.key') WHERE j.parent_id IN (SELECT id FROM comic_jobs WHERE parent_id=?) AND j.kind='page' AND j.state='error' ORDER BY j.updated_at,j.id LIMIT 12",
+          args: [task.id],
+        })
+      ).rows;
+      const safeMessages = new Set([
+        "存储预留冲突",
+        "文件正在上传，请稍后重试",
+        "主任务已停止",
+        "作业租约已失效",
+        "图片超过 20 MB",
+        "来源未返回图片",
+        "文件传输失败或长度不一致",
+        "来源或存储暂时不可用",
+        "书库已达到存储预算上限，未写入文件",
+        "文件长度无效",
+      ]);
+      report.first_page_failures = failures.map(({ message, ...row }) => ({
+        ...row,
+        reason:
+          safeMessages.has(message) || /^图片 HTTP \d{3}$/.test(message)
+            ? message
+            : "unclassified",
+      }));
     }
     report.storage_totals = (
       await client.execute(
