@@ -78,6 +78,24 @@ if (
   throw new Error(
     "MANGADOCK_DB_DOWNLOAD_STATEMENTS must be an integer from 1 to 200000",
   );
+const webRequests = Number(
+  process.env.MANGADOCK_DB_WEB_REQUESTS ||
+    (target === "staging"
+      ? 200000
+      : process.env.MANGADOCK_DB_DAILY_REQUESTS || 10000),
+);
+const webStatements = Number(
+  process.env.MANGADOCK_DB_WEB_STATEMENTS ||
+    (target === "staging"
+      ? 200000
+      : process.env.MANGADOCK_DB_DAILY_STATEMENTS || 50000),
+);
+for (const [name, value] of [
+  ["MANGADOCK_DB_WEB_REQUESTS", webRequests],
+  ["MANGADOCK_DB_WEB_STATEMENTS", webStatements],
+])
+  if (!Number.isSafeInteger(value) || value < 1 || value > 200000)
+    throw new Error(name + " must be an integer from 1 to 200000");
 const libraryLimit = Number(
   process.env.MANGADOCK_MAX_LIBRARY_BYTES ||
     (target === "production" ? 8000000000 : 9000000000),
@@ -248,6 +266,8 @@ const config = {
     QUEUE_SEND_PAUSED_UNTIL: String(queuePause),
     DB_JOB_DAILY_REQUEST_LIMIT: String(downloadRequests),
     DB_JOB_DAILY_STATEMENT_LIMIT: String(downloadStatements),
+    DB_WEB_DAILY_REQUEST_LIMIT: String(webRequests),
+    DB_WEB_DAILY_STATEMENT_LIMIT: String(webStatements),
     DB_DAILY_REQUEST_LIMIT: process.env.MANGADOCK_DB_DAILY_REQUESTS || "10000",
     DB_DAILY_STATEMENT_LIMIT:
       process.env.MANGADOCK_DB_DAILY_STATEMENTS || "50000",

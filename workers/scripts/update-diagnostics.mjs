@@ -338,6 +338,8 @@ async function diagnostics() {
                       "MAX_LIBRARY_BYTES",
                       "DB_JOB_DAILY_REQUEST_LIMIT",
                       "DB_JOB_DAILY_STATEMENT_LIMIT",
+                      "DB_WEB_DAILY_REQUEST_LIMIT",
+                      "DB_WEB_DAILY_STATEMENT_LIMIT",
                       "DB_DAILY_REQUEST_LIMIT",
                       "DB_DAILY_STATEMENT_LIMIT",
                     ].includes(b.name),

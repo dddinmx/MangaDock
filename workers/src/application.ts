@@ -104,20 +104,25 @@ export class ApplicationService extends DurableObject<Env> {
   private rawDownloads: Queue<import("./index").QueueBody>;
   constructor(state: DurableObjectState, env: Env) {
     const jobs = state.id.equals(env.APPLICATION.idFromName("jobs"));
+    const web = state.id.equals(env.APPLICATION.idFromName("web"));
     const budget = new DatabaseBudget(state.storage, Date.now, {
       requests: Number(
         jobs
           ? env.DB_JOB_DAILY_REQUEST_LIMIT ||
               env.DB_DAILY_REQUEST_LIMIT ||
               10000
-          : env.DB_DAILY_REQUEST_LIMIT || 10000,
+          : (web && env.DB_WEB_DAILY_REQUEST_LIMIT) ||
+              env.DB_DAILY_REQUEST_LIMIT ||
+              10000,
       ),
       statements: Number(
         jobs
           ? env.DB_JOB_DAILY_STATEMENT_LIMIT ||
               env.DB_DAILY_STATEMENT_LIMIT ||
               50000
-          : env.DB_DAILY_STATEMENT_LIMIT || 50000,
+          : (web && env.DB_WEB_DAILY_STATEMENT_LIMIT) ||
+              env.DB_DAILY_STATEMENT_LIMIT ||
+              50000,
       ),
     });
     super(
@@ -313,9 +318,20 @@ export class ApplicationService extends DurableObject<Env> {
         request.method === "GET"
       ) {
         admin(user);
-        return this.env.APPLICATION.get(
-          this.env.APPLICATION.idFromName("jobs"),
-        ).fetch("https://jobs.internal/resource-status");
+        const components: Record<string, unknown> = {};
+        for (const name of ["jobs", "web", "compute", "login", "updates"]) {
+          if (this.ctx.id.equals(this.env.APPLICATION.idFromName(name))) {
+            components[name] = await this.databaseBudget.snapshot();
+            continue;
+          }
+          const snapshot = await this.env.APPLICATION.get(
+            this.env.APPLICATION.idFromName(name),
+          ).fetch("https://jobs.internal/resource-status");
+          components[name] = snapshot.ok
+            ? (await snapshot.json<{ database: unknown }>()).database
+            : { available: false, status: snapshot.status };
+        }
+        return json({ database: components.jobs, components });
       }
       if (
         url.pathname === "/api/admin/maintenance" &&

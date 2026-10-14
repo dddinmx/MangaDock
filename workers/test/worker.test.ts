@@ -2676,3 +2676,29 @@ it("one-page compute callbacks cannot publish after the source root was cancelle
   ).rejects.toThrow("任务已停止");
   expect(await bindings.LIBRARY.head("fixture/missing-page")).toBeNull();
 });
+it("administrator diagnostics remain available through the jobs component when the web budget is exhausted", async () => {
+  const web = bindings.APPLICATION.get(bindings.APPLICATION.idFromName("web"));
+  await runInDurableObject(web, async (_instance, state) =>
+    state.storage.put("database-outbound-budget-v1", {
+      day: new Date().toISOString().slice(0, 10),
+      requests: 10000,
+      statements: 12000,
+      blockedUntil: 0,
+      failures: 0,
+      failureWindow: Date.now(),
+    }),
+  );
+  const session = await login();
+  const response = await SELF.fetch(origin + "/api/admin/resource-status", {
+    headers: { Cookie: session.cookie },
+  });
+  expect(response.status).toBe(200);
+  const report = await response.json<any>();
+  expect(report.database.paused).toBe(false);
+  expect(report.components.web).toMatchObject({
+    requests: 10000,
+    statements: 12000,
+    paused: true,
+    pause_reason: "request_limit",
+  });
+});

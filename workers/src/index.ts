@@ -45,6 +45,8 @@ export interface Env {
   DB_DAILY_REQUEST_LIMIT?: string;
   DB_JOB_DAILY_REQUEST_LIMIT?: string;
   DB_JOB_DAILY_STATEMENT_LIMIT?: string;
+  DB_WEB_DAILY_REQUEST_LIMIT?: string;
+  DB_WEB_DAILY_STATEMENT_LIMIT?: string;
   DB_DAILY_STATEMENT_LIMIT?: string;
   DATABASE_PROVIDER?: "d1" | "turso";
   TURSO_DATABASE_URL?: string;
@@ -884,7 +886,8 @@ export default {
                 path.startsWith("/api/admin/uploads") ||
                 path === "/api/admin/maintenance"
               ? "compute"
-              : path.startsWith("/api/admin/downloads/")
+              : path.startsWith("/api/admin/downloads/") ||
+                  path === "/api/admin/resource-status"
                 ? "jobs"
                 : request.method === "POST" &&
                     [
