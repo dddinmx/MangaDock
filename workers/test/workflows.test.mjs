@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  chmodSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,30 +17,60 @@ const workflow = new URL(
   import.meta.url,
 );
 test("overnight verification executes only on its single UTC date and remains scoped to the existing staging task", () => {
-  const source = readFileSync(new URL("../../.github/workflows/workers-comic-overnight.yml", import.meta.url), "utf8");
+  const source = readFileSync(
+    new URL(
+      "../../.github/workflows/workers-comic-overnight.yml",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   assert.match(source, /environment: staging/);
   assert.match(source, /cron: "3 0 15 10 \*"/);
   assert.match(source, /ref: a5716b413b23a5fb7c5ba90830f8f29d6764e020/);
   assert.match(source, /COMPLETE_COMIC_ID: c_ee02de2c2194/);
-  assert.match(source, /DIAGNOSTIC_TASK_ID: c6fe02d4-c454-4111-b962-495120175313/);
+  assert.match(
+    source,
+    /DIAGNOSTIC_TASK_ID: c6fe02d4-c454-4111-b962-495120175313/,
+  );
   assert.match(source, /timeout-minutes: 300/);
   assert.match(source, /validation_user_removed.*True/);
   assert.match(source, /original_user_progress_untouched.*True/);
   assert.match(source, /complete-comic-\*\.png/);
-  assert.doesNotMatch(source, /run: .*live-comic\.mjs|test_novels|register-source/);
+  assert.doesNotMatch(
+    source,
+    /run: .*live-comic\.mjs|test_novels|register-source/,
+  );
   const root = mkdtempSync(join(tmpdir(), "mangadock-night-date-"));
   try {
     mkdirSync(join(root, "bin"));
     const date = join(root, "bin", "date");
     writeFileSync(date, '#!/bin/sh\nprintf "%s\\n" "$MANGADOCK_TEST_DATE"\n');
     chmodSync(date, 0o700);
-    for (const [day, active] of [["2026-10-14", false], ["2026-10-15", true], ["2027-10-15", false]]) {
+    for (const [day, active] of [
+      ["2026-10-14", false],
+      ["2026-10-15", true],
+      ["2027-10-15", false],
+    ]) {
       const output = join(root, "out-" + day);
-      const result = spawnSync("bash", ["-c", runBlocks(source)[0]], { encoding: "utf8", env: { ...process.env, PATH: join(root, "bin") + ":" + process.env.PATH, GITHUB_OUTPUT: output, MANGADOCK_TEST_DATE: day } });
+      const dateBlock = runBlocks(source).find((block) =>
+        block.includes("date -u +%F"),
+      );
+      assert.ok(dateBlock, "The real one-day guard must be present");
+      const result = spawnSync("bash", ["-c", dateBlock], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: join(root, "bin") + ":" + process.env.PATH,
+          GITHUB_OUTPUT: output,
+          MANGADOCK_TEST_DATE: day,
+        },
+      });
       assert.equal(result.status, 0, result.stderr);
       assert.equal(readFileSync(output, "utf8"), `active=${active}\n`);
     }
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function runBlocks(source) {
