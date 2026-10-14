@@ -1,4 +1,5 @@
 import { HttpError, now, type Env, type QueueBody } from "./index";
+import { PAGE_MESSAGE_SIZE } from "./downloads";
 import { QueuePausedError } from "./queue-safety";
 
 const PREFIX = "download-hold/",
@@ -201,9 +202,12 @@ export async function recoveryAlarm(env: Env, storage: DurableObjectStorage) {
     const messages: MessageSendRequest<QueueBody>[] = recovered
       .filter((row) => row.kind !== "page")
       .map((row) => ({ body: { kind: "comic", id: row.id } }));
-    for (let offset = 0; offset < pages.length; offset += 10)
+    for (let offset = 0; offset < pages.length; offset += PAGE_MESSAGE_SIZE)
       messages.push({
-        body: { kind: "comic-pages", ids: pages.slice(offset, offset + 10) },
+        body: {
+          kind: "comic-pages",
+          ids: pages.slice(offset, offset + PAGE_MESSAGE_SIZE),
+        },
       });
     if (messages.length) await env.DOWNLOADS.sendBatch(messages);
     await change(

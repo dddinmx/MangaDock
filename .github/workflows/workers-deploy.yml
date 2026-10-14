@@ -2,6 +2,14 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      complete_comic_id:
+        description: Staging-only full-book completion and R2 integrity acceptance; requires diagnostic_task_id
+        type: string
+        required: false
+      repair_storage_task_id:
+        description: One-time staging repair of the old fatal upload-reservation conflict; exact existing task UUID
+        type: string
+        required: false
       repair_native_task_id:
         description: One-time staging repair of an existing native task stopped by old whole-chapter fallback
         type: string
@@ -59,14 +67,14 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     environment: ${{ inputs.environment || 'staging' }}
     defaults:
       run:
         working-directory: workers
     env:
-      MANGADOCK_DB_DOWNLOAD_REQUESTS: '200000'
-      MANGADOCK_DB_DOWNLOAD_STATEMENTS: '200000'
+      MANGADOCK_DB_DOWNLOAD_REQUESTS: "200000"
+      MANGADOCK_DB_DOWNLOAD_STATEMENTS: "200000"
       MANGADOCK_DB_WEB_REQUESTS: ${{ inputs.environment != 'production' && '200000' || vars.MANGADOCK_DB_WEB_REQUESTS || vars.MANGADOCK_DB_DAILY_REQUESTS || '10000' }}
       MANGADOCK_DB_WEB_STATEMENTS: ${{ inputs.environment != 'production' && '200000' || vars.MANGADOCK_DB_WEB_STATEMENTS || vars.MANGADOCK_DB_DAILY_STATEMENTS || '50000' }}
       MANGADOCK_DB_DAILY_REQUESTS: ${{ vars.MANGADOCK_DB_DAILY_REQUESTS || '10000' }}
@@ -201,6 +209,22 @@ jobs:
           DEPLOY_TARGET: staging
           REPAIR_NATIVE_TASK_ID: ${{ inputs.repair_native_task_id }}
         run: node scripts/repair-native-fallback.mjs
+      - name: Repair only the exact existing storage-conflict task
+        if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.repair_storage_task_id && success() }}
+        env:
+          DEPLOY_TARGET: staging
+          REPAIR_NATIVE_MODE: storage
+          REPAIR_NATIVE_TASK_ID: ${{ inputs.repair_storage_task_id }}
+        run: node scripts/repair-native-fallback.mjs
+      - name: Verify the complete existing comic, every R2 image and the last chapter reader
+        if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.complete_comic_id && success() }}
+        env:
+          COMPLETE_COMIC_ID: ${{ inputs.complete_comic_id }}
+          DIAGNOSTIC_TASK_ID: ${{ inputs.diagnostic_task_id }}
+        run: node scripts/verify-complete-comic.mjs
+      - name: Report actual CPU after whole-book validation
+        if: ${{ inputs.environment == 'staging' && inputs.complete_comic_id && !cancelled() && hashFiles('workers/deployment.json') != '' }}
+        run: node scripts/cpu-report.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -217,6 +241,7 @@ jobs:
             workers/live-delete-results.json
             workers/cancel-repair-results.json
             workers/update-diagnostics.json
+            workers/complete-comic-results.json
             workers/test-results/live-task-*.png
             workers/test-results/task-waiting-*.png
             workers/test-results/live-comic-*.png

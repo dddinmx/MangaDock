@@ -115,7 +115,7 @@ it("database pauses are acknowledged rather than redelivered; transient failure 
     expect(acks).toBe(1 - expectedRetries);
   }
 });
-it("a 260-page chapter checkpoints creation and preserves ten IDs per queue message", async () => {
+it("a 260-page chapter checkpoints creation and packs fifty IDs per queue message", async () => {
   const bindings = env as unknown as Env & { TEST_MIGRATIONS: any };
   await applyD1Migrations(bindings.DB, bindings.TEST_MIGRATIONS);
   await bindings.DB.prepare(
@@ -220,7 +220,9 @@ it("a 260-page chapter checkpoints creation and preserves ten IDs per queue mess
       "SELECT id FROM comic_jobs WHERE parent_id='batch-job' AND kind='page'",
     ).all();
     expect(jobs.results).toHaveLength(260);
-    expect(messages.map((m) => m.ids?.length)).toEqual(Array(26).fill(10));
+    expect(messages.map((m) => m.ids?.length)).toEqual([
+      50, 50, 50, 50, 50, 10,
+    ]);
     expect(new Set(messages.flatMap((m) => m.ids)).size).toBe(260);
     fetchMock.assertNoPendingInterceptors();
   } finally {

@@ -94,10 +94,10 @@ describe("review regression fixes", () => {
       );
     }
     await maintenance(local);
-    expect(sent).toHaveLength(100);
+    expect(sent).toHaveLength(20);
     expect(
       sent.every(
-        (body) => body.kind === "comic-pages" && body.ids.length === 10,
+        (body) => body.kind === "comic-pages" && body.ids.length === 50,
       ),
     ).toBe(true);
     expect(new Set(sent.flatMap((body) => body.ids)).size).toBe(1000);

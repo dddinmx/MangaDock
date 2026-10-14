@@ -1,5 +1,6 @@
 import { HttpError, now, identity, type Env, type Identity } from "./index";
 import { releaseReservation } from "./storage";
+import { StorageBusyError } from "./errors";
 import { date } from "./render";
 export type Row = Record<string, any>;
 export const all = async (env: Env, sql: string, ...args: any[]) =>
@@ -311,31 +312,73 @@ export async function reserve(
     key,
   );
   if (existing) {
-    if (existing.size !== size) throw new HttpError(409, "存储预留冲突");
-    if (existing.state === "stored") return null;
-    if (existing.owner && existing.owner !== owner)
-      throw new HttpError(409, "文件正在上传，请稍后重试");
-    const claimed = await env.DB.prepare(
-      "UPDATE storage_ledger SET owner=? WHERE key=? AND state='reserved' AND (owner IS NULL OR owner=?) RETURNING key",
+    if (existing.state === "stored") {
+      const object = await env.LIBRARY.head(key);
+      if (object) {
+        if (object.size !== size) throw new HttpError(409, "存储预留冲突");
+        return null;
+      }
+      // A ledger entry alone is not proof that R2 still has the object.
+    }
+    const expires = Number(existing.lease_until) || existing.created_at + 600;
+    if (
+      existing.state === "reserved" &&
+      existing.owner &&
+      existing.owner !== owner &&
+      expires > now()
     )
-      .bind(owner, key, owner)
+      throw new StorageBusyError(Math.max(1, expires - now() + 1));
+    const claimed = await env.DB.prepare(
+      "UPDATE storage_ledger SET state='reserved',size=?,owner=?,created_at=?,lease_until=? WHERE key=? AND state=? AND COALESCE(owner,'')=? AND (state='stored' OR owner IS NULL OR owner=? OR COALESCE(NULLIF(lease_until,0),created_at+600)<=?) AND NOT EXISTS(SELECT 1 FROM uploads WHERE object_key=? AND state='uploading' AND id!=?) AND (SELECT book_bytes+ledger_bytes-overlap_bytes+reservation_bytes FROM storage_totals WHERE id=1)+MAX(?-size,0)<=? RETURNING key",
+    )
+      .bind(
+        size,
+        owner,
+        now(),
+        now() + 300,
+        key,
+        existing.state,
+        existing.owner || "",
+        owner,
+        now(),
+        key,
+        owner,
+        size,
+        Number(env.MAX_LIBRARY_BYTES) || 256000000,
+      )
       .first();
-    if (!claimed) throw new HttpError(409, "存储预留冲突");
+    if (!claimed) {
+      const totals = await one(
+        env,
+        "SELECT book_bytes+ledger_bytes-overlap_bytes+reservation_bytes AS used FROM storage_totals WHERE id=1",
+      );
+      if (
+        Number(totals?.used || 0) + Math.max(size - existing.size, 0) >
+        (Number(env.MAX_LIBRARY_BYTES) || 256000000)
+      )
+        throw new HttpError(507, "书库已达到存储预算上限，未写入文件");
+      throw new StorageBusyError(60);
+    }
     return owner;
   }
   const row = await env.DB.prepare(
-    `INSERT INTO storage_ledger(key,size,created_at,owner) SELECT ?,?,?,? FROM storage_totals WHERE id=1 AND book_bytes+ledger_bytes-overlap_bytes+reservation_bytes+?<=? RETURNING key`,
+    `INSERT INTO storage_ledger(key,size,created_at,owner,lease_until) SELECT ?,?,?,?,? FROM storage_totals WHERE id=1 AND book_bytes+ledger_bytes-overlap_bytes+reservation_bytes+?<=? ON CONFLICT(key) DO NOTHING RETURNING key`,
   )
     .bind(
       key,
       size,
       now(),
       owner,
+      now() + 300,
       size,
       Number(env.MAX_LIBRARY_BYTES) || 256000000,
     )
     .first();
-  if (!row) throw new HttpError(507, "书库已达到存储预算上限，未写入文件");
+  if (!row) {
+    if (await one(env, "SELECT 1 FROM storage_ledger WHERE key=?", key))
+      throw new StorageBusyError(60);
+    throw new HttpError(507, "书库已达到存储预算上限，未写入文件");
+  }
   return owner;
 }
 export async function putBytes(
@@ -350,7 +393,7 @@ export async function putBytes(
     await env.LIBRARY.put(key, bytes, { httpMetadata: { contentType } });
     await run(
       env,
-      "UPDATE storage_ledger SET state='stored',owner=NULL WHERE key=? AND owner=?",
+      "UPDATE storage_ledger SET state='stored',owner=NULL,lease_until=0 WHERE key=? AND owner=?",
       key,
       owner,
     );

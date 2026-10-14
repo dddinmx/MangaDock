@@ -11,6 +11,7 @@ import {
   cancelComputeForTask,
 } from "./job-state";
 import { putStream } from "./storage";
+import { StorageBusyError } from "./errors";
 import { checkUpdates } from "./updates";
 import { runR2Scan } from "./scans";
 import { imageResponse } from "./image-stream";
@@ -54,6 +55,7 @@ export const DEFAULT_MAX_CHAPTERS = 20;
 // A Turso query is an external fetch. Keep directory admission well below the
 // free plan's 50 external subrequests per invocation, including checkpoints.
 export const SOURCE_BATCH_SIZE = 4;
+export const PAGE_MESSAGE_SIZE = 50;
 /** Existing source parsers cap directories at 10,000 entries. 0 means the whole book. */
 export const HARD_MAX_CHAPTERS = 10000;
 export function clampMaxChapters(value: unknown) {
@@ -184,17 +186,21 @@ export async function createDownload(env: Env, user: Identity, data: Row) {
   });
 }
 async function currentCreator(env: Env, job: Row) {
-  const row = await one(env, "SELECT * FROM users WHERE id=?", job.user_id);
+  const row = await one(
+    env,
+    "SELECT u.*,p.state AS parent_state,r.state AS root_state FROM users u LEFT JOIN comic_jobs j ON j.id=? LEFT JOIN comic_jobs p ON p.id=j.parent_id LEFT JOIN comic_jobs r ON r.id=p.parent_id WHERE u.id=?",
+    job.id,
+    job.user_id,
+  );
   if (!row) throw new HttpError(403, "任务创建者已移除");
   const user = { ...row, user_id: row.id } as Identity;
   downloader(user);
   if (job.parent_id) {
-    const parent = await one(
-      env,
-      "SELECT state FROM comic_jobs WHERE id=?",
-      job.parent_id,
-    );
-    if (!parent || ["error", "cancelled"].includes(parent.state))
+    if (
+      !row.parent_state ||
+      ["error", "cancelled"].includes(row.parent_state) ||
+      ["error", "cancelled"].includes(row.root_state)
+    )
       throw new HttpError(409, "主任务已停止");
   }
   return user;
@@ -676,11 +682,11 @@ export async function runJob(env: Env, id: string) {
         now(),
       );
       const batches: MessageSendRequest<import("./index").QueueBody>[] = [];
-      for (let i = 0; i < pages.length; i += 10)
+      for (let i = 0; i < pages.length; i += PAGE_MESSAGE_SIZE)
         batches.push({
           body: {
             kind: "comic-pages",
-            ids: pages.slice(i, i + 10).map((row) => row.id),
+            ids: pages.slice(i, i + PAGE_MESSAGE_SIZE).map((row) => row.id),
           },
         });
       for (let i = 0; i < batches.length; i += 100) {
@@ -705,6 +711,13 @@ export async function runJob(env: Env, id: string) {
     if (["page", "cover"].includes(job.kind)) {
       const existing = await env.LIBRARY.head(data.key);
       let size = existing?.size || 0;
+      if (existing)
+        await run(
+          env,
+          "UPDATE storage_ledger SET state='stored',size=?,owner=NULL,lease_until=0 WHERE key=? AND state='reserved'",
+          size,
+          data.key,
+        );
       if (!existing) {
         let response = data.fanqie
           ? await source(env, data.url)
@@ -783,10 +796,14 @@ export async function runJob(env: Env, id: string) {
   } catch (error) {
     const latest = await one(
       env,
-      "SELECT state,payload FROM comic_jobs WHERE id=?",
+      "SELECT state,payload,claim_token FROM comic_jobs WHERE id=?",
       job.id,
     );
-    if (!latest || ["cancelled", "error", "completed"].includes(latest.state))
+    if (
+      !latest ||
+      latest.claim_token !== job.claim_token ||
+      ["cancelled", "error", "completed"].includes(latest.state)
+    )
       return;
     if (error instanceof HttpError && error.status === 425) {
       await run(
@@ -812,6 +829,7 @@ export async function runJob(env: Env, id: string) {
     }
     if (
       ["source", "chapter"].includes(job.kind) &&
+      !(error instanceof StorageBusyError) &&
       JSON.parse(job.payload).provider !== "fanqie" &&
       error instanceof HttpError &&
       error.status >= 500 &&
@@ -835,6 +853,7 @@ export async function runJob(env: Env, id: string) {
     if (
       job.kind === "page" &&
       job.attempts >= MAX_JOB_ATTEMPTS &&
+      !(error instanceof StorageBusyError) &&
       error instanceof HttpError &&
       error.status >= 500 &&
       error.status !== 507
@@ -881,7 +900,10 @@ export async function runJob(env: Env, id: string) {
     if (retry) {
       // Backoff is enforced in D1 via lease_until so neither the queue nor the
       // maintenance cron can claim the job again before the delay has passed.
-      const delay = retryDelay(job.attempts);
+      const delay = Math.max(
+        retryDelay(job.attempts),
+        error instanceof StorageBusyError ? error.retryAfter : 0,
+      );
       await run(
         env,
         "UPDATE comic_jobs SET lease_until=? WHERE id=? AND state='queued'",
@@ -907,7 +929,13 @@ export async function runJob(env: Env, id: string) {
             { id, kind: "comic" },
             { delaySeconds: delay },
           );
-      } catch {}
+      } catch (sendError) {
+        if (sendError instanceof QueuePausedError) {
+          await holdComic(env, id, sendError);
+          return sendError.retryAfter;
+        }
+        return delay;
+      }
     } else if (job.parent_id) {
       await run(
         env,

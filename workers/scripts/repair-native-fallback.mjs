@@ -1,5 +1,9 @@
 import { readFile } from "node:fs/promises";
 const id = process.env.REPAIR_NATIVE_TASK_ID;
+const repairPath =
+  process.env.REPAIR_NATIVE_MODE === "storage"
+    ? "repair-storage"
+    : "repair-native-fallback";
 if (!/^[a-f0-9-]{36}$/.test(id || ""))
   throw new Error("An exact existing task UUID is required");
 if (process.env.DEPLOY_TARGET !== "staging")
@@ -19,20 +23,17 @@ const response = await fetch(url + "/api/v1/auth/login", {
 if (!response.ok) throw new Error("Repair login failed: " + response.status);
 const cookie = response.headers.get("set-cookie")?.split(";")[0];
 const auth = await response.json();
-const result = await fetch(
-  url + `/api/admin/downloads/${id}/repair-native-fallback`,
-  {
-    method: "POST",
-    headers: {
-      Origin: url,
-      Cookie: cookie,
-      "Content-Type": "application/json",
-      "X-CSRFToken": auth.data.csrf_token,
-    },
-    body: "{}",
-    signal: AbortSignal.timeout(60000),
+const result = await fetch(url + `/api/admin/downloads/${id}/${repairPath}`, {
+  method: "POST",
+  headers: {
+    Origin: url,
+    Cookie: cookie,
+    "Content-Type": "application/json",
+    "X-CSRFToken": auth.data.csrf_token,
   },
-);
+  body: "{}",
+  signal: AbortSignal.timeout(60000),
+});
 const report = await result.json();
 if (!result.ok || !report.ok)
   throw new Error(

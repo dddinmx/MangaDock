@@ -4,6 +4,7 @@ import { QueuePausedError } from "./queue-safety";
 import { recoverRemotePolls } from "./remote-polls";
 import {
   MAX_JOB_ATTEMPTS,
+  PAGE_MESSAGE_SIZE,
   MAX_REMOTE_POLLS,
   retryDelay,
   completeParent,
@@ -954,16 +955,16 @@ export default {
           if (
             !Array.isArray(ids) ||
             !ids.length ||
-            ids.length > 10 ||
+            ids.length > PAGE_MESSAGE_SIZE ||
             ids.some((id) => typeof id !== "string")
           )
             throw new HttpError(400, "Invalid page batch");
           ok = true;
           const deferred: string[] = [];
           let retryAfter = 1;
-          // One Queue payload still holds ten IDs, but each page gets a fresh
-          // DO invocation and external-subrequest budget. A whole ten-page
-          // loop can exceed the free limit before its failure can be recorded.
+          // Pack page IDs without sharing their execution budget: every image
+          // runs in a fresh DO invocation. This reduces Queue operations
+          // while preserving the free external-subrequest limit per image.
           for (const id of ids) {
             try {
               const result = await applicationStub(env, "jobs").fetch(
@@ -1108,9 +1109,12 @@ export async function maintenance(env: Env) {
   ]
     .filter((job) => job.kind !== "page")
     .map((job) => ({ body: { id: job.id, kind: "comic" } }));
-  for (let i = 0; i < pageIds.length; i += 10)
+  for (let i = 0; i < pageIds.length; i += PAGE_MESSAGE_SIZE)
     messages.push({
-      body: { kind: "comic-pages", ids: pageIds.slice(i, i + 10) },
+      body: {
+        kind: "comic-pages",
+        ids: pageIds.slice(i, i + PAGE_MESSAGE_SIZE),
+      },
     });
   messages.push(...pending.results.map((body) => ({ body })));
   for (let offset = 0; offset < messages.length; offset += 100) {

@@ -81,6 +81,8 @@ import {
 } from "./integrations";
 import { computeApi, queueCompute } from "./compute";
 import { repairNativeFallback } from "./native-fallback-repair";
+import { repairNativeStorage } from "./native-storage-repair";
+import { comicAudit } from "./comic-audit";
 import { importApi } from "./imports";
 import { uploadApi } from "./uploads";
 import { mediaApi } from "./media";
@@ -311,6 +313,26 @@ export class ApplicationService extends DurableObject<Env> {
         });
       }
       const user = await csrfIdentity(request, this.env);
+      const audit = url.pathname.match(
+        /^\/api\/admin\/comics\/([a-zA-Z0-9_-]{1,100})\/audit$/,
+      );
+      if (audit && request.method === "GET") {
+        admin(user);
+        return json({
+          ok: true,
+          data: await comicAudit(this.env, audit[1], url.searchParams),
+        });
+      }
+      const storageRepair = url.pathname.match(
+        /^\/api\/admin\/downloads\/([a-zA-Z0-9_-]{1,100})\/repair-storage$/,
+      );
+      if (storageRepair && request.method === "POST") {
+        admin(user);
+        return json({
+          ok: true,
+          data: await repairNativeStorage(this.env, storageRepair[1]),
+        });
+      }
       const nativeRepair = url.pathname.match(
         /^\/api\/admin\/downloads\/([a-zA-Z0-9_-]{1,100})\/repair-native-fallback$/,
       );

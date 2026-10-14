@@ -1595,7 +1595,7 @@ import {
   taskAction as reviewTask,
 } from "../src/downloads";
 import { statistics as reviewStats } from "../src/reading";
-import { putBytes as reviewPut } from "../src/library";
+import { putBytes as reviewPut, reserve } from "../src/library";
 const reviewUser = {
   user_id: "admin",
   username: "admin",
@@ -2364,6 +2364,7 @@ it("resource diagnostics require an administrator and report persisted jobs limi
 });
 
 import { repairNativeFallback } from "../src/native-fallback-repair";
+import { repairNativeStorage } from "../src/native-storage-repair";
 async function nativePageFixture() {
   await comicFixture();
   await bindings.DB.prepare(
@@ -2417,6 +2418,172 @@ async function nativePageFixture() {
   } as unknown as Env;
   return { local, sends, manifest };
 }
+const reservationPng = Uint8Array.from(
+  atob(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGqkAAAAASUVORK5CYII=",
+  ),
+  (c) => c.charCodeAt(0),
+);
+function nativeImageReply() {
+  fetchMock
+    .get("https://c-nd3-1.6wm.top")
+    .intercept({ path: "/failure.jpg" })
+    .reply(200, reservationPng, {
+      headers: {
+        "content-type": "image/png",
+        "content-length": String(reservationPng.length),
+      },
+    });
+}
+it.each([
+  "legacy abandoned reservation",
+  "expired leased reservation",
+  "stored ledger without an object",
+])(
+  "finishes the native book after %s without dropping existing pages",
+  async (scenario) => {
+    const { local } = await nativePageFixture();
+    const time = Math.floor(Date.now() / 1000);
+    await bindings.DB.prepare(
+      "INSERT INTO storage_ledger(key,size,state,created_at,owner,lease_until) VALUES ('fixture/missing-page',?,?,?, ?,?)",
+    )
+      .bind(
+        reservationPng.length,
+        scenario.startsWith("stored") ? "stored" : "reserved",
+        time - 1800,
+        scenario.startsWith("stored") ? null : "abandoned-owner",
+        scenario.startsWith("expired") ? time - 1 : 0,
+      )
+      .run();
+    nativeImageReply();
+    await runJob(local, "native-bad");
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state FROM comic_jobs WHERE id='native-root'",
+      ).first("state"),
+    ).toBe("completed");
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state,attempts,size FROM comic_jobs WHERE id='native-good'",
+      ).first(),
+    ).toEqual({ state: "completed", attempts: 0, size: 4 });
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state,owner,lease_until FROM storage_ledger WHERE key='fixture/missing-page'",
+      ).first(),
+    ).toEqual({ state: "stored", owner: null, lease_until: 0 });
+    expect(
+      new Uint8Array(
+        await (await bindings.LIBRARY.get(
+          "fixture/missing-page",
+        ))!.arrayBuffer(),
+      ),
+    ).toEqual(reservationPng);
+  },
+);
+it("a live reservation defers only its page and does not terminate the book", async () => {
+  const { local, sends } = await nativePageFixture(),
+    time = Math.floor(Date.now() / 1000);
+  await bindings.DB.prepare(
+    "INSERT INTO storage_ledger(key,size,created_at,owner,lease_until) VALUES ('fixture/missing-page',?,?,'live-owner',?)",
+  )
+    .bind(reservationPng.length, time, time + 300)
+    .run();
+  nativeImageReply();
+  await runJob(local, "native-bad");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,attempts,message FROM comic_jobs WHERE id='native-bad'",
+    ).first(),
+  ).toEqual({
+    state: "queued",
+    attempts: 1,
+    message: "文件正在上传，请稍后重试",
+  });
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='native-root'",
+    ).first("state"),
+  ).toBe("waiting");
+  expect(sends[0].options.delaySeconds).toBeGreaterThanOrEqual(300);
+  expect(
+    await bindings.DB.prepare(
+      "SELECT owner FROM storage_ledger WHERE key='fixture/missing-page'",
+    ).first("owner"),
+  ).toBe("live-owner");
+});
+it("reservation refusal cancels the fetched image body instead of leaving a connection open", async () => {
+  const time = Math.floor(Date.now() / 1000);
+  await reserve(bindings, "fixture/live-transfer", 10, "live-owner");
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const { putStream } = await import("../src/storage");
+  await expect(
+    putStream(bindings, "fixture/live-transfer", body, 10, "image/png"),
+  ).rejects.toThrow("上传");
+  expect(cancelled).toBe(true);
+});
+it("comic integrity audits require an administrator and inspect R2 without changing download state", async () => {
+  await nativePageFixture();
+  const path = "/api/admin/comics/c_test/audit?task_id=native-root";
+  expect((await SELF.fetch(origin + path)).status).toBe(401);
+  const { cookie } = await login();
+  const response = await fullGet(path, cookie);
+  expect(response.status).toBe(200);
+  const data = ((await response.json()) as any).data;
+  expect(data.task.state).toBe("waiting");
+  expect(data.chapters).toHaveLength(1);
+  const manifest = (await (
+    await fullGet("/api/admin/comics/c_test/audit?chapter_id=ch_test", cookie)
+  ).json()) as any;
+  expect(manifest.data.keys).toEqual(["fixture/page", "fixture/missing-page"]);
+  await bindings.DB.prepare(
+    "UPDATE users SET role='user',can_download=0 WHERE id='admin'",
+  ).run();
+  expect((await fullGet(path, cookie)).status).toBe(403);
+});
+it("the storage-conflict repair preserves completed pages, is idempotent, and never revives cancellations", async () => {
+  const { local, sends } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='error',message='部分章节失败' WHERE id='native-root'",
+  ).run();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='error' WHERE id='native-child'",
+  ).run();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='error',attempts=1,message='文件正在上传，请稍后重试' WHERE id='native-bad'",
+  ).run();
+  expect(await repairNativeStorage(local, "native-root")).toMatchObject({
+    repaired: true,
+    pages: 1,
+    chapters: 1,
+  });
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,attempts FROM comic_jobs WHERE id='native-bad'",
+    ).first(),
+  ).toEqual({ state: "queued", attempts: 0 });
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,attempts FROM comic_jobs WHERE id='native-good'",
+    ).first(),
+  ).toEqual({ state: "completed", attempts: 0 });
+  expect(sends).toHaveLength(1);
+  expect(await repairNativeStorage(local, "native-root")).toEqual({
+    repaired: false,
+    already_repaired: true,
+  });
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='cancelled',payload=json_remove(payload,'$.native_storage_repaired') WHERE id='native-root'",
+  ).run();
+  await expect(repairNativeStorage(local, "native-root")).rejects.toThrow(
+    "只能修复",
+  );
+});
 it("a transient page error retries only that page; exhausted retries use one-page cloud fallback without cancelling siblings", async () => {
   const { local, sends } = await nativePageFixture();
   fetchMock

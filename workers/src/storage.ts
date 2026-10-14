@@ -12,7 +12,8 @@ export async function releaseReservation(
   if (object) {
     await run(
       env,
-      "UPDATE storage_ledger SET state='stored',owner=NULL WHERE key=? AND owner=?",
+      "UPDATE storage_ledger SET state='stored',size=?,owner=NULL,lease_until=0 WHERE key=? AND owner=?",
+      object.size,
       key,
       owner,
     );
@@ -34,7 +35,13 @@ export async function putStream(
   mime: string,
   sha256?: string,
 ) {
-  const owner = await reserve(env, key, length);
+  let owner: string | null;
+  try {
+    owner = await reserve(env, key, length);
+  } catch (error) {
+    await body.cancel().catch(() => {});
+    throw error;
+  }
   if (!owner) {
     await body.cancel();
     return;
@@ -42,21 +49,30 @@ export async function putStream(
   const abort = new AbortController();
   let fixed: FixedLengthStream | undefined;
   let transferring = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     fixed = new FixedLengthStream(length);
     // Fail immediately if R2 rejects without draining the readable side.
     // allSettled could wait forever on the backpressured pipe in that case.
-    await Promise.all([
-      body.pipeTo(fixed.writable, { signal: abort.signal }),
-      env.LIBRARY.put(key, fixed.readable, {
-        httpMetadata: { contentType: mime },
-        ...(sha256 ? { sha256 } : {}),
+    await Promise.race([
+      Promise.all([
+        body.pipeTo(fixed.writable, { signal: abort.signal }),
+        env.LIBRARY.put(key, fixed.readable, {
+          httpMetadata: { contentType: mime },
+          ...(sha256 ? { sha256 } : {}),
+        }),
+      ]),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          abort.abort();
+          reject(new HttpError(502, "文件传输超时"));
+        }, 120000);
       }),
     ]);
     transferring = false;
     await run(
       env,
-      "UPDATE storage_ledger SET state='stored',owner=NULL WHERE key=? AND owner=?",
+      "UPDATE storage_ledger SET state='stored',owner=NULL,lease_until=0 WHERE key=? AND owner=?",
       key,
       owner,
     );
@@ -67,6 +83,8 @@ export async function putStream(
     await releaseReservation(env, key, owner).catch(() => {});
     if (transferring) throw new HttpError(502, "文件传输失败或长度不一致");
     throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 const owned = (key: string) => /^(comics|compute|imports|fanqie)\//.test(key);
