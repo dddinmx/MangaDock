@@ -127,6 +127,8 @@ async function diagnostics() {
     ["application", "application_logs"],
     ["cron", "cron_logs"],
     ["error_type", "error_logs"],
+    ["LibsqlError", "provider_error_logs"],
+    ['"subrequest_limit":true', "subrequest_error_logs"],
   ]) {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`,
@@ -217,6 +219,12 @@ async function diagnostics() {
       }),
   });
   try {
+    report.recent_download_tasks = (
+      await client.execute({
+        sql: "SELECT j.id,j.state,j.created_at,j.updated_at,c.name AS comic_name,json_extract(j.payload,'$.url') AS source_url FROM comic_jobs j INDEXED BY comic_jobs_kind_created LEFT JOIN comics c ON c.id=j.comic_id WHERE j.kind='source' AND j.created_at>=? ORDER BY j.created_at DESC LIMIT 20",
+        args: [Math.floor(Date.now() / 1000) - 21600],
+      })
+    ).rows;
     report.recent_update_tasks = (
       await client.execute({
         sql:

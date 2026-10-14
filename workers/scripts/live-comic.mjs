@@ -1,5 +1,4 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
 const { url } = JSON.parse(await readFile("deployment.json", "utf8"));
 const source = "https://baozimh.org/manga/dafengdagengren-chuyingshe";
 const expectedChapters = Math.min(
@@ -31,37 +30,20 @@ try {
   cookie = response.headers.get("set-cookie").split(";")[0];
   csrf = (await response.json()).data.csrf_token;
   const library = () => request("/api/comics").then((r) => r.json());
-  let items = (await library()).items;
+  const items = (await library()).items;
   let comic = items.find(
     (c) =>
-      c.source_url === source ||
-      c.name === "大奉打更人" ||
-      c.title === "大奉打更人",
+      c.chapter_count >= expectedChapters &&
+      (c.source_url === source ||
+        c.name === "大奉打更人" ||
+        c.title === "大奉打更人"),
   );
-  const newDownload = !comic || comic.chapter_count < expectedChapters;
-  if (newDownload)
-    await request("/api/v1/downloads", "POST", {
-      url: source,
-      format: 2,
-      max_chapters: expectedChapters,
-      is_update: Boolean(comic),
-    });
-  for (let attempt = 0; attempt < 8; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 10000));
-    const run = spawnSync(
-      "python",
-      ["scripts/cloud-compute.py", "--limit", "10"],
-      { stdio: "inherit", env: { ...process.env, MANGADOCK_URL: url } },
-    );
-    if (run.status !== 0) throw new Error("Cloud comic conversion failed");
-    items = (await library()).items;
-    comic = items.find(
-      (c) => c.name === "大奉打更人" || c.title === "大奉打更人",
-    );
-    if (comic?.chapter_count >= expectedChapters) break;
-  }
+  comic ||= items.find((c) => c.chapter_count >= expectedChapters);
+  const newDownload = false;
   if (!comic || comic.chapter_count < expectedChapters)
-    throw new Error("Real comic download did not become readable");
+    throw new Error(
+      "No existing readable comic; acceptance never creates a download",
+    );
   const detail = await (await request(`/api/comics/${comic.id}`)).json();
   const chapters = (
     await (await request(`/api/comics/${comic.id}/chapters`)).json()

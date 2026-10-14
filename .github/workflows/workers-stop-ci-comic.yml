@@ -1,0 +1,39 @@
+name: Stop an audited CI comic download
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        required: true
+        type: string
+      created_from:
+        required: true
+        type: string
+      created_to:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: workers
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_TOKEN || secrets.TURSO_AUTH_TOKEN }}
+      MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
+      STOP_TASK_ID: ${{ inputs.task_id }}
+      STOP_CREATED_FROM: ${{ inputs.created_from }}
+      STOP_CREATED_TO: ${{ inputs.created_to }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: workers/package-lock.json
+      - run: npm ci
+      - run: node --experimental-strip-types scripts/stop-ci-comic.mjs
