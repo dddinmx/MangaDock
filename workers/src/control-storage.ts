@@ -18,18 +18,44 @@ const MAX_BYTES = 1048576;
 export function storageFailureKind(error: unknown) {
   for (let i = 0; i < 5 && error instanceof Error; i++, error = error.cause)
     if (
-      /quota|SQLITE_FULL|row.?write.*(?:limit|exceed)|storage.*(?:limit|exceed)/i.test(
+      /cannot perform I\/O on behalf|different request.*(?:context|I\/O)|outside.*request handler/i.test(
+        error.message,
+      )
+    )
+      return "foreign_io_context";
+    else if (/conditional|If-None-Match|precondition|etag/i.test(error.message))
+      return "invalid_storage_condition";
+    else if (
+      /quota|SQLITE_FULL|rows?.*(?:writ(?:e|ten)|read).*(?:limit|exceed)|(?:limit|exceed).*(?:SQLite|rows?\s+(?:writ(?:e|ten)|read))|storage.*(?:limit|exceed)/i.test(
         error.message,
       )
     )
       return "durable_storage_quota";
   return "durable_storage_unavailable";
 }
+const REASON_WORDS = new Set(
+  "account exceeded daily maximum number rows row written writes write read reads sqlite durable object objects storage limit limits usage reset disabled unavailable timeout invalid list alarm quota request requests different context perform behalf permitted not supported operation failed free plan".split(
+    " ",
+  ),
+);
+function reasonWords(error: unknown) {
+  const messages: string[] = [];
+  for (let i = 0; i < 5 && error instanceof Error; i++, error = error.cause)
+    messages.push(error.message);
+  // Fixed vocabulary only: no identifiers, URLs, SQL, credentials or raw messages.
+  return messages
+    .join(" ")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((word) => REASON_WORDS.has(word))
+    .slice(0, 48);
+}
 export class ControlStorage {
   private tail: Promise<unknown> = Promise.resolve();
   private bucket: R2Bucket;
   private legacy: DurableObjectStorage;
   private key: string;
+  private operation = "control-read";
   constructor(bucket: R2Bucket, legacy: DurableObjectStorage, id: string) {
     this.bucket = bucket;
     this.legacy = legacy;
@@ -38,12 +64,21 @@ export class ControlStorage {
   private serialize<T>(fn: () => Promise<T>) {
     const next = this.tail.then(fn).catch((error) => {
       if (error instanceof ControlStorageUnavailableError) throw error;
+      console.error(
+        JSON.stringify({
+          component: "control-storage",
+          error_code: storageFailureKind(error).toUpperCase(),
+          operation: this.operation,
+          reason_words: reasonWords(error),
+        }),
+      );
       throw new ControlStorageUnavailableError(error);
     });
     this.tail = next.catch(() => {});
     return next;
   }
   private async read() {
+    this.operation = "r2-read";
     const object = await this.bucket.get(this.key);
     if (object) {
       if (object.size > MAX_BYTES)
@@ -60,9 +95,11 @@ export class ControlStorage {
     // Read outside a SQLite write transaction. Preserve all old counters and
     // provider holds exactly; inaccessible counters fail closed, never reset.
     try {
+      this.operation = "legacy-list";
       const old = await this.legacy.list({ limit: 2001 });
       if (old.size > 2000)
         throw new Error("Legacy control state exceeds capacity");
+      this.operation = "legacy-alarm";
       const alarm = await this.legacy.getAlarm();
       return {
         document: {
@@ -73,12 +110,6 @@ export class ControlStorage {
         etag: null,
       };
     } catch (error) {
-      console.error(
-        JSON.stringify({
-          component: "control-storage",
-          error_code: storageFailureKind(error).toUpperCase(),
-        }),
-      );
       throw new Error("Existing control counters are unavailable", {
         cause: error,
       });
@@ -124,6 +155,7 @@ export class ControlStorage {
         if (etag !== null && body === before) return result;
         if (new TextEncoder().encode(body).byteLength > MAX_BYTES)
           throw new Error("Control state exceeds capacity");
+        this.operation = "r2-write";
         const saved = await this.bucket.put(this.key, body, {
           httpMetadata: { contentType: "application/json" },
           onlyIf:

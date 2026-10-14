@@ -22,6 +22,25 @@ const bindings = env as unknown as Env & {
 const origin = "https://mangadock.test",
   password = "test-password-strong-2026";
 describe("R2 control storage", () => {
+  it("serves separate concurrent Durable Object request contexts with R2-backed counters", async () => {
+    const { ControlStorage } = await import("../src/control-storage");
+    const stub = bindings.APPLICATION.get(
+      bindings.APPLICATION.idFromName("r2-separate-contexts"),
+    );
+    await runInDurableObject(stub, async (instance: any, ctx) => {
+      instance.databaseBudget = new DatabaseBudget(
+        new ControlStorage(bindings.LIBRARY, ctx.storage, ctx.id.toString()),
+      );
+    });
+    const responses = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        stub.fetch("https://jobs.internal/resource-status"),
+      ),
+    );
+    expect(responses.map((response) => response.status)).toEqual(
+      Array(12).fill(200),
+    );
+  });
   it("migrates existing quota holds exactly and works after SQLite writes and later reads fail", async () => {
     const { ControlStorage } = await import("../src/control-storage");
     const { DatabaseBudget } = await import("../src/database-budget");
@@ -176,13 +195,16 @@ describe("Turso HTTP driver in actual workerd", () => {
     const stub = bindings.APPLICATION.get(
       bindings.APPLICATION.idFromName("turso-io-regression"),
     );
-    await runInDurableObject(stub, async (instance: any) => {
-      instance.env = databaseEnv({
-        ...instance.env,
-        DATABASE_PROVIDER: "turso",
-        TURSO_DATABASE_URL: "libsql://fixture.turso.io",
-        TURSO_AUTH_TOKEN: "synthetic-token-only",
-      });
+    await runInDurableObject(stub, async (instance: any, ctx) => {
+      instance.env = databaseEnv(
+        {
+          ...instance.env,
+          DATABASE_PROVIDER: "turso",
+          TURSO_DATABASE_URL: "libsql://fixture.turso.io",
+          TURSO_AUTH_TOKEN: "synthetic-token-only",
+        },
+        new DatabaseBudget(ctx.storage),
+      );
     });
     fetchMock
       .get("https://fixture.turso.io")
@@ -2601,19 +2623,28 @@ it("a normal image uses six SQL statements while actually persisting the image a
     "UPDATE comic_jobs SET state='queued' WHERE id='native-good'",
   ).run();
   let statements = 0;
+  let rowsRead = 0,
+    rowsWritten = 0;
+  const measured = (result: any) => {
+    rowsRead += result.meta.rows_read;
+    rowsWritten += result.meta.rows_written;
+    return result;
+  };
   const wrap = (raw: any): any => ({
     bind: (...args: any[]) => wrap(raw.bind(...args)),
-    first: (...args: any[]) => {
+    first: async (column?: string) => {
       statements++;
-      return raw.first(...args);
+      const result = measured(await raw.all());
+      const row = result.results[0] || null;
+      return column && row ? row[column] : row;
     },
     all: (...args: any[]) => {
       statements++;
-      return raw.all(...args);
+      return raw.all(...args).then(measured);
     },
     run: (...args: any[]) => {
       statements++;
-      return raw.run(...args);
+      return raw.run(...args).then(measured);
     },
   });
   const db = {
@@ -2623,6 +2654,16 @@ it("a normal image uses six SQL statements while actually persisting the image a
   nativeImageReply();
   await runJob({ ...local, DB: db } as Env, "native-bad");
   expect(statements).toBe(6);
+  expect(rowsWritten).toBeGreaterThanOrEqual(4);
+  expect(rowsWritten).toBeLessThan(40);
+  console.info(
+    JSON.stringify({
+      d1_local_metering: true,
+      statements,
+      rows_read: rowsRead,
+      rows_written: rowsWritten,
+    }),
+  );
   expect(
     await bindings.DB.prepare(
       "SELECT state FROM comic_jobs WHERE id='native-bad'",

@@ -87,6 +87,30 @@ export function safeEvent(event) {
       ? { durable_object: true }
       : {}),
     ...(component ? { component } : {}),
+    ...(component === "control-storage" &&
+    [
+      "control-read",
+      "r2-read",
+      "r2-write",
+      "legacy-list",
+      "legacy-alarm",
+    ].includes(consoleData?.operation)
+      ? { storage_operation: consoleData.operation }
+      : {}),
+    ...(component === "control-storage" &&
+    Array.isArray(consoleData?.reason_words)
+      ? {
+          storage_reason_words: consoleData.reason_words
+            .filter(
+              (word) =>
+                typeof word === "string" &&
+                /^(?:account|exceeded|daily|maximum|number|rows|row|written|writes|write|read|reads|sqlite|durable|object|objects|storage|limit|limits|usage|reset|disabled|unavailable|timeout|invalid|list|alarm|quota|request|requests|different|context|perform|behalf|permitted|not|supported|operation|failed|free|plan)$/.test(
+                  word,
+                ),
+            )
+            .slice(0, 48),
+        }
+      : {}),
     ...(errorType ? { error_type: errorType } : {}),
     ...(Array.isArray(consoleData?.frames) &&
     consoleData.frames.some((frame) =>

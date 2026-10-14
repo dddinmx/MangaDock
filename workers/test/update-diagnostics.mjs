@@ -59,6 +59,17 @@ test("CPU evidence preserves invocation type and time without exporting Durable 
   assert.equal(result.durable_object, true);
   assert.ok(!JSON.stringify(result).includes("private-id"));
 });
+test("control diagnostics retain only fixed storage phases and reason vocabulary", () => {
+  const result = safeEvent({ source: { message: JSON.stringify({
+    component: "control-storage", error_code: "DURABLE_STORAGE_QUOTA",
+    operation: "legacy-list", reason_words: ["account", "daily", "rows", "written", "exceeded", "private-token", "https://private.invalid", "SELECT", { credential: "private" }],
+  }) } });
+  assert.equal(result.storage_operation, "legacy-list");
+  assert.deepEqual(result.storage_reason_words, ["account", "daily", "rows", "written", "exceeded"]);
+  assert.ok(!JSON.stringify(result).includes("private"));
+  const rejected = safeEvent({ source: { component: "control-storage", operation: "private-operation" } });
+  assert.equal(rejected.storage_operation, undefined);
+});
 test("cloud failure summaries preserve the actual exception and HTTP status without exporting provider response text", () => {
   const result = safeEvent({
     timestamp: 123,
