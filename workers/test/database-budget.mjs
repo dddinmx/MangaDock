@@ -279,3 +279,33 @@ test("raising both job limits preserves usage and pauses, and still enforces the
   assert.equal(held.requests, 2);
   assert.equal(held.statements, 200000);
 });
+test("failure snapshots distinguish Worker subrequest errors from provider server errors without raw messages", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const kind of ["worker_subrequest_limit", "server_error"]) {
+      const budget = new DatabaseBudget(
+        storage(),
+        () => Date.UTC(2026, 9, 14),
+        { requests: 200000, statements: 200000 },
+      );
+      globalThis.fetch = async () => {
+        if (kind === "worker_subrequest_limit")
+          throw new Error("Too many subrequests; private-token-must-not-leak");
+        return Response.json({}, { status: 503 });
+      };
+      for (let i = 0; i < 3; i++) {
+        if (kind === "worker_subrequest_limit")
+          await assert.rejects(budget.guardedFetch(request()));
+        else await budget.guardedFetch(request());
+      }
+      const snapshot = await budget.snapshot();
+      assert.equal(snapshot.paused, true);
+      assert.equal(snapshot.pause_reason, kind);
+      assert.equal(snapshot.last_failure.kind, kind);
+      assert.equal(snapshot.retry_after, 600);
+      assert.doesNotMatch(JSON.stringify(snapshot), /private-token/);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});

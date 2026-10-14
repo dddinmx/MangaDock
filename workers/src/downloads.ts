@@ -967,7 +967,11 @@ export async function tasks(
     user.user_id,
     ...(taskId ? [taskId] : []),
   );
-  let databaseHold = { paused: false, retry_after: 0 };
+  let databaseHold = {
+    paused: false,
+    retry_after: 0,
+    pause_reason: null as string | null,
+  };
   if (
     env.DATABASE_PROVIDER === "turso" &&
     rows.some((row) => ["queued", "running", "waiting"].includes(row.state))
@@ -1034,7 +1038,17 @@ export async function tasks(
         ["queued", "running", "waiting"].includes(row.state);
       if (databaseHeld) status = "waiting";
       const statusLabel = databaseHeld
-        ? "等待数据库保护恢复"
+        ? databaseHold.pause_reason === "worker_subrequest_limit"
+          ? "下载执行异常，等待自动重试"
+          : ["transport_error", "server_error", "rate_limit"].includes(
+                databaseHold.pause_reason || "",
+              )
+            ? "数据库暂时异常，等待自动重试"
+            : databaseHold.pause_reason === "provider_quota"
+              ? "数据库服务额度受限"
+              : databaseHold.pause_reason === "authentication"
+                ? "数据库服务认证失败"
+                : "等待数据库保护恢复"
         : queueHeld
           ? "等待队列额度重置"
           : paused

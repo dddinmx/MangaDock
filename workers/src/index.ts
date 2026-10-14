@@ -20,6 +20,7 @@ import { recoverUpdates, scheduleUpdates } from "./updates";
 import { cancelOrphanedCompute } from "./compute";
 import { publicUser } from "./public-user";
 import type { Database } from "./database";
+import { deferDownloads } from "./download-recovery";
 export { ApplicationService } from "./application";
 export type QueueBody = {
   id?: string;
@@ -951,6 +952,8 @@ export default {
           )
             throw new HttpError(400, "Invalid page batch");
           ok = true;
+          const deferred: string[] = [];
+          let retryAfter = 1;
           // One Queue payload still holds ten IDs, but each page gets a fresh
           // DO invocation and external-subrequest budget. A whole ten-page
           // loop can exceed the free limit before its failure can be recorded.
@@ -969,11 +972,19 @@ export default {
                 result.status === 503
               ))
                 ok = false;
+              if (result.status === 503 && result.headers.has("Retry-After")) {
+                deferred.push(id);
+                retryAfter = Math.max(
+                  retryAfter,
+                  Number(result.headers.get("Retry-After")) || 60,
+                );
+              }
               await result.body?.cancel();
             } catch {
               ok = false;
             }
           }
+          if (deferred.length) await deferDownloads(env, deferred, retryAfter);
         } else {
           const result = await applicationStub(env, "jobs").fetch(
             message.body.kind === "storage-gc"
@@ -990,9 +1001,22 @@ export default {
             },
           );
           ok = result.ok || result.status === 429 || result.status === 503;
+          if (
+            message.body.kind === "comic" &&
+            message.body.id &&
+            result.status === 503 &&
+            result.headers.has("Retry-After")
+          )
+            await deferDownloads(
+              env,
+              [message.body.id],
+              Number(result.headers.get("Retry-After")) || 60,
+            );
           await result.body?.cancel();
         }
-      } catch {}
+      } catch {
+        ok = false;
+      }
       if (ok) message.ack();
       // Rate/database pauses acknowledge the transport: durable outbox rows
       // recover after the pause. Other infrastructure failures retry once;

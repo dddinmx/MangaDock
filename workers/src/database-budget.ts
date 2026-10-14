@@ -14,6 +14,7 @@ type BudgetState = {
   blockedUntil: number;
   failures: number;
   failureWindow: number;
+  lastFailure?: { kind: string; at: number; status?: number };
 };
 type RemoteError = { code?: string; message?: string };
 type PipelineResponse = {
@@ -114,6 +115,15 @@ export class DatabaseBudget {
       statement_limit: this.limits.statements,
       paused: pausedUntil > time,
       retry_after: Math.max(0, Math.ceil((pausedUntil - time) / 1000)),
+      pause_reason:
+        pausedUntil <= time
+          ? null
+          : requests >= this.limits.requests
+            ? "request_limit"
+            : statements >= this.limits.statements
+              ? "statement_limit"
+              : stored?.lastFailure?.kind || "temporary_hold",
+      last_failure: stored?.lastFailure || null,
     };
   }
   async reserve(statements: number) {
@@ -186,6 +196,11 @@ export class DatabaseBudget {
       );
       const state = await this.update((state, time) => {
         if (quota) {
+          state.lastFailure = {
+            kind: "provider_quota",
+            at: time,
+            status: response.status,
+          };
           const date = new Date(time);
           state.blockedUntil = Date.UTC(
             date.getUTCFullYear(),
@@ -193,8 +208,18 @@ export class DatabaseBudget {
             1,
           );
         } else if ([401, 403, 429].includes(response.status)) {
+          state.lastFailure = {
+            kind: response.status === 429 ? "rate_limit" : "authentication",
+            at: time,
+            status: response.status,
+          };
           state.blockedUntil = Math.max(state.blockedUntil, time + 3600000);
         } else if (response.status >= 500) {
+          state.lastFailure = {
+            kind: "server_error",
+            at: time,
+            status: response.status,
+          };
           this.failed(state, time);
         } else {
           if (state.failures === 0) return false;
@@ -204,9 +229,17 @@ export class DatabaseBudget {
       this.pausedUntil = state.blockedUntil;
       return response;
     } catch (error) {
-      const state = await this.update((state, time) =>
-        this.failed(state, time),
-      );
+      const state = await this.update((state, time) => {
+        state.lastFailure = {
+          kind:
+            error instanceof Error &&
+            /too many subrequests|subrequest.*limit/i.test(error.message)
+              ? "worker_subrequest_limit"
+              : "transport_error",
+          at: time,
+        };
+        this.failed(state, time);
+      });
       this.pausedUntil = state.blockedUntil;
       throw error;
     }
