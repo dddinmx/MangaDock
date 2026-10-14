@@ -56,6 +56,13 @@ export function safeEvent(event) {
     event_type: workers.eventType,
     ...(component ? { component } : {}),
     ...(errorType ? { error_type: errorType } : {}),
+    ...(component && typeof consoleData?.subrequest_limit === "boolean"
+      ? { subrequest_limit: consoleData.subrequest_limit }
+      : {}),
+    ...(component &&
+    /^[A-Z_]{3,64}$/.test(String(consoleData?.error_code || ""))
+      ? { error_code: consoleData.error_code }
+      : {}),
   };
 }
 async function diagnostics() {

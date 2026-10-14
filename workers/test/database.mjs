@@ -492,7 +492,7 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 12);
+    assert.equal(first.applied.length, 13);
     assert.ok(first.applied.includes("0009_comic_chapter_counts.sql"));
     assert.ok(
       (await client.execute("PRAGMA table_info(comics)")).rows.some(
@@ -630,6 +630,42 @@ test("audited cancellation repair restores only known ready children, remains ca
     ).rows[0];
     assert.equal(root.state, "cancelled");
     assert.equal(Number(root.completed_chapters), 1);
+  } finally {
+    client.close();
+  }
+});
+
+test("stale native recovery prioritizes old directory jobs over queued pages using the age index", async () => {
+  const { client } = await fixture();
+  try {
+    await client.execute(
+      "INSERT INTO users(id,username,password_hash) VALUES ('recovery-user','recovery-user','x')",
+    );
+    await client.execute(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at,lease_until) VALUES ('old-root','recovery-user','source','{}','running',0,1,0)",
+    );
+    for (let i = 0; i < 120; i++)
+      await client.execute({
+        sql: "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at,lease_until) VALUES (?,'recovery-user','page','{}','queued',0,2,0)",
+        args: [`page-${i}`],
+      });
+    await client.execute(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at,lease_until,remote_poll_at) VALUES ('remote','recovery-user','chapter','{}','queued',0,0,0,100)",
+    );
+    await client.execute(
+      "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at,lease_until) VALUES ('live','recovery-user','page','{}','running',0,0,10000)",
+    );
+    const query =
+      "SELECT id FROM comic_jobs INDEXED BY comic_jobs_recovery_age WHERE state IN ('queued','running') AND remote_poll_at IS NULL AND lease_until<100 AND updated_at<100 ORDER BY updated_at,id LIMIT 100";
+    const rows = (await client.execute(query)).rows;
+    assert.equal(rows.length, 100);
+    assert.equal(rows[0].id, "old-root");
+    assert.ok(rows.every((r) => r.id !== "remote" && r.id !== "live"));
+    const plan = (await client.execute("EXPLAIN QUERY PLAN " + query)).rows
+      .map((r) => r.detail)
+      .join(" ");
+    assert.match(plan, /comic_jobs_recovery_age/);
+    assert.doesNotMatch(plan, /TEMP B-TREE/);
   } finally {
     client.close();
   }

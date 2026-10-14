@@ -183,3 +183,42 @@ it("a chapter with 21 pages persists every job but uses three queue messages", a
     fetchMock.deactivate();
   }
 });
+
+it("page batches use fresh invocations, finish later IDs after failure, and retry only once", async () => {
+  for (const attempts of [1, 2]) {
+    const calls: { url: string; id: string }[] = [];
+    let acks = 0,
+      retries = 0;
+    const ids = Array.from({ length: 10 }, (_, i) => `page-${i}`);
+    const local = {
+      APPLICATION: {
+        idFromName: () => "jobs",
+        get: () => ({
+          fetch: async (url: string, init: RequestInit) => {
+            const { id } = JSON.parse(String(init.body));
+            calls.push({ url, id });
+            return new Response("{}", { status: id === "page-0" ? 500 : 200 });
+          },
+        }),
+      },
+    } as unknown as Env;
+    await worker.queue(
+      {
+        messages: [
+          {
+            body: { kind: "comic-pages", ids },
+            attempts,
+            ack: () => acks++,
+            retry: () => retries++,
+          },
+        ],
+      } as any,
+      local,
+    );
+    expect(calls).toEqual(
+      ids.map((id) => ({ url: "https://jobs.internal/run", id })),
+    );
+    expect(retries).toBe(attempts === 1 ? 1 : 0);
+    expect(acks).toBe(attempts === 1 ? 0 : 1);
+  }
+});

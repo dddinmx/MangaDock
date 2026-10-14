@@ -12,7 +12,7 @@ const chapters = Array.from({ length: 50 }, (_, i) => ({
 }));
 describe("whole-book selection with bounded execution batches", () => {
   it("uses zero for a whole book and bounds explicit directory limits", () => {
-    expect(SOURCE_BATCH_SIZE).toBe(20);
+    expect(SOURCE_BATCH_SIZE).toBe(4);
     expect(HARD_MAX_CHAPTERS).toBe(10000);
     for (const value of [undefined, null, "", 0, -1, "abc", Infinity, NaN])
       expect(clampMaxChapters(value)).toBe(0);

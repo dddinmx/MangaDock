@@ -938,15 +938,46 @@ export default {
           );
           ok = result.ok || result.status === 429 || result.status === 503;
           await result.body?.cancel();
+        } else if (message.body.kind === "comic-pages") {
+          const ids = message.body.ids;
+          if (
+            !Array.isArray(ids) ||
+            !ids.length ||
+            ids.length > 10 ||
+            ids.some((id) => typeof id !== "string")
+          )
+            throw new HttpError(400, "Invalid page batch");
+          ok = true;
+          // One Queue payload still holds ten IDs, but each page gets a fresh
+          // DO invocation and external-subrequest budget. A whole ten-page
+          // loop can exceed the free limit before its failure can be recorded.
+          for (const id of ids) {
+            try {
+              const result = await applicationStub(env, "jobs").fetch(
+                "https://jobs.internal/run",
+                {
+                  method: "POST",
+                  body: JSON.stringify({ id }),
+                },
+              );
+              if (!(
+                result.ok ||
+                result.status === 429 ||
+                result.status === 503
+              ))
+                ok = false;
+              await result.body?.cancel();
+            } catch {
+              ok = false;
+            }
+          }
         } else {
           const result = await applicationStub(env, "jobs").fetch(
             message.body.kind === "storage-gc"
               ? "https://jobs.internal/storage-gc"
-              : message.body.kind === "comic-pages"
-                ? "https://jobs.internal/run-pages"
-                : message.body.kind === "comic"
-                  ? "https://jobs.internal/run"
-                  : "https://jobs.internal/run-novel",
+              : message.body.kind === "comic"
+                ? "https://jobs.internal/run"
+                : "https://jobs.internal/run-novel",
             {
               method: "POST",
               body: JSON.stringify({
@@ -1013,7 +1044,7 @@ export async function maintenance(env: Env) {
   // same job is not re-sent on every maintenance run while the new message waits.
   const stale = now() - 1800;
   const pending = await env.DB.prepare(
-    "UPDATE jobs SET updated_at=?, lease_until=0 WHERE id IN (SELECT id FROM jobs WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id",
+    "UPDATE jobs SET updated_at=?, lease_until=0 WHERE id IN (SELECT id FROM jobs INDEXED BY jobs_recovery_age WHERE state IN ('queued','running') AND lease_until<? AND updated_at<? ORDER BY updated_at,id LIMIT 20) RETURNING id",
   )
     .bind(now(), now(), stale)
     .all<{ id: string }>();
@@ -1027,7 +1058,7 @@ export async function maintenance(env: Env) {
     ).bind(now(), now(), MAX_JOB_ATTEMPTS),
   ]);
   const comicPending = await env.DB.prepare(
-    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs WHERE state IN ('queued','running') AND remote_poll_at IS NULL AND lease_until<? AND updated_at<? LIMIT 20) RETURNING id,kind",
+    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs INDEXED BY comic_jobs_recovery_age WHERE state IN ('queued','running') AND remote_poll_at IS NULL AND lease_until<? AND updated_at<? ORDER BY updated_at,id LIMIT 100) RETURNING id,kind",
   )
     .bind(now(), now(), stale)
     .all<{ id: string; kind: string }>();

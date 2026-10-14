@@ -1,0 +1,9 @@
+The existing manual-update task stalled with six waiting chapter jobs and repeated HTTP 500 responses from `/run-pages`. Read-only staging diagnostics found 84 completed, 114 queued and 24 running image jobs (222 total); the source cursor remained zero. Cron ran successfully, Queue delivery was active and no cloud conversion jobs were pending. These observations establish failing native image batches; the exact original exception was not exported, so an account quota exhaustion diagnosis is not established.
+
+Recovery changes:
+- Keep up to ten image IDs in each Queue payload, but execute each image through a separate application invocation. Continue later IDs after an earlier error and preserve the existing single transport retry. This does not introduce one Queue message per image.
+- Admit four source chapters per invocation and checkpoint the cursor. Whole-book selection remains unlimited by this execution batch size; deterministic chapter-job IDs reuse existing records.
+- Recover stale, expired native jobs oldest first, with at most 100 comic jobs per maintenance invocation. Use partial age indexes explicitly: actual libSQL otherwise selected the lease index and built a temporary sort. Remote scheduled jobs and live leases are excluded. Attempt caps, the persisted Queue admission budget, and the database circuit remain enabled.
+- Log only a subrequest-limit boolean and a restricted uppercase error code in addition to existing sanitized metadata. Credentials and provider exception text are not exported.
+
+Migration 0013 only adds indexes. It does not reset budgets, delete jobs, re-create the user's task or restart cancelled tasks. Apply migrations before deploying this runtime. Keep the original Flask release as rollback. Verify the existing manual-update task after deployment; controlled test success does not establish completion of the full 119-chapter update. Novel API tests remain disabled.

@@ -296,9 +296,9 @@ describe("review regression fixes", () => {
     ).run();
     await completeParent(local, "reg-root");
   }
-  it("downloads the complete 45-chapter directory in 20/20/5 batches with idempotent continuation", async () => {
+  it("downloads the complete 45-chapter directory in bounded batches with idempotent continuation", async () => {
     await startBook();
-    for (const total of [20, 40, 45]) {
+    for (const total of [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 45]) {
       await runJob(local, "reg-root");
       const jobs = await bindings.DB.prepare(
         "SELECT id FROM comic_jobs WHERE parent_id='reg-root'",
@@ -347,7 +347,7 @@ describe("review regression fixes", () => {
           "SELECT id FROM comic_jobs WHERE parent_id='reg-root'",
         ).all()
       ).results,
-    ).toHaveLength(20);
+    ).toHaveLength(4);
   });
   it("recovers a committed last chapter when the parent completion callback is lost", async () => {
     await startBook();
@@ -375,6 +375,6 @@ describe("review regression fixes", () => {
           "SELECT id FROM comic_jobs WHERE parent_id='reg-root'",
         ).all()
       ).results,
-    ).toHaveLength(40);
+    ).toHaveLength(8);
   });
 });

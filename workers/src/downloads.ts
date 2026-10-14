@@ -51,7 +51,9 @@ export const MAX_JOB_ATTEMPTS = 5;
 export const MAX_REMOTE_POLLS = 30;
 /** Chapters admitted by one source execution, not a whole-book limit. */
 export const DEFAULT_MAX_CHAPTERS = 20;
-export const SOURCE_BATCH_SIZE = DEFAULT_MAX_CHAPTERS;
+// A Turso query is an external fetch. Keep directory admission well below the
+// free plan's 50 external subrequests per invocation, including checkpoints.
+export const SOURCE_BATCH_SIZE = 4;
 /** Existing source parsers cap directories at 10,000 entries. 0 means the whole book. */
 export const HARD_MAX_CHAPTERS = 10000;
 export function clampMaxChapters(value: unknown) {

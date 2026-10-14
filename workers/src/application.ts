@@ -319,6 +319,14 @@ export class ApplicationService extends DurableObject<Env> {
           JSON.stringify({
             component: "application",
             error_type: error instanceof Error ? error.name : "unknown",
+            subrequest_limit:
+              error instanceof Error &&
+              /too many subrequests|subrequest.*limit/i.test(error.message),
+            error_code: /^[A-Z_]{3,64}$/.test(
+              String((error as any)?.code || ""),
+            )
+              ? String((error as any).code)
+              : undefined,
             frames:
               error instanceof Error
                 ? error.stack?.split("\n").slice(1, 4)
