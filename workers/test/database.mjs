@@ -518,3 +518,55 @@ test("new ACL migration preserves old novel access without granting same-name co
     client.close();
   }
 });
+
+test("audited cancellation repair restores only known ready children, remains cancelled and is idempotent", async () => {
+  const { repairCancelled } = await import("../scripts/repair-cancelled.mjs");
+  const { client } = await fixture();
+  const id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  try {
+    await client.execute(
+      "INSERT INTO users(id,username,password_hash) VALUES ('repair','repair','x')",
+    );
+    await client.execute(
+      "INSERT INTO comics(id,name,provider,source_url,created_at,updated_at) VALUES ('repair','repair','import','',0,0)",
+    );
+    await client.execute(
+      "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,state) VALUES ('repair-chapter','repair',0,'one','one','ready')",
+    );
+    await client.execute({
+      sql: "INSERT INTO comic_jobs(id,user_id,comic_id,kind,payload,state,finished_at,created_at,updated_at) VALUES (?,'repair','repair','source','{}','cancelled',200,0,200)",
+      args: [id],
+    });
+    await client.execute({
+      sql: "INSERT INTO comic_jobs(id,user_id,parent_id,kind,payload,state,finished_at,created_at,updated_at) VALUES ('repair-child','repair',?,'chapter','{\"chapter_id\":\"repair-chapter\"}','cancelled',100,0,100)",
+      args: [id],
+    });
+    await assert.rejects(
+      repairCancelled(client, { id, expected: 2 }, true),
+      /do not match/,
+    );
+    assert.equal(
+      (await repairCancelled(client, { id, expected: 1 })).dry_run,
+      true,
+    );
+    assert.equal(
+      (await repairCancelled(client, { id, expected: 1 }, true)).restored,
+      1,
+    );
+    assert.equal(
+      (await repairCancelled(client, { id, expected: 1 }, true))
+        .already_correct,
+      true,
+    );
+    const root = (
+      await client.execute({
+        sql: "SELECT state,completed_chapters FROM comic_jobs WHERE id=?",
+        args: [id],
+      })
+    ).rows[0];
+    assert.equal(root.state, "cancelled");
+    assert.equal(Number(root.completed_chapters), 1);
+  } finally {
+    client.close();
+  }
+});
