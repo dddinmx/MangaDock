@@ -1,6 +1,6 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeAll, beforeEach, expect, it } from "vitest";
-import { tasks } from "../src/downloads";
+import { tasks, taskAction } from "../src/downloads";
 import { queueCompute } from "../src/compute";
 import { now, type Env, type Identity } from "../src/index";
 
@@ -189,4 +189,27 @@ it("live page grandchildren report an active download until their lease expires"
     status: "waiting",
     status_label: "等待章节执行",
   });
+});
+
+it("cancellation preserves completed children and counters, and cannot cancel a completed task", async () => {
+  await sql(
+    "INSERT INTO comic_jobs(id,user_id,parent_id,kind,payload,state,created_at,updated_at) VALUES ('timing-done','timing-user','timing-root','chapter','{}','completed',100,100),('timing-pending','timing-user','timing-root','chapter','{}','queued',100,100)",
+  );
+  await taskAction(bindings, user, "timing-root", "cancel");
+  expect(await detail()).toMatchObject({
+    state: "cancelled",
+    completed_chapters: 1,
+  });
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='timing-done'",
+    ).first("state"),
+  ).toBe("completed");
+  await taskAction(bindings, user, "timing-root", "cancel");
+  expect((await detail()).completed_chapters).toBe(1);
+  await sql("UPDATE comic_jobs SET state='completed' WHERE id='timing-root'");
+  await expect(
+    taskAction(bindings, user, "timing-root", "cancel"),
+  ).rejects.toThrow("任务已经结束");
+  expect((await detail()).completed_chapters).toBe(1);
 });

@@ -784,7 +784,7 @@ export async function runJob(env: Env, id: string) {
         );
         await run(
           env,
-          "UPDATE comic_jobs SET state='cancelled',message='改由云端兼容下载' WHERE parent_id=?",
+          "UPDATE comic_jobs SET state='cancelled',message='改由云端兼容下载' WHERE parent_id=? AND state IN ('queued','submitting','running','waiting')",
           parent.id,
         );
         return;
@@ -986,12 +986,14 @@ export async function taskAction(
   if (!task) throw new HttpError(404, "任务不存在或无权访问");
   const table = task.is_novel ? "jobs" : "comic_jobs";
   if (action === "cancel") {
+    if (["completed", "error"].includes(task.state))
+      throw new HttpError(409, "任务已经结束，不能取消");
     const upstream = task.is_novel
       ? [task.remote_id].filter(Boolean)
       : (
           await all(
             env,
-            "SELECT payload FROM comic_jobs WHERE id=? OR parent_id=? OR parent_id IN (SELECT id FROM comic_jobs WHERE parent_id=?)",
+            "SELECT payload FROM comic_jobs WHERE (id=? OR parent_id=? OR parent_id IN (SELECT id FROM comic_jobs WHERE parent_id=?)) AND state IN ('queued','submitting','running','waiting')",
             id,
             id,
             id,
@@ -1008,7 +1010,7 @@ export async function taskAction(
     if (table === "comic_jobs")
       await run(
         env,
-        "UPDATE comic_jobs SET state='cancelled' WHERE parent_id=? OR parent_id IN (SELECT id FROM comic_jobs WHERE parent_id=?)",
+        "UPDATE comic_jobs SET state='cancelled' WHERE (parent_id=? OR parent_id IN (SELECT id FROM comic_jobs WHERE parent_id=?)) AND state IN ('queued','submitting','running','waiting')",
         id,
         id,
       );
