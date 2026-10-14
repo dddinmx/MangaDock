@@ -44,6 +44,21 @@ test("log summaries can recover a request path from metadata without exporting r
   assert.equal(result.path, "/api/v1/updates/mode");
   assert.ok(!JSON.stringify(result).includes("private"));
 });
+test("CPU evidence preserves invocation type and time without exporting Durable Object identifiers", () => {
+  const result = safeEvent({
+    source: {
+      $workers: {
+        eventType: "queue",
+        cpuTimeMs: 20.647,
+        durableObjectId: "private-id",
+      },
+    },
+  });
+  assert.equal(result.event_type, "queue");
+  assert.equal(result.cpu_ms, 20.647);
+  assert.equal(result.durable_object, true);
+  assert.ok(!JSON.stringify(result).includes("private-id"));
+});
 test("cloud failure summaries preserve the actual exception and HTTP status without exporting provider response text", () => {
   const result = safeEvent({
     timestamp: 123,

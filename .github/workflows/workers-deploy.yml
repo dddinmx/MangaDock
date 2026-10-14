@@ -67,7 +67,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.complete_comic_id && 300 || 30 }}
     environment: ${{ inputs.environment || 'staging' }}
     defaults:
       run:

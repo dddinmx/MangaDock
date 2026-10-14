@@ -78,6 +78,12 @@ export function safeEvent(event) {
         : undefined),
     outcome: workers.outcome,
     event_type: workers.eventType,
+    ...(Number.isFinite(workers.cpuTimeMs) && workers.cpuTimeMs >= 0
+      ? { cpu_ms: workers.cpuTimeMs }
+      : {}),
+    ...(typeof workers.durableObjectId === "string"
+      ? { durable_object: true }
+      : {}),
     ...(component ? { component } : {}),
     ...(errorType ? { error_type: errorType } : {}),
     ...(component === "cloud-compute" &&
@@ -168,6 +174,7 @@ async function diagnostics() {
     ["LibsqlError", "provider_error_logs"],
     ['"subrequest_limit":true', "subrequest_error_logs"],
     ["cloud-compute", "compute_error_logs"],
+    ["cpuTimeMs", "cpu_events"],
   ]) {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`,

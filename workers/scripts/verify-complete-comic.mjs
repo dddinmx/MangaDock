@@ -54,7 +54,9 @@ try {
   });
   cookie = login.headers.get("set-cookie")?.split(";")[0] || "";
   csrf = (await login.json()).data.csrf_token;
-  const deadline = Date.now() + 45 * 60000;
+  // Full books take longer than a smoke test; keep the check finite without
+  // treating a healthy multi-hour native download as a 45-minute failure.
+  const deadline = Date.now() + 240 * 60000;
   let snapshot;
   for (;;) {
     snapshot = await audit({ task_id: taskId });
@@ -78,7 +80,7 @@ try {
       throw new Error(
         "Whole-book completion was not reached within the bounded verification window",
       );
-    await new Promise((resolve) => setTimeout(resolve, 30000));
+    await new Promise((resolve) => setTimeout(resolve, 60000));
   }
   snapshot = await audit({ task_id: taskId, catalogue: "1" });
   assert.equal(snapshot.task.completed_chapters, snapshot.task.source_total);
