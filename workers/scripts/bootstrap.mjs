@@ -56,9 +56,20 @@ if (
   queuePause < 0
 )
   throw new Error("Invalid free queue budget or pause time");
+const downloadRequests = Number(
+  process.env.MANGADOCK_DB_DOWNLOAD_REQUESTS || 40000,
+);
+if (
+  !Number.isSafeInteger(downloadRequests) ||
+  downloadRequests < 1 ||
+  downloadRequests > 40000
+)
+  throw new Error(
+    "MANGADOCK_DB_DOWNLOAD_REQUESTS must be an integer from 1 to 40000",
+  );
 const libraryLimit = Number(
   process.env.MANGADOCK_MAX_LIBRARY_BYTES ||
-    (target === "production" ? 8000000000 : 256000000),
+    (target === "production" ? 8000000000 : 5000000000),
 );
 if (
   !Number.isSafeInteger(libraryLimit) ||
@@ -224,6 +235,7 @@ const config = {
     FANQIE_API_URL: "https://fanqie.dddinmx.cn",
     QUEUE_DAILY_MESSAGE_LIMIT: String(queueLimit),
     QUEUE_SEND_PAUSED_UNTIL: String(queuePause),
+    DB_JOB_DAILY_REQUEST_LIMIT: String(downloadRequests),
     DB_DAILY_REQUEST_LIMIT: process.env.MANGADOCK_DB_DAILY_REQUESTS || "10000",
     DB_DAILY_STATEMENT_LIMIT:
       process.env.MANGADOCK_DB_DAILY_STATEMENTS || "50000",

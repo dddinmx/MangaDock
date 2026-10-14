@@ -8,6 +8,7 @@ import worker, {
 } from "../src/index";
 import { databaseEnv } from "../src/database";
 import { DatabaseBudget, databasePaused } from "../src/database-budget";
+import { QueuePausedError } from "../src/queue-safety";
 import { dispatchUpdate } from "../src/updates";
 import { runJob, completeParent, tasks } from "../src/downloads";
 import { saveGroups, saveNovelGroups } from "../src/accounts";
@@ -82,6 +83,57 @@ afterEach(() => {
   fetchMock.deactivate();
 });
 describe("review regression fixes", () => {
+  it("recovers at most 1000 stale images in bounded Queue batches and holds paused work", async () => {
+    for (let offset = 0; offset < 1005; offset += 50) {
+      await bindings.DB.batch(
+        Array.from({ length: Math.min(50, 1005 - offset) }, (_, i) =>
+          bindings.DB.prepare(
+            "INSERT INTO comic_jobs(id,user_id,kind,payload,state,created_at,updated_at) VALUES (?,'reg-user','page','{}','queued',0,0)",
+          ).bind(`reg-outbox-${offset + i}`),
+        ),
+      );
+    }
+    await maintenance(local);
+    expect(sent).toHaveLength(100);
+    expect(
+      sent.every(
+        (body) => body.kind === "comic-pages" && body.ids.length === 10,
+      ),
+    ).toBe(true);
+    expect(new Set(sent.flatMap((body) => body.ids)).size).toBe(1000);
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET updated_at=0 WHERE user_id='reg-user'",
+    ).run();
+    let batches = 0;
+    const paused = {
+      ...local,
+      DOWNLOADS: {
+        sendBatch: async (messages: any[]) => {
+          expect(messages.length).toBeLessThanOrEqual(100);
+          batches++;
+          throw new QueuePausedError(3600);
+        },
+      },
+    } as unknown as Env;
+    await maintenance(paused);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT COUNT(*) AS n FROM comic_jobs WHERE user_id='reg-user' AND lease_until>?",
+      )
+        .bind(now())
+        .first("n"),
+    ).toBe(1000);
+    await maintenance(paused);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT COUNT(*) AS n FROM comic_jobs WHERE user_id='reg-user' AND lease_until>?",
+      )
+        .bind(now())
+        .first("n"),
+    ).toBe(1005);
+    await maintenance(paused);
+    expect(batches).toBe(2);
+  });
   it("routes update messages through the persisted Turso budget; exhausted requests make zero provider calls", async () => {
     const values = new Map<string, any>();
     const tx = {

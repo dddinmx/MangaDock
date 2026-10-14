@@ -42,6 +42,7 @@ export interface Env {
   APPLICATION: DurableObjectNamespace;
   DB: Database;
   DB_DAILY_REQUEST_LIMIT?: string;
+  DB_JOB_DAILY_REQUEST_LIMIT?: string;
   DB_DAILY_STATEMENT_LIMIT?: string;
   DATABASE_PROVIDER?: "d1" | "turso";
   TURSO_DATABASE_URL?: string;
@@ -1014,7 +1015,7 @@ export async function maintenance(env: Env) {
   // A last callback may have committed its child and then lost database access
   // before aggregating its parent. Recover this independently of queue delivery.
   const waiting = await env.DB.prepare(
-    "SELECT id FROM comic_jobs WHERE kind='source' AND state='waiting' AND updated_at<? ORDER BY updated_at,id LIMIT 20",
+    "SELECT id FROM comic_jobs WHERE kind='source' AND state='waiting' AND updated_at<? ORDER BY updated_at,id LIMIT 4",
   )
     .bind(now() - 900)
     .all<{ id: string }>();
@@ -1060,7 +1061,7 @@ export async function maintenance(env: Env) {
     ).bind(now(), now(), MAX_JOB_ATTEMPTS),
   ]);
   const comicPending = await env.DB.prepare(
-    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs INDEXED BY comic_jobs_recovery_age WHERE state IN ('queued','running') AND remote_poll_at IS NULL AND lease_until<? AND updated_at<? ORDER BY updated_at,id LIMIT 100) RETURNING id,kind",
+    "UPDATE comic_jobs SET updated_at=?, lease_until=0, claim_token=NULL WHERE id IN (SELECT id FROM comic_jobs INDEXED BY comic_jobs_recovery_age WHERE state IN ('queued','running') AND remote_poll_at IS NULL AND lease_until<? AND updated_at<? ORDER BY updated_at,id LIMIT 1000) RETURNING id,kind",
   )
     .bind(now(), now(), stale)
     .all<{ id: string; kind: string }>();
@@ -1078,11 +1079,39 @@ export async function maintenance(env: Env) {
       body: { kind: "comic-pages", ids: pageIds.slice(i, i + 10) },
     });
   messages.push(...pending.results.map((body) => ({ body })));
-  if (messages.length) {
+  for (let offset = 0; offset < messages.length; offset += 100) {
     try {
-      await env.DOWNLOADS.sendBatch(messages);
+      await env.DOWNLOADS.sendBatch(messages.slice(offset, offset + 100));
     } catch (error) {
       if (!(error instanceof QueuePausedError)) throw error;
+      const unsent = messages.slice(offset),
+        comicIds = unsent.flatMap(({ body }) =>
+          body.kind === "comic-pages"
+            ? body.ids || []
+            : body.kind === "comic" && body.id
+              ? [body.id]
+              : [],
+        );
+      // Hold unsent rows until admission can recover, rather than repeatedly
+      // rewriting the same outbox on every cron while its budget is exhausted.
+      for (let i = 0; i < comicIds.length; i += 90) {
+        const ids = comicIds.slice(i, i + 90);
+        await env.DB.prepare(
+          `UPDATE comic_jobs SET state='queued',lease_until=MAX(lease_until,?),message=? WHERE id IN (${ids.map(() => "?").join(",")}) AND state IN ('queued','running','waiting') AND claim_token IS NULL`,
+        )
+          .bind(now() + error.retryAfter, error.message, ...ids)
+          .run();
+      }
+      const novelIds = unsent
+        .filter(({ body }) => !body.kind && body.id)
+        .map(({ body }) => body.id!);
+      if (novelIds.length)
+        await env.DB.prepare(
+          `UPDATE jobs SET lease_until=MAX(lease_until,?),message=? WHERE id IN (${novelIds.map(() => "?").join(",")}) AND state IN ('queued','running') AND lease_until<=?`,
+        )
+          .bind(now() + error.retryAfter, error.message, ...novelIds, now())
+          .run();
+      break;
     }
   }
 }

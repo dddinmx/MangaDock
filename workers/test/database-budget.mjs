@@ -237,3 +237,18 @@ test("budget snapshots expose actual limits and recovery without SQL or counter 
   assert.equal(fresh.paused, false);
   assert.equal(store.stats.writes, writes);
 });
+
+test("successful provider responses do not rewrite an unchanged failure counter", async () => {
+  const original = globalThis.fetch,
+    store = storage(),
+    budget = new DatabaseBudget(store);
+  try {
+    globalThis.fetch = async () => Response.json({ results: [] });
+    await budget.guardedFetch(request());
+    await budget.guardedFetch(request());
+    assert.equal(store.stats.writes, 2);
+    assert.equal((await budget.snapshot()).requests, 2);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

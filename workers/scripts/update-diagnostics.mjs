@@ -259,6 +259,7 @@ async function diagnostics() {
     client.close();
   }
   for (const [key, path] of [
+    ["worker_limits", `workers/scripts/${worker}/settings`],
     ["worker_schedules", `workers/scripts/${worker}/schedules`],
     ["queue_delivery", "queues?per_page=100"],
   ]) {
@@ -276,17 +277,32 @@ async function diagnostics() {
     report[key] =
       !response.ok || !data.success
         ? { available: false, status: response.status }
-        : key === "queue_delivery"
-          ? data.result
-              .filter((q) => q.queue_name === worker)
-              .map((q) => ({
-                name: q.queue_name,
-                delivery_paused: q.settings?.delivery_paused,
-              }))
-          : (Array.isArray(data.result)
-              ? data.result
-              : data.result.schedules || []
-            ).map((s) => ({ cron: s.cron }));
+        : key === "worker_limits"
+          ? Object.fromEntries(
+              (data.result.bindings || [])
+                .filter(
+                  (b) =>
+                    b.type === "plain_text" &&
+                    [
+                      "MAX_LIBRARY_BYTES",
+                      "DB_JOB_DAILY_REQUEST_LIMIT",
+                      "DB_DAILY_REQUEST_LIMIT",
+                      "DB_DAILY_STATEMENT_LIMIT",
+                    ].includes(b.name),
+                )
+                .map((b) => [b.name, b.text]),
+            )
+          : key === "queue_delivery"
+            ? data.result
+                .filter((q) => q.queue_name === worker)
+                .map((q) => ({
+                  name: q.queue_name,
+                  delivery_paused: q.settings?.delivery_paused,
+                }))
+            : (Array.isArray(data.result)
+                ? data.result
+                : data.result.schedules || []
+              ).map((s) => ({ cron: s.cron }));
   }
   await writeFile("update-diagnostics.json", JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));

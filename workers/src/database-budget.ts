@@ -197,6 +197,7 @@ export class DatabaseBudget {
         } else if (response.status >= 500) {
           this.failed(state, time);
         } else {
+          if (state.failures === 0) return false;
           state.failures = 0;
         }
       });
