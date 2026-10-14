@@ -61,8 +61,9 @@ on:
         required: false
 permissions:
   contents: read
+  checks: write
 concurrency:
-  group: workers-${{ inputs.verify_only && 'inspect' || 'rollout' }}-${{ inputs.environment || 'staging' }}
+  group: workers-${{ inputs.complete_comic_id && 'book-check' || inputs.verify_only && 'inspect-status' || 'rollout' }}-${{ inputs.environment || 'staging' }}
   cancel-in-progress: false
 jobs:
   deploy:
@@ -221,6 +222,7 @@ jobs:
         env:
           COMPLETE_COMIC_ID: ${{ inputs.complete_comic_id }}
           DIAGNOSTIC_TASK_ID: ${{ inputs.diagnostic_task_id }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/verify-complete-comic.mjs
       - name: Report actual CPU after whole-book validation
         if: ${{ inputs.environment == 'staging' && inputs.complete_comic_id && !cancelled() && hashFiles('workers/deployment.json') != '' }}

@@ -47,6 +47,64 @@ const audit = (params) =>
     .then((r) => r.json())
     .then((r) => r.data);
 let originalProgress, browser;
+let checkId;
+async function publishStatus(snapshot, conclusion) {
+  // Update one CI check rather than polling the database from multiple tools.
+  if (
+    !process.env.GITHUB_TOKEN ||
+    !process.env.GITHUB_REPOSITORY ||
+    !process.env.GITHUB_SHA
+  )
+    return;
+  const summary = snapshot
+    ? {
+        observed_at: new Date().toISOString(),
+        task: snapshot.task,
+        ready_chapters: snapshot.chapters.filter((c) => c.state === "ready")
+          .length,
+        ready_images: snapshot.chapters
+          .filter((c) => c.state === "ready")
+          .reduce((sum, c) => sum + c.page_count, 0),
+      }
+    : report;
+  const body = {
+    status: conclusion ? "completed" : "in_progress",
+    ...(conclusion
+      ? { conclusion, completed_at: new Date().toISOString() }
+      : {}),
+    output: {
+      title: conclusion
+        ? `Whole-book validation: ${conclusion}`
+        : `Downloaded ${summary.task?.completed_chapters || 0}/${summary.task?.source_total || "?"} update chapters`,
+      summary: "```json\n" + JSON.stringify(summary, null, 2) + "\n```",
+    },
+  };
+  const response = await fetch(
+    `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/check-runs${checkId ? "/" + checkId : ""}`,
+    {
+      method: checkId ? "PATCH" : "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...(!checkId
+          ? {
+              name: "Complete comic verification",
+              head_sha: process.env.GITHUB_SHA,
+              external_id: taskId,
+            }
+          : {}),
+        ...body,
+      }),
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (!response.ok)
+    throw new Error("CI progress status HTTP " + response.status);
+  checkId = (await response.json()).id;
+}
 try {
   const login = await request("/api/v1/auth/login", "POST", {
     username: "admin",
@@ -73,6 +131,9 @@ try {
       }),
     );
     report.latest = { task: snapshot.task, ready_chapters: ready };
+    await publishStatus(snapshot).catch((error) =>
+      console.log("::notice::" + error.message),
+    );
     if (snapshot.task.state === "completed") break;
     if (["error", "cancelled"].includes(snapshot.task.state))
       throw new Error("The existing book download did not finish successfully");
@@ -269,4 +330,8 @@ try {
     JSON.stringify(report, null, 2),
   );
   console.log(JSON.stringify(report));
+  await publishStatus(
+    null,
+    report.complete && process.exitCode !== 1 ? "success" : "failure",
+  ).catch((error) => console.log("::notice::" + error.message));
 }
