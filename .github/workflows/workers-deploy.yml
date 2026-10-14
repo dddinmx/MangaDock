@@ -245,6 +245,7 @@ jobs:
             workers/update-diagnostics.json
             workers/deployed-worker-content.txt
             workers/complete-comic-results.json
+            workers/test-results/complete-comic-*.png
             workers/test-results/live-task-*.png
             workers/test-results/task-waiting-*.png
             workers/test-results/live-comic-*.png

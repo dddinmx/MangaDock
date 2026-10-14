@@ -1,0 +1,111 @@
+name: One-day whole comic verification
+on:
+  schedule:
+    - cron: "3 0 15 10 *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+concurrency:
+  group: mangadock-complete-comic-c_ee02de2c2194
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    environment: staging
+    defaults:
+      run:
+        working-directory: workers
+    steps:
+      - name: Restrict this scheduled validation to its single UTC date
+        id: window
+        working-directory: .
+        run: |
+          if [ "$(date -u +%F)" = "2026-10-15" ]; then
+            echo 'active=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'active=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.window.outputs.active == 'true'
+        with:
+          ref: a5716b413b23a5fb7c5ba90830f8f29d6764e020
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: steps.window.outputs.active == 'true'
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: workers/package-lock.json
+      - name: Install the checked verifier and browser
+        if: steps.window.outputs.active == 'true'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Select the existing Turso staging site without deploying
+        if: steps.window.outputs.active == 'true'
+        run: |
+          node --input-type=module - <<'JS'
+          import { writeFile } from 'node:fs/promises';
+          await writeFile('deployment.json', JSON.stringify({url:'https://mangadock-turso-staging.dddinmx.workers.dev'}));
+          JS
+      - name: Wait at most thirty minutes for quota reset and recover existing work
+        if: steps.window.outputs.active == 'true'
+        env:
+          MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
+        run: node scripts/wait-staging-ready.mjs
+      - name: Validate the exact existing whole comic and its scoped reading progress
+        id: acceptance
+        if: steps.window.outputs.active == 'true' && success()
+        env:
+          MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
+          COMPLETE_COMIC_ID: c_ee02de2c2194
+          DIAGNOSTIC_TASK_ID: c6fe02d4-c454-4111-b962-495120175313
+          COMPLETE_COMIC_CHECK_SHA: a5716b413b23a5fb7c5ba90830f8f29d6764e020
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verify-complete-comic.mjs
+      - name: Record actual Cloudflare CPU separately from wall time
+        if: steps.window.outputs.active == 'true' && !cancelled()
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/cpu-report.mjs
+      - name: Attach the real acceptance outcome to PR 14
+        if: steps.window.outputs.active == 'true' && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ACCEPTANCE_OUTCOME: ${{ steps.acceptance.outcome }}
+        run: |
+          python - <<'PY'
+          import json,os,pathlib,re,urllib.request
+          report_path=pathlib.Path('complete-comic-results.json')
+          report=json.loads(report_path.read_text()) if report_path.exists() else {}
+          passed=os.environ.get('ACCEPTANCE_OUTCOME')=='success' and report.get('complete') is True and report.get('validation_user_removed') is True and report.get('original_user_progress_untouched') is True
+          run_url='https://github.com/dddinmx/MangaDock/actions/runs/'+os.environ['GITHUB_RUN_ID']
+          summary='\n<!-- mangadock-whole-comic-20261015 -->\n## 2026-10-15 整部漫画线上验收\n\n'
+          summary+=('**通过**' if passed else '**未通过，不能视为整部交付**')+'：[真实运行记录]('+run_url+')。\n'
+          if passed:
+              chapters=report.get('ready_chapters',0)
+              images=report.get('verified_images',0)
+              if type(chapters) is not int or type(images) is not int:raise RuntimeError('Invalid acceptance counters')
+              summary+=f'全部 {chapters} 章、{images} 张图片已核对 R2；每章首尾页、电脑/手机阅读、进度保存读回通过。临时阅读账号已移除，原用户进度未改动。\n'
+          summary+='本流程只验证并恢复已存在的任务，没有创建新下载，也没有恢复《大奉打更人》或小说 API。CPU 数据和完整性证据见运行产物。\n<!-- /mangadock-whole-comic-20261015 -->\n'
+          endpoint='https://api.github.com/repos/dddinmx/MangaDock/pulls/14'
+          headers={'Authorization':'Bearer '+os.environ['GITHUB_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'}
+          with urllib.request.urlopen(urllib.request.Request(endpoint,headers=headers),timeout=30) as response:body=json.load(response).get('body') or ''
+          body=re.sub(r'\n<!-- mangadock-whole-comic-20261015 -->.*?<!-- /mangadock-whole-comic-20261015 -->\n','',body,flags=re.S)
+          request=urllib.request.Request(endpoint,data=json.dumps({'body':body+summary}).encode(),headers=headers,method='PATCH')
+          with urllib.request.urlopen(request,timeout=30) as response:response.read()
+          PY
+      - uses: actions/upload-artifact@v4
+        if: steps.window.outputs.active == 'true' && !cancelled()
+        with:
+          name: whole-comic-20261015
+          path: |
+            workers/readiness-results.json
+            workers/complete-comic-results.json
+            workers/cpu-results.json
+            workers/test-results/complete-comic-*.png
+          if-no-files-found: warn
