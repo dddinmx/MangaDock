@@ -492,7 +492,7 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 13);
+    assert.equal(first.applied.length, 14);
     assert.ok(first.applied.includes("0009_comic_chapter_counts.sql"));
     assert.ok(
       (await client.execute("PRAGMA table_info(comics)")).rows.some(
@@ -665,6 +665,23 @@ test("stale native recovery prioritizes old directory jobs over queued pages usi
       .map((r) => r.detail)
       .join(" ");
     assert.match(plan, /comic_jobs_recovery_age/);
+    assert.doesNotMatch(plan, /TEMP B-TREE/);
+  } finally {
+    client.close();
+  }
+});
+
+test("native waiting recovery uses its partial age index without sorting historical jobs", async () => {
+  const { client } = await fixture();
+  try {
+    const plan = (
+      await client.execute(
+        "EXPLAIN QUERY PLAN SELECT j.id FROM comic_jobs j INDEXED BY comic_native_waiting WHERE j.kind='chapter' AND j.state='waiting' AND j.remote_poll_at IS NULL AND j.updated_at<100 ORDER BY j.updated_at,j.id LIMIT 4",
+      )
+    ).rows
+      .map((r) => r.detail)
+      .join(" ");
+    assert.match(plan, /comic_native_waiting/);
     assert.doesNotMatch(plan, /TEMP B-TREE/);
   } finally {
     client.close();

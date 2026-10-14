@@ -66,6 +66,9 @@ export function safeEvent(event) {
   };
 }
 async function diagnostics() {
+  const taskId = process.env.DIAGNOSTIC_TASK_ID || "";
+  if (taskId && !/^[a-zA-Z0-9:_-]{1,160}$/.test(taskId))
+    throw new Error("Invalid diagnostic task ID");
   const { url } = JSON.parse(await readFile("deployment.json", "utf8"));
   const worker = new URL(url).hostname.split(".")[0];
   if (worker !== "mangadock-turso-staging")
@@ -171,15 +174,19 @@ async function diagnostics() {
   try {
     report.recent_update_tasks = (
       await client.execute({
-        sql: "SELECT j.id,j.state,j.created_at,j.updated_at,j.attempts,j.lease_until,j.total_chapters,j.completed_chapters,json_extract(j.payload,'$.source_cursor') AS source_cursor,json_extract(j.payload,'$.source_total') AS source_total,c.name AS comic_name FROM comic_jobs j LEFT JOIN comics c ON c.id=j.comic_id WHERE j.kind='source' AND j.created_at>=? AND json_extract(j.payload,'$.is_update')=1 ORDER BY j.created_at DESC LIMIT 10",
-        args: [Math.floor(Date.now() / 1000) - 21600],
+        sql:
+          "SELECT j.id,j.state,j.created_at,j.updated_at,j.attempts,j.lease_until,j.total_chapters,j.completed_chapters,json_extract(j.payload,'$.source_cursor') AS source_cursor,json_extract(j.payload,'$.source_total') AS source_total,c.name AS comic_name FROM comic_jobs j LEFT JOIN comics c ON c.id=j.comic_id WHERE j.kind='source' AND " +
+          (taskId
+            ? "j.id=?"
+            : "j.created_at>=? AND json_extract(j.payload,'$.is_update')=1 ORDER BY j.created_at DESC LIMIT 10"),
+        args: [taskId || Math.floor(Date.now() / 1000) - 21600],
       })
     ).rows;
     const task = report.recent_update_tasks[0];
     if (task) {
       report.child_jobs = (
         await client.execute({
-          sql: "SELECT id,kind,state,attempts,lease_until,created_at,updated_at,remote_poll_at FROM comic_jobs WHERE parent_id=? ORDER BY id LIMIT 25",
+          sql: "SELECT j.id,j.kind,j.state,j.attempts,j.lease_until,j.created_at,j.updated_at,j.remote_poll_at,c.page_count AS expected_pages,c.state AS chapter_state,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page') AS persisted_pages,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state='completed') AS completed_pages FROM comic_jobs j LEFT JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE j.parent_id=? ORDER BY j.id LIMIT 25",
           args: [task.id],
         })
       ).rows;
@@ -196,6 +203,11 @@ async function diagnostics() {
         })
       ).rows;
     }
+    report.storage_totals = (
+      await client.execute(
+        "SELECT book_bytes+ledger_bytes-overlap_bytes+reservation_bytes AS library_bytes FROM storage_totals WHERE id=1",
+      )
+    ).rows;
     report.recent_update_checks = (
       await client.execute({
         sql: "SELECT id,state,total,completed,failed,created_at,updated_at FROM update_checks WHERE user_id='admin' AND created_at>=? ORDER BY created_at DESC LIMIT 5",

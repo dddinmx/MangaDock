@@ -269,6 +269,72 @@ export async function completeParent(env: Env, rootId: string) {
     rootId,
   );
 }
+// Reconcile last-page callbacks as well as old half-created chapter plans.
+export async function completeNativeChapter(
+  env: Env,
+  chapterJob: string,
+  data: Row,
+) {
+  if (
+    await one(
+      env,
+      "SELECT 1 FROM comic_jobs WHERE parent_id=? AND kind='page' AND state IN ('queued','submitting','running','waiting','cancelled','error') LIMIT 1",
+      chapterJob,
+    )
+  )
+    return;
+  const aggregate = await one(
+    env,
+    "SELECT c.page_count,c.manifest_key,COUNT(p.id) AS total,SUM(CASE WHEN p.state='completed' THEN 1 ELSE 0 END) AS done,COALESCE(SUM(p.size),0) AS bytes FROM chapters c LEFT JOIN comic_jobs p ON p.parent_id=? AND p.kind='page' WHERE c.id=? GROUP BY c.id",
+    chapterJob,
+    data.chapter_id,
+  );
+  if (
+    !aggregate?.page_count ||
+    aggregate.total !== aggregate.page_count ||
+    aggregate.done !== aggregate.page_count
+  )
+    return;
+  await run(
+    env,
+    "UPDATE chapters SET state='ready',size=? WHERE id=?",
+    aggregate.bytes,
+    data.chapter_id,
+  );
+  if (data.format === 1) {
+    await queueCompute(env, "pdf", aggregate.manifest_key, {
+      chapter_id: data.chapter_id,
+      parent_job: chapterJob,
+    });
+    await run(
+      env,
+      "UPDATE chapters SET state='converting' WHERE id=?",
+      data.chapter_id,
+    );
+    return;
+  }
+  const parent = await one(
+    env,
+    "SELECT parent_id FROM comic_jobs WHERE id=?",
+    chapterJob,
+  );
+  await run(
+    env,
+    "UPDATE comic_jobs SET state='completed',message='章节下载完成',updated_at=? WHERE id=?",
+    now(),
+    chapterJob,
+  );
+  if (parent?.parent_id) await completeParent(env, parent.parent_id);
+}
+
+export async function recoverNativeChapters(env: Env) {
+  return env.DB.prepare(
+    "UPDATE comic_jobs SET state='queued',lease_until=0,claim_token=NULL,updated_at=?,message='恢复未完成的图片任务创建' WHERE id IN (SELECT j.id FROM comic_jobs j INDEXED BY comic_native_waiting JOIN comic_jobs root ON root.id=j.parent_id JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE j.kind='chapter' AND j.state='waiting' AND j.remote_poll_at IS NULL AND j.updated_at<? AND j.lease_until<=? AND j.attempts<? AND json_extract(j.payload,'$.provider')!='fanqie' AND root.state IN ('queued','running','waiting') AND c.state IN ('downloading','ready') AND c.page_count>0 AND NOT EXISTS(SELECT 1 FROM compute_jobs x WHERE json_extract(x.payload,'$.parent_job')=j.id AND x.state IN ('queued','running')) AND ((SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page')<c.page_count OR NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state!='completed')) ORDER BY j.updated_at,j.id LIMIT 4) RETURNING id,kind",
+  )
+    .bind(now(), now() - 900, now(), MAX_JOB_ATTEMPTS)
+    .all<{ id: string; kind: string }>();
+}
+
 export async function runJob(env: Env, id: string) {
   const token = crypto.randomUUID();
   const job = await env.DB.prepare(
@@ -521,11 +587,6 @@ export async function runJob(env: Env, id: string) {
           "UPDATE chapters SET manifest_key=?,page_count=?,state='downloading' WHERE id=?",
         ).bind(manifestKey, keys.length, data.chapter_id),
       ]);
-      await run(
-        env,
-        "UPDATE comic_jobs SET state='waiting',lease_until=0,message='图片下载中' WHERE id=?",
-        id,
-      );
       const queuedPages = new Set(
         (
           await all(
@@ -535,24 +596,59 @@ export async function runJob(env: Env, id: string) {
           )
         ).map((row) => Number(row.page)),
       );
-      for (const [index, item] of keys.entries())
-        if (!queuedPages.has(index))
-          await enqueue(
-            env,
-            user.user_id,
-            "page",
-            {
-              ...item,
-              page: index,
-              chapter_id: data.chapter_id,
-              referer: data.chapter.url || comic.source_url,
-              format: data.format,
-            },
-            id,
-            comic.id,
-            undefined,
-            false,
-          );
+      // Each batch is one Turso request, rather than one external fetch per page.
+      // Persist at most 200 new rows per invocation; continuation reuses rows.
+      const missing = keys
+        .map((item, page) => ({ ...item, page }))
+        .filter((item) => !queuedPages.has(item.page));
+      const admitted = missing.slice(0, 200);
+      for (let offset = 0; offset < admitted.length; offset += 50) {
+        await assertComicActive(env, job);
+        const results = await env.DB.batch(
+          admitted.slice(offset, offset + 50).map((item) =>
+            env.DB.prepare(
+              "INSERT INTO comic_jobs(id,user_id,comic_id,parent_id,kind,payload,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            ).bind(
+              crypto.randomUUID(),
+              user.user_id,
+              comic.id,
+              id,
+              "page",
+              JSON.stringify({
+                ...item,
+                chapter_id: data.chapter_id,
+                referer: data.chapter.url || comic.source_url,
+                format: data.format,
+              }),
+              now(),
+              now(),
+            ),
+          ),
+        );
+        if (results.some((result) => !result.meta.changes))
+          throw new HttpError(409, "任务已停止或执行已过期");
+      }
+      if (missing.length > admitted.length) {
+        await run(
+          env,
+          "UPDATE comic_jobs SET state='queued',lease_until=0,attempts=0,message='继续创建图片任务',updated_at=? WHERE id=?",
+          now(),
+          id,
+        );
+        try {
+          await env.DOWNLOADS.send({ id, kind: "comic" });
+        } catch (error) {
+          if (!(await holdComic(env, id, error))) throw error;
+        }
+        return;
+      }
+      // Only publish waiting after the complete image plan is durable.
+      await run(
+        env,
+        "UPDATE comic_jobs SET state='waiting',lease_until=0,message='图片下载中',updated_at=? WHERE id=?",
+        now(),
+        id,
+      );
       const pages = await all(
         env,
         "SELECT id FROM comic_jobs WHERE parent_id=? AND kind='page' AND state='queued' AND lease_until<?",
@@ -583,6 +679,7 @@ export async function runJob(env: Env, id: string) {
           break;
         }
       }
+      await completeNativeChapter(env, id, data);
       return;
     }
     if (["page", "cover"].includes(job.kind)) {
@@ -658,52 +755,7 @@ export async function runJob(env: Env, id: string) {
         id,
       );
       if (job.kind === "page") {
-        const unfinished = await one(
-          env,
-          "SELECT 1 FROM comic_jobs WHERE parent_id=? AND state IN ('queued','submitting','running','waiting','cancelled','error') LIMIT 1",
-          job.parent_id,
-        );
-        if (!unfinished) {
-          const aggregate = await one(
-            env,
-            "SELECT SUM(size) AS bytes FROM comic_jobs WHERE parent_id=?",
-            job.parent_id,
-          );
-          await env.DB.batch([
-            env.DB.prepare(
-              "UPDATE chapters SET state='ready',size=? WHERE id=?",
-            ).bind(aggregate?.bytes || 0, data.chapter_id),
-          ]);
-          if (data.format === 1) {
-            const chapter = await one(
-              env,
-              "SELECT manifest_key FROM chapters WHERE id=?",
-              data.chapter_id,
-            );
-            await queueCompute(env, "pdf", chapter!.manifest_key, {
-              chapter_id: data.chapter_id,
-              parent_job: job.parent_id,
-            });
-            await env.DB.batch([
-              env.DB.prepare(
-                "UPDATE chapters SET state='converting' WHERE id=?",
-              ).bind(data.chapter_id),
-            ]);
-            return;
-          }
-          const parent = await one(
-            env,
-            "SELECT parent_id,payload FROM comic_jobs WHERE id=?",
-            job.parent_id,
-          );
-          await run(
-            env,
-            "UPDATE comic_jobs SET state='completed',message='章节下载完成',updated_at=? WHERE id=?",
-            now(),
-            job.parent_id,
-          );
-          if (parent?.parent_id) await completeParent(env, parent.parent_id);
-        }
+        await completeNativeChapter(env, job.parent_id, data);
       } else if (job.parent_id) await completeParent(env, job.parent_id);
       return;
     }

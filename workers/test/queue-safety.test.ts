@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { applyD1Migrations, env } from "cloudflare:test";
 import worker, { now, type Env } from "../src/index";
 import { QueueBudget, queueSend } from "../src/queue-safety";
-import { runJob } from "../src/downloads";
+import { runJob, recoverNativeChapters } from "../src/downloads";
 import { fetchMock } from "cloudflare:test";
 
 function storage() {
@@ -115,7 +115,7 @@ it("database pauses are acknowledged rather than redelivered; transient failure 
     expect(acks).toBe(1 - expectedRetries);
   }
 });
-it("a chapter with 21 pages persists every job but uses three queue messages", async () => {
+it("a 260-page chapter checkpoints creation and preserves ten IDs per queue message", async () => {
   const bindings = env as unknown as Env & { TEST_MIGRATIONS: any };
   await applyD1Migrations(bindings.DB, bindings.TEST_MIGRATIONS);
   await bindings.DB.prepare(
@@ -152,7 +152,7 @@ it("a chapter with 21 pages persists every job but uses three queue messages", a
           info: {
             images: {
               line: 1,
-              images: Array.from({ length: 21 }, (_, i) => ({
+              images: Array.from({ length: 260 }, (_, i) => ({
                 order: i,
                 url: `/page-${i}.jpg`,
               })),
@@ -160,10 +160,36 @@ it("a chapter with 21 pages persists every job but uses three queue messages", a
           },
         },
       }),
-    );
+    )
+    .times(2);
   const messages: any[] = [];
+  let sqlRequests = 0;
+  const wrap = (raw: any): any => ({
+    raw,
+    bind: (...args: any[]) => wrap(raw.bind(...args)),
+    first: (...args: any[]) => {
+      sqlRequests++;
+      return raw.first(...args);
+    },
+    all: (...args: any[]) => {
+      sqlRequests++;
+      return raw.all(...args);
+    },
+    run: (...args: any[]) => {
+      sqlRequests++;
+      return raw.run(...args);
+    },
+  });
+  const countedDB = {
+    prepare: (sql: string) => wrap(bindings.DB.prepare(sql)),
+    batch: (items: any[]) => {
+      sqlRequests++;
+      return bindings.DB.batch(items.map((item) => item.raw));
+    },
+  };
   const local = {
     ...bindings,
+    DB: countedDB,
     DOWNLOADS: {
       send: async (body: any) => messages.push(body),
       sendBatch: async (items: any[]) =>
@@ -172,12 +198,30 @@ it("a chapter with 21 pages persists every job but uses three queue messages", a
   } as unknown as Env;
   try {
     await runJob(local, "batch-job");
+    expect(sqlRequests).toBeLessThan(30);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state FROM comic_jobs WHERE id='batch-job'",
+      ).first("state"),
+    ).toBe("queued");
+    expect(messages).toEqual([{ id: "batch-job", kind: "comic" }]);
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT COUNT(*) AS n FROM comic_jobs WHERE parent_id='batch-job'",
+        ).first<any>()
+      )?.n,
+    ).toBe(200);
+    messages.length = 0;
+    sqlRequests = 0;
+    await runJob(local, "batch-job");
+    expect(sqlRequests).toBeLessThan(30);
     const jobs = await bindings.DB.prepare(
       "SELECT id FROM comic_jobs WHERE parent_id='batch-job' AND kind='page'",
     ).all();
-    expect(jobs.results).toHaveLength(21);
-    expect(messages.map((m) => m.ids?.length)).toEqual([10, 10, 1]);
-    expect(new Set(messages.flatMap((m) => m.ids)).size).toBe(21);
+    expect(jobs.results).toHaveLength(260);
+    expect(messages.map((m) => m.ids?.length)).toEqual(Array(26).fill(10));
+    expect(new Set(messages.flatMap((m) => m.ids)).size).toBe(260);
     fetchMock.assertNoPendingInterceptors();
   } finally {
     fetchMock.deactivate();
@@ -220,5 +264,127 @@ it("page batches use fresh invocations, finish later IDs after failure, and retr
     );
     expect(retries).toBe(attempts === 1 ? 1 : 0);
     expect(acks).toBe(attempts === 1 ? 0 : 1);
+  }
+});
+
+it("repairs a partial native plan and a lost completion callback without replacing completed pages or restarting cancelled roots", async () => {
+  const bindings = env as unknown as Env & { TEST_MIGRATIONS: any };
+  await applyD1Migrations(bindings.DB, bindings.TEST_MIGRATIONS);
+  await bindings.DB.prepare(
+    "INSERT INTO users(id,username,password_hash,role,can_download) VALUES ('repair-user','repair-user','x','admin',1)",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO comics(id,name,provider,source_url,created_at,updated_at) VALUES ('repair-comic','repair-comic','baozimh_org','https://baozimh.org/manga/test',0,0)",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,state,page_count) VALUES ('repair-chapter','repair-comic',0,'repair','4','downloading',4)",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,comic_id,kind,payload,state,created_at,updated_at) VALUES ('repair-root','repair-user','repair-comic','source','{}','waiting',0,0)",
+  ).run();
+  const data = {
+    provider: "baozimh_org",
+    chapter: { id: "4", mid: "1" },
+    chapter_id: "repair-chapter",
+    format: 2,
+  };
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,comic_id,parent_id,kind,payload,state,attempts,created_at,updated_at) VALUES ('repair-job','repair-user','repair-comic','repair-root','chapter',?,'waiting',1,0,0)",
+  )
+    .bind(JSON.stringify(data))
+    .run();
+  for (let page = 0; page < 3; page++)
+    await bindings.DB.prepare(
+      "INSERT INTO comic_jobs(id,user_id,comic_id,parent_id,kind,payload,state,created_at,updated_at) VALUES (?,'repair-user','repair-comic','repair-job','page',?,'completed',0,0)",
+    )
+      .bind(`repair-page-${page}`, JSON.stringify({ page }))
+      .run();
+  expect(
+    (await recoverNativeChapters(bindings)).results.map((j) => j.id),
+  ).toContain("repair-job");
+  fetchMock.activate();
+  fetchMock.disableNetConnect();
+  fetchMock
+    .get("https://v2.apikk.top")
+    .intercept({ path: "/api/v2/chapter/getinfo?m=1&c=4" })
+    .reply(
+      200,
+      JSON.stringify({
+        code: 200,
+        data: {
+          info: {
+            images: {
+              line: 1,
+              images: Array.from({ length: 4 }, (_, i) => ({
+                order: i,
+                url: `/repair-${i}.jpg`,
+              })),
+            },
+          },
+        },
+      }),
+    )
+    .times(2);
+  const messages: any[] = [];
+  const local = {
+    ...bindings,
+    DOWNLOADS: {
+      send: async (body: any) => messages.push(body),
+      sendBatch: async (items: any[]) =>
+        messages.push(...items.map((i) => i.body)),
+    },
+  } as unknown as Env;
+  try {
+    await runJob(local, "repair-job");
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT id FROM comic_jobs WHERE parent_id='repair-job'",
+        ).all()
+      ).results,
+    ).toHaveLength(4);
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT id FROM comic_jobs WHERE parent_id='repair-job' AND state='completed'",
+        ).all()
+      ).results
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(["repair-page-0", "repair-page-1", "repair-page-2"]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].ids).toHaveLength(1);
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET state='completed' WHERE parent_id='repair-job'",
+    ).run();
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET updated_at=0 WHERE id='repair-job'",
+    ).run();
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET state='cancelled' WHERE id='repair-root'",
+    ).run();
+    expect(
+      (await recoverNativeChapters(bindings)).results.map((j) => j.id),
+    ).not.toContain("repair-job");
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET state='waiting' WHERE id='repair-root'",
+    ).run();
+    expect(
+      (await recoverNativeChapters(bindings)).results.map((j) => j.id),
+    ).toContain("repair-job");
+    await runJob(local, "repair-job");
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state FROM chapters WHERE id='repair-chapter'",
+      ).first("state"),
+    ).toBe("ready");
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state FROM comic_jobs WHERE id='repair-job'",
+      ).first("state"),
+    ).toBe("completed");
+    fetchMock.assertNoPendingInterceptors();
+  } finally {
+    fetchMock.deactivate();
   }
 });

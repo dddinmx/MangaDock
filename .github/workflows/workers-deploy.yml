@@ -2,6 +2,10 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      diagnostic_task_id:
+        description: Optional existing task ID for read-only staging diagnosis
+        type: string
+        required: false
       repair_cancelled_task:
         description: Audited cancelled-task counter repair JSON; no deployment or downloads
         type: string
@@ -177,6 +181,8 @@ jobs:
         run: node scripts/cpu-report.mjs
       - name: Read staging update request logs and task records without starting downloads
         if: ${{ inputs.verify_only && inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') }}
+        env:
+          DIAGNOSTIC_TASK_ID: ${{ inputs.diagnostic_task_id }}
         run: node --experimental-strip-types scripts/update-diagnostics.mjs
       - uses: actions/upload-artifact@v4
         if: always()

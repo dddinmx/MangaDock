@@ -7,6 +7,7 @@ import {
   MAX_REMOTE_POLLS,
   retryDelay,
   completeParent,
+  recoverNativeChapters,
 } from "./downloads";
 import { novelPermissionsEnforced } from "./library";
 import { cleanupStorage, cleanupUploads } from "./storage";
@@ -1009,6 +1010,7 @@ export default {
 };
 export async function maintenance(env: Env) {
   await recoverRemotePolls(env);
+  const repairedChapters = await recoverNativeChapters(env);
   // A last callback may have committed its child and then lost database access
   // before aggregating its parent. Recover this independently of queue delivery.
   const waiting = await env.DB.prepare(
@@ -1065,7 +1067,10 @@ export async function maintenance(env: Env) {
   const pageIds = comicPending.results
     .filter((job) => job.kind === "page")
     .map((job) => job.id);
-  const messages: MessageSendRequest<QueueBody>[] = comicPending.results
+  const messages: MessageSendRequest<QueueBody>[] = [
+    ...repairedChapters.results,
+    ...comicPending.results,
+  ]
     .filter((job) => job.kind !== "page")
     .map((job) => ({ body: { id: job.id, kind: "comic" } }));
   for (let i = 0; i < pageIds.length; i += 10)
