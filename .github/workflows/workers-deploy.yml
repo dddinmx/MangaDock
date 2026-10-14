@@ -200,7 +200,7 @@ jobs:
         if: ${{ inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && !inputs.verify_only && success() }}
         run: node --experimental-strip-types scripts/live-delete-browser.mjs
       - name: Read staging update request logs and task records without starting downloads
-        if: ${{ inputs.verify_only && inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') }}
+        if: ${{ !cancelled() && (inputs.verify_only || inputs.diagnostic_task_id) && inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && hashFiles('workers/deployment.json') != '' }}
         env:
           DIAGNOSTIC_TASK_ID: ${{ inputs.diagnostic_task_id }}
         run: node --experimental-strip-types scripts/update-diagnostics.mjs
