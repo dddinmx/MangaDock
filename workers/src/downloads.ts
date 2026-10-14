@@ -865,10 +865,15 @@ export async function tasks(
       EXISTS(SELECT 1 FROM comic_jobs held WHERE held.parent_id=j.id AND held.message='队列免费预算已暂停，等待重置后自动恢复' AND held.state IN ('queued','waiting')) AS queue_held,
       CASE WHEN j.state IN ('waiting','running') THEN EXISTS(
         SELECT 1 FROM comic_jobs child WHERE child.parent_id=j.id AND child.state IN ('running','submitting') AND child.lease_until>?
+      ) OR EXISTS (
+        SELECT 1 FROM comic_jobs child JOIN comic_jobs leaf ON leaf.parent_id=child.id
+        WHERE child.parent_id=j.id AND child.state IN ('waiting','running')
+        AND leaf.state IN ('running','submitting') AND leaf.lease_until>?
       ) ELSE 0 END AS native_running
       FROM comic_jobs j LEFT JOIN comics c ON c.id=j.comic_id
       WHERE j.kind='source' AND (?='admin' OR j.user_id=?) ${taskId ? "AND j.id=?" : ""}
       ORDER BY j.created_at DESC LIMIT 100`,
+    now(),
     now(),
     now(),
     now(),

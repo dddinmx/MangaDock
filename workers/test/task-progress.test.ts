@@ -170,3 +170,23 @@ it("expired stored running states wait for recovery or queue reset instead of cl
     status_label: "下载中",
   });
 });
+
+it("live page grandchildren report an active download until their lease expires", async () => {
+  await sql("UPDATE comic_jobs SET state='waiting' WHERE id='timing-root'");
+  await sql(
+    "INSERT INTO comic_jobs(id,user_id,parent_id,kind,payload,state,created_at,updated_at) VALUES ('timing-chapter','timing-user','timing-root','chapter','{}','waiting',100,100)",
+  );
+  await sql(
+    "INSERT INTO comic_jobs(id,user_id,parent_id,kind,payload,state,lease_until,created_at,updated_at) VALUES ('timing-page','timing-user','timing-chapter','page','{}','running',?,100,100)",
+    now() + 120,
+  );
+  expect(await detail()).toMatchObject({
+    status: "running",
+    status_label: "下载中",
+  });
+  await sql("UPDATE comic_jobs SET lease_until=1 WHERE id='timing-page'");
+  expect(await detail()).toMatchObject({
+    status: "waiting",
+    status_label: "等待章节执行",
+  });
+});
