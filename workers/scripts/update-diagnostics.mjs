@@ -184,6 +184,7 @@ async function diagnostics() {
     report.logs = { available: false, error_type: error.name };
   }
   for (const [needle, key] of [
+    ["control-storage", "control_storage_logs"],
     ["application", "application_logs"],
     ["cron", "cron_logs"],
     ["error_type", "error_logs"],
