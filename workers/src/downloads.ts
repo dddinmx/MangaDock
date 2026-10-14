@@ -329,7 +329,7 @@ export async function completeNativeChapter(
 
 export async function recoverNativeChapters(env: Env) {
   const repaired = await env.DB.prepare(
-    "UPDATE comic_jobs SET state='queued',lease_until=0,claim_token=NULL,updated_at=?,message='恢复未完成的图片任务创建' WHERE id IN (SELECT j.id FROM comic_jobs root INDEXED BY comic_source_wait JOIN comic_jobs j INDEXED BY comic_native_plan ON j.parent_id=root.id JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE root.kind='source' AND root.state IN ('queued','running','waiting') AND j.kind='chapter' AND j.state IN ('waiting','completed') AND j.remote_poll_at IS NULL AND j.updated_at<? AND j.lease_until<=? AND j.attempts<? AND json_extract(j.payload,'$.provider')!='fanqie' AND c.state IN ('downloading','ready') AND c.page_count>0 AND NOT EXISTS(SELECT 1 FROM compute_jobs x WHERE json_extract(x.payload,'$.parent_job')=j.id AND x.state IN ('queued','running')) AND ((SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page')<c.page_count OR j.state='waiting' AND NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state!='completed')) ORDER BY j.updated_at,j.id LIMIT 4) RETURNING id,kind",
+    "UPDATE comic_jobs SET state='queued',lease_until=0,claim_token=NULL,updated_at=?,message='恢复未完成的图片任务创建' WHERE id IN (SELECT j.id FROM comic_jobs root INDEXED BY comic_source_wait JOIN comic_jobs j INDEXED BY comic_native_plan ON j.parent_id=root.id JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE root.kind='source' AND root.state IN ('queued','running','waiting') AND j.kind='chapter' AND j.state IN ('waiting','completed') AND j.remote_poll_at IS NULL AND j.updated_at<? AND j.lease_until<=? AND j.attempts<? AND json_extract(j.payload,'$.provider')!='fanqie' AND c.format='images' AND c.state IN ('downloading','ready') AND c.page_count>0 AND NOT EXISTS(SELECT 1 FROM compute_jobs x WHERE json_extract(x.payload,'$.parent_job')=j.id AND x.state IN ('queued','running','completed')) AND ((SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page')<c.page_count OR j.state='waiting' AND NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state!='completed')) ORDER BY j.updated_at,j.id LIMIT 4) RETURNING id,kind",
   )
     .bind(now(), now() - 120, now(), MAX_JOB_ATTEMPTS)
     .all<{ id: string; kind: string }>();
@@ -967,6 +967,21 @@ export async function tasks(
     user.user_id,
     ...(taskId ? [taskId] : []),
   );
+  let databaseHold = { paused: false, retry_after: 0 };
+  if (
+    env.DATABASE_PROVIDER === "turso" &&
+    rows.some((row) => ["queued", "running", "waiting"].includes(row.state))
+  ) {
+    try {
+      const response = await env.APPLICATION.get(
+        env.APPLICATION.idFromName("jobs"),
+      ).fetch("https://jobs.internal/resource-status");
+      if (response.ok)
+        databaseHold =
+          (await response.json<{ database: typeof databaseHold }>()).database ||
+          databaseHold;
+    } catch {}
+  }
   for (const row of rows) {
     const payload = JSON.parse(row.payload);
     if (payload.source_planned) row.total_chapters = payload.source_total;
@@ -991,7 +1006,7 @@ export async function tasks(
     .sort((a, b) => b.created_at - a.created_at)
     .map((row): Row => {
       const cloudRunning = row.cloud_phase === 2;
-      const status =
+      let status =
         row.state === "waiting"
           ? cloudRunning || row.native_running
             ? "running"
@@ -1013,28 +1028,39 @@ export async function tasks(
           row.queue_held ||
           Number(env.QUEUE_SEND_PAUSED_UNTIL || 0) > now()) &&
         ["waiting", "pending"].includes(status);
-      const statusLabel = queueHeld
-        ? "等待队列额度重置"
-        : paused
-          ? "已暂停"
-          : row.state === "waiting" &&
-              row.cloud_phase === 1 &&
-              !row.native_running
-            ? "等待云执行器"
-            : cloudRunning
-              ? "云端处理中"
-              : (
-                  {
-                    pending:
-                      row.state === "running" ? "等待任务恢复" : "等待启动",
-                    waiting: "等待章节执行",
-                    running: "下载中",
-                    completed: "已完成",
-                    cancelled: "已取消",
-                    error: "出错",
-                  } as Record<string, string>
-                )[status] || status;
+      const databaseHeld =
+        !row.is_novel &&
+        databaseHold.paused &&
+        ["queued", "running", "waiting"].includes(row.state);
+      if (databaseHeld) status = "waiting";
+      const statusLabel = databaseHeld
+        ? "等待数据库保护恢复"
+        : queueHeld
+          ? "等待队列额度重置"
+          : paused
+            ? "已暂停"
+            : row.state === "waiting" &&
+                row.cloud_phase === 1 &&
+                !row.native_running
+              ? "等待云执行器"
+              : cloudRunning
+                ? "云端处理中"
+                : (
+                    {
+                      pending:
+                        row.state === "running" ? "等待任务恢复" : "等待启动",
+                      waiting: "等待章节执行",
+                      running: "下载中",
+                      completed: "已完成",
+                      cancelled: "已取消",
+                      error: "出错",
+                    } as Record<string, string>
+                  )[status] || status;
       const logs = row.message ? [String(row.message)] : [];
+      if (databaseHeld)
+        logs.push(
+          `后台数据库保护已暂停，预计将在 ${new Date((now() + databaseHold.retry_after) * 1000).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}（北京时间）解除，随后由维护流程恢复。`,
+        );
       if (!logs.length) logs.push(statusLabel);
       if (statusLabel === "等待云执行器")
         logs.push(

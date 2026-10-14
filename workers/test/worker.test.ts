@@ -2246,3 +2246,30 @@ it("root cancellation fences grandchildren before cancellation cascade completes
     ).state,
   ).toBe("cancelled");
 });
+it("resource diagnostics require an administrator and report persisted jobs limits without SQL in that object", async () => {
+  expect((await SELF.fetch(origin + "/api/admin/resource-status")).status).toBe(
+    401,
+  );
+  await bindings.DB.prepare(
+    "INSERT INTO users(id,username,password_hash,role) VALUES ('budget-user','budget-user',?,'user')",
+  )
+    .bind(encoded)
+    .run();
+  const member = await login("budget-user");
+  expect(
+    (
+      await SELF.fetch(origin + "/api/admin/resource-status", {
+        headers: { Cookie: member.cookie },
+      })
+    ).status,
+  ).toBe(403);
+  const administrator = await login();
+  const response = await SELF.fetch(origin + "/api/admin/resource-status", {
+    headers: { Cookie: administrator.cookie },
+  });
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as any;
+  expect(body.database.request_limit).toBe(10000);
+  expect(body.database.requests).toBe(0);
+  expect(body.database.paused).toBe(false);
+});

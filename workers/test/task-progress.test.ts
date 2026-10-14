@@ -213,3 +213,32 @@ it("cancellation preserves completed children and counters, and cannot cancel a 
   ).rejects.toThrow("任务已经结束");
   expect((await detail()).completed_chapters).toBe(1);
 });
+
+it("shows the actual download-budget pause and recovery time without changing completed tasks", async () => {
+  let calls = 0;
+  const local = {
+    ...bindings,
+    DATABASE_PROVIDER: "turso",
+    APPLICATION: {
+      idFromName: () => "jobs",
+      get: () => ({
+        fetch: async () => {
+          calls++;
+          return Response.json({
+            database: { paused: true, retry_after: 3600 },
+          });
+        },
+      }),
+    },
+  } as unknown as Env;
+  const pending = (await tasks(local, user, "timing-root"))[0];
+  expect(pending.status_label).toBe("等待数据库保护恢复");
+  expect(pending.status).toBe("waiting");
+  expect(pending.log.join(" ")).toContain("北京时间");
+  expect(calls).toBe(1);
+  await sql("UPDATE comic_jobs SET state='completed' WHERE id='timing-root'");
+  expect((await tasks(local, user, "timing-root"))[0].status_label).toBe(
+    "已完成",
+  );
+  expect(calls).toBe(1);
+});

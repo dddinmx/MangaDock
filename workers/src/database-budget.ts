@@ -93,6 +93,29 @@ export class DatabaseBudget {
       return state;
     });
   }
+  async snapshot() {
+    const time = this.clock(),
+      day = new Date(time).toISOString().slice(0, 10);
+    const stored = await this.storage.get<BudgetState>(KEY);
+    const requests = stored?.day === day ? stored.requests : 0;
+    const statements = stored?.day === day ? stored.statements : 0;
+    const pausedUntil = Math.max(
+      this.pausedUntil,
+      stored?.blockedUntil || 0,
+      requests >= this.limits.requests || statements >= this.limits.statements
+        ? Date.parse(day + "T00:00:00Z") + 86400000
+        : 0,
+    );
+    return {
+      day,
+      requests,
+      statements,
+      request_limit: this.limits.requests,
+      statement_limit: this.limits.statements,
+      paused: pausedUntil > time,
+      retry_after: Math.max(0, Math.ceil((pausedUntil - time) / 1000)),
+    };
+  }
   async reserve(statements: number) {
     if (this.pausedUntil > this.clock())
       throw new DatabasePausedError(

@@ -394,6 +394,17 @@ it("repairs a partial native plan and a lost completion callback without replaci
     await bindings.DB.prepare(
       "UPDATE comic_jobs SET updated_at=0 WHERE id='repair-job'",
     ).run();
+    await bindings.DB.prepare(
+      "INSERT INTO compute_jobs(id,kind,input_key,payload,state,created_at,updated_at) VALUES ('repair-cloud','legacy-chapter','repair-cloud',?,'completed',0,0)",
+    )
+      .bind(JSON.stringify({ parent_job: "repair-job" }))
+      .run();
+    expect(
+      (await recoverNativeChapters(bindings)).results.map((j) => j.id),
+    ).not.toContain("repair-job");
+    await bindings.DB.prepare(
+      "DELETE FROM compute_jobs WHERE id='repair-cloud'",
+    ).run();
     expect(
       (await recoverNativeChapters(bindings)).results.map((j) => j.id),
     ).toContain("repair-job");

@@ -213,3 +213,27 @@ test("invalid budget configuration is rejected", () => {
     () => new DatabaseBudget(storage(), Date.now, { statements: Infinity }),
   );
 });
+
+test("budget snapshots expose actual limits and recovery without SQL or counter writes", async () => {
+  let time = Date.UTC(2026, 9, 14, 6);
+  const store = storage();
+  const budget = new DatabaseBudget(store, () => time, {
+    requests: 2,
+    statements: 20,
+  });
+  assert.equal((await budget.snapshot()).requests, 0);
+  assert.equal(store.stats.writes, 0);
+  await budget.reserve(1);
+  await budget.reserve(1);
+  const writes = store.stats.writes;
+  const exhausted = await budget.snapshot();
+  assert.equal(exhausted.requests, 2);
+  assert.equal(exhausted.paused, true);
+  assert.equal(exhausted.retry_after, 18 * 3600);
+  assert.equal(store.stats.writes, writes);
+  time = Date.UTC(2026, 9, 15);
+  const fresh = await budget.snapshot();
+  assert.equal(fresh.requests, 0);
+  assert.equal(fresh.paused, false);
+  assert.equal(store.stats.writes, writes);
+});

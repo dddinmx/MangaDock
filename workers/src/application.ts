@@ -94,8 +94,13 @@ const definitions = routes.map((route) => ({
   ),
 }));
 export class ApplicationService extends DurableObject<Env> {
+  private databaseBudget: DatabaseBudget;
   private rawDownloads: Queue<import("./index").QueueBody>;
   constructor(state: DurableObjectState, env: Env) {
+    const budget = new DatabaseBudget(state.storage, Date.now, {
+      requests: Number(env.DB_DAILY_REQUEST_LIMIT || 10000),
+      statements: Number(env.DB_DAILY_STATEMENT_LIMIT || 50000),
+    });
     super(
       state,
       databaseEnv(
@@ -104,16 +109,10 @@ export class ApplicationService extends DurableObject<Env> {
           DOWNLOADS: safeQueue(env),
           LOGIN_GUARD: new LoginGuard(state.storage),
         },
-        new DatabaseBudget(state.storage, Date.now, {
-          requests: env.DB_DAILY_REQUEST_LIMIT
-            ? Number(env.DB_DAILY_REQUEST_LIMIT)
-            : 10000,
-          statements: env.DB_DAILY_STATEMENT_LIMIT
-            ? Number(env.DB_DAILY_STATEMENT_LIMIT)
-            : 50000,
-        }),
+        budget,
       ),
     );
+    this.databaseBudget = budget;
     this.rawDownloads = env.DOWNLOADS;
   }
   async alarm() {
@@ -127,6 +126,12 @@ export class ApplicationService extends DurableObject<Env> {
     const url = new URL(request.url);
     try {
       const pollWake = await remotePollRequest(request, this.ctx.storage);
+      if (
+        url.hostname === "jobs.internal" &&
+        url.pathname === "/resource-status" &&
+        request.method === "GET"
+      )
+        return json({ database: await this.databaseBudget.snapshot() });
       if (pollWake) return pollWake;
       if (
         url.hostname === "queue.internal" &&
@@ -258,6 +263,15 @@ export class ApplicationService extends DurableObject<Env> {
         });
       }
       const user = await csrfIdentity(request, this.env);
+      if (
+        url.pathname === "/api/admin/resource-status" &&
+        request.method === "GET"
+      ) {
+        admin(user);
+        return this.env.APPLICATION.get(
+          this.env.APPLICATION.idFromName("jobs"),
+        ).fetch("https://jobs.internal/resource-status");
+      }
       if (
         url.pathname === "/api/admin/maintenance" &&
         request.method === "POST"

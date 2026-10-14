@@ -160,6 +160,28 @@ async function diagnostics() {
         ? (data.result?.events?.events || []).map(safeEvent)
         : { available: false, status: response.status };
   }
+  if (process.env.MANGADOCK_ADMIN_PASSWORD) {
+    const response = await fetch(url + "/api/v1/auth/login", {
+      method: "POST",
+      headers: { Origin: url, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "admin",
+        password: process.env.MANGADOCK_ADMIN_PASSWORD,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (response.ok) {
+      const cookie = response.headers.get("set-cookie")?.split(";")[0] || "";
+      const status = await fetch(url + "/api/admin/resource-status", {
+        headers: { Origin: url, Cookie: cookie },
+        signal: AbortSignal.timeout(30000),
+      });
+      report.resource_status = status.ok
+        ? await status.json()
+        : { available: false, status: status.status };
+    } else
+      report.resource_status = { available: false, status: response.status };
+  }
   const contentResponse = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${worker}`,
     {

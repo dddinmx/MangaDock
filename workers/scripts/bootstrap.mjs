@@ -245,7 +245,12 @@ const config = {
   queues: {
     producers: [{ binding: "DOWNLOADS", queue: prefix }],
     consumers: [
-      { queue: prefix, max_batch_size: 1, max_retries: 1, max_concurrency: 1 },
+      {
+        queue: prefix,
+        max_batch_size: 1,
+        max_retries: 1,
+        max_concurrency: target === "staging" ? 3 : 1,
+      },
     ],
   },
   triggers: { crons: ["*/15 * * * *"] },
