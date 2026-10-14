@@ -4,6 +4,15 @@ import argparse,importlib.util,hashlib,mimetypes,shutil,gzip,io,json,os,re,subpr
 from pathlib import Path
 from PIL import Image,ImageFilter,ImageOps
 ROOT=Path(__file__).resolve().parents[2]
+def failure_details(error):
+ if isinstance(error,CloudJobError):return error.details
+ details={'error_type':type(error).__name__}
+ status=getattr(error,'code',None) if isinstance(error,urllib.error.HTTPError) else getattr(getattr(error,'response',None),'status_code',None)
+ if type(status) is int and 400<=status<=599:details['status']=status
+ return details
+
+class CloudJobError(RuntimeError):
+ def __init__(self,details):self.details=details;super().__init__(details['error_type'])
 class NoRedirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,*args,**kwargs): return None
 class Client:
@@ -105,10 +114,13 @@ def process(client,job,folder,claimed=None):
   client.download(base+'/input',folder/'source');result=enhance(folder/'source',folder)
   for name in ['original','hero','mobile']:client.upload(base+'/output/'+name,folder/(name+'.jpg'),'image/jpeg')
   client.request(base+'/complete','POST',{});return result
- if kind in ('legacy-source','legacy-chapter'):
+ if kind in ('legacy-source','legacy-chapter','legacy-page'):
   spec=importlib.util.spec_from_file_location('legacy_sources',ROOT/'workers/scripts/legacy-source.py');legacy=importlib.util.module_from_spec(spec);spec.loader.exec_module(legacy)
   if kind=='legacy-source':
    source=legacy.resolve(claimed['provider'],claimed['url']);file=folder/'source.json';file.write_text(json.dumps(source),encoding='utf-8');client.upload(base+'/output/source',file,'application/json');client.request(base+'/complete','POST',{});return {'chapters':len(source['chapters'])}
+  if kind=='legacy-page':
+   path=legacy.download_page(claimed['provider'],claimed['url'],folder,referer=claimed.get('referer'))
+   client.upload(base+'/output/page/0',path,mimetypes.guess_type(path)[0] or 'image/jpeg');client.request(base+'/complete','POST',{});return {'pages':1}
   paths=legacy.download_pages(claimed['provider'],claimed['chapter'],folder);pages=[]
   for i,path in enumerate(paths):
    with Image.open(path) as image:pages.append({'width':image.width,'height':image.height})
@@ -173,13 +185,13 @@ def process_bounded(client,job,folder,timeout):
  def execute():
   os.setsid()
   try:child.send({'ok':True,'result':process(client,job,folder,claimed)})
-  except Exception as error:child.send({'ok':False,'type':type(error).__name__})
+  except Exception as error:child.send({'ok':False,'failure':failure_details(error)})
   finally:child.close()
  runner=multiprocessing.get_context('fork').Process(target=execute);runner.start();child.close()
  try:
   if not parent.poll(timeout):raise TimeoutError('Cloud compute job exceeded its time budget')
   result=parent.recv();runner.join(5)
-  if not result['ok']:raise RuntimeError(result['type'])
+  if not result['ok']:raise CloudJobError(result['failure'])
   return result['result']
  finally:
   if runner.is_alive():
@@ -207,9 +219,10 @@ def main():
    with tempfile.TemporaryDirectory(prefix='md-cloud-compute-') as temp:result=process_bounded(client,job,Path(temp),min(240,max(1,deadline-time.monotonic())))
    results.append({'id':job['id'],'kind':job['kind'],'ok':True,'elapsed_s':round(time.monotonic()-start,2),**result})
   except Exception as error:
-   try:client.request(f"/api/admin/compute/jobs/{job['id']}/fail",'POST',{})
+   failure=failure_details(error)
+   try:client.request(f"/api/admin/compute/jobs/{job['id']}/fail",'POST',failure)
    except Exception:pass
-   results.append({'id':job['id'],'kind':job['kind'],'ok':False,'error_type':type(error).__name__})
+   results.append({'id':job['id'],'kind':job['kind'],'ok':False,**failure})
  if args.scheduled:
   status=client.request('/api/admin/compute/jobs');pending=bool(status['data']) or status.get('maintenance_pending',False)
   client.request('/api/compute-ready/finished','POST',{'sequence':int(os.environ['MANGADOCK_COMPUTE_SEQUENCE']),'pending':pending},extra_headers={'Authorization':'Bearer '+os.environ['MANGADOCK_COMPUTE_TOKEN']})

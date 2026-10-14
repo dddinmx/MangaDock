@@ -823,6 +823,7 @@ export async function runJob(env: Env, id: string) {
     }
     if (
       job.kind === "page" &&
+      job.attempts >= MAX_JOB_ATTEMPTS &&
       error instanceof HttpError &&
       error.status >= 500 &&
       error.status !== 507
@@ -833,23 +834,18 @@ export async function runJob(env: Env, id: string) {
         job.parent_id,
       );
       if (parent) {
-        const data = JSON.parse(parent.payload);
-        await queueCompute(
-          env,
-          "legacy-chapter",
-          "legacy-chapter/" + parent.id,
-          { ...data, parent_job: parent.id, comic_id: job.comic_id },
-        );
+        const data = JSON.parse(job.payload);
+        await queueCompute(env, "legacy-page", "legacy-page/" + job.id, {
+          ...data,
+          provider: JSON.parse(parent.payload).provider,
+          parent_job: job.id,
+          comic_id: job.comic_id,
+        });
         await run(
           env,
-          "UPDATE comic_jobs SET state='waiting',message='正在由云端兼容作业下载章节',lease_until=0,updated_at=? WHERE id=?",
+          "UPDATE comic_jobs SET state='waiting',message='正在由云端兼容作业补下载图片',lease_until=0,updated_at=? WHERE id=?",
           now(),
-          parent.id,
-        );
-        await run(
-          env,
-          "UPDATE comic_jobs SET state='cancelled',message='改由云端兼容下载' WHERE parent_id=? AND state IN ('queued','submitting','running','waiting')",
-          parent.id,
+          job.id,
         );
         return;
       }
@@ -860,7 +856,8 @@ export async function runJob(env: Env, id: string) {
       job.attempts < MAX_JOB_ATTEMPTS &&
       !(
         error instanceof HttpError &&
-        [400, 403, 409, 413, 504, 507].includes(error.status)
+        ([400, 403, 409, 413, 507].includes(error.status) ||
+          (error.status === 504 && job.kind !== "page"))
       );
     await run(
       env,

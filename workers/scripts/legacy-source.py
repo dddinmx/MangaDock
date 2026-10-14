@@ -65,16 +65,22 @@ def download_pages(provider,chapter,folder):
  ns=namespace(provider);urls=image_urls(provider,chapter);paths=[]
  if not urls or len(urls)>10000:raise ValueError('Invalid page count')
  for i,url in enumerate(urls):
-  response=ns['safe_http_get'](url,headers=ns['default_headers'](referer=chapter.get('url')),timeout=30,stream=True);response.raise_for_status();parts=[];size=0
-  try:
-   for part in response.iter_content(65536):
-    size+=len(part)
-    if size>20*1024**2:raise ValueError('Page exceeds limit')
-    parts.append(part)
-  finally:response.close()
-  from io import BytesIO
-  with Image.open(BytesIO(b''.join(parts))) as image:
-   image.load();suffix={'JPEG':'jpg','PNG':'png','WEBP':'webp','GIF':'gif','AVIF':'avif','BMP':'bmp'}.get(image.format)
-   if not suffix:raise ValueError('Unsupported image format')
-   path=folder/f'{i:05}.{suffix}';path.write_bytes(b''.join(parts));paths.append(path)
+  paths.append(download_page(provider,url,folder,i,chapter.get('url')))
  return paths
+
+def download_page(provider,url,folder,index=0,referer=None):
+ ns=namespace(provider)
+ if not referer and provider=='hipmh':referer=ns['HIPMH_READER_REFERER']
+ response=ns['safe_http_get'](url,headers=ns['default_headers'](referer=referer),timeout=30,stream=True);parts=[];size=0
+ try:
+  response.raise_for_status()
+  for part in response.iter_content(65536):
+   size+=len(part)
+   if size>20*1024**2:raise ValueError('Page exceeds limit')
+   parts.append(part)
+ finally:response.close()
+ with Image.open(BytesIO(b''.join(parts))) as image:
+  image.load();suffix={'JPEG':'jpg','PNG':'png','WEBP':'webp','GIF':'gif','AVIF':'avif','BMP':'bmp'}.get(image.format)
+  if not suffix:raise ValueError('Unsupported image format')
+  path=folder/f'{index:05}.{suffix}';path.write_bytes(b''.join(parts))
+ return path

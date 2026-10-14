@@ -44,3 +44,23 @@ test("log summaries can recover a request path from metadata without exporting r
   assert.equal(result.path, "/api/v1/updates/mode");
   assert.ok(!JSON.stringify(result).includes("private"));
 });
+test("cloud failure summaries preserve the actual exception and HTTP status without exporting provider response text", () => {
+  const result = safeEvent({
+    timestamp: 123,
+    source: {
+      message: JSON.stringify({
+        component: "cloud-compute",
+        job_kind: "legacy-page",
+        error_type: "HTTPError",
+        status: 503,
+        message: "private token URL",
+        body: "private payload",
+      }),
+    },
+  });
+  assert.equal(result.component, "cloud-compute");
+  assert.equal(result.error_type, "HTTPError");
+  assert.equal(result.status, 503);
+  assert.equal(result.job_kind, "legacy-page");
+  assert.ok(!JSON.stringify(result).includes("private"));
+});

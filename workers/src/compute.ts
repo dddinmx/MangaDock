@@ -11,14 +11,15 @@ import {
   type Row,
 } from "./library";
 import { notifyCompute } from "./compute-scheduler";
-import { queueGarbage } from "./storage";
+import { queueGarbage, putStream } from "./storage";
 import { fencedEnv, assertComputeLease } from "./job-state";
-import { completeParent } from "./downloads";
+import { completeParent, completeNativeChapter, retryDelay } from "./downloads";
+import { imageResponse } from "./image-stream";
 import { webdavRequest } from "./integrations";
 import { remotePage } from "./remote-library";
 import { chapterManifest } from "./media";
 const ORPHAN_COMPUTE =
-  "json_extract(compute_jobs.payload,'$.parent_job') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM comic_jobs p LEFT JOIN comic_jobs r ON r.id=p.parent_id WHERE p.id=json_extract(compute_jobs.payload,'$.parent_job') AND p.state IN ('queued','running','waiting','submitting') AND (r.id IS NULL OR r.state NOT IN ('cancelled','error')))";
+  "json_extract(compute_jobs.payload,'$.parent_job') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM comic_jobs p LEFT JOIN comic_jobs r ON r.id=p.parent_id LEFT JOIN comic_jobs t ON t.id=r.parent_id WHERE p.id=json_extract(compute_jobs.payload,'$.parent_job') AND p.state IN ('queued','running','waiting','submitting') AND (r.id IS NULL OR r.state NOT IN ('cancelled','error')) AND (t.id IS NULL OR t.state NOT IN ('cancelled','error')))";
 /** Parent-job cancellation is maintenance work, not the jobs poll. */
 export async function cancelOrphanedCompute(env: Env) {
   await run(
@@ -120,13 +121,13 @@ export async function computeApi(
       ok: true,
       maintenance_pending: !!(await one(
         env,
-        "SELECT 1 WHERE EXISTS(SELECT 1 FROM storage_gc) OR EXISTS(SELECT 1 FROM uploads WHERE state='aborted' OR state='uploading' AND created_at<?) OR EXISTS(SELECT 1 FROM storage_ledger WHERE state='reserved' AND created_at<?) OR EXISTS(SELECT 1 FROM comic_jobs WHERE state IN ('queued','running')) OR EXISTS(SELECT 1 FROM jobs WHERE state IN ('queued','running'))",
+        "SELECT 1 WHERE EXISTS(SELECT 1 FROM storage_gc) OR EXISTS(SELECT 1 FROM uploads WHERE state='aborted' OR state='uploading' AND created_at<?) OR EXISTS(SELECT 1 FROM storage_ledger WHERE state='reserved' AND created_at<?) OR EXISTS(SELECT 1 FROM comic_jobs WHERE state IN ('queued','running')) OR EXISTS(SELECT 1 FROM jobs WHERE state IN ('queued','running')) OR EXISTS(SELECT 1 FROM compute_jobs WHERE state='queued' AND attempts<3)",
         now() - 86400,
         now() - 86400,
       )),
       data: await all(
         env,
-        `SELECT id,kind,payload,state FROM compute_jobs WHERE attempts<3 AND (state='queued' OR state='running' AND lease_until<?) AND NOT (${ORPHAN_COMPUTE}) ORDER BY created_at LIMIT 20`,
+        `SELECT id,kind,payload,state FROM compute_jobs WHERE attempts<3 AND state IN ('queued','running') AND lease_until<=? AND NOT (${ORPHAN_COMPUTE}) ORDER BY created_at LIMIT 20`,
         now(),
       ),
     });
@@ -143,7 +144,7 @@ export async function computeApi(
   if (action === "claim" && request.method === "POST") {
     const token = crypto.randomUUID();
     const row = await env.DB.prepare(
-      "UPDATE compute_jobs SET state='running',claim_token=?,attempts=attempts+1,lease_until=?,updated_at=? WHERE id=? AND attempts<3 AND (state='queued' OR state='running' AND lease_until<?) RETURNING id",
+      "UPDATE compute_jobs SET state='running',claim_token=?,attempts=attempts+1,lease_until=?,updated_at=? WHERE id=? AND attempts<3 AND state IN ('queued','running') AND lease_until<=? RETURNING id",
     )
       .bind(token, now() + 1800, now(), id, now())
       .first();
@@ -229,6 +230,43 @@ export async function computeApi(
     return json({ ok: true, data: { key, size } });
   }
   if (action === "fail" && request.method === "POST") {
+    const failure = await input(request);
+    const errorType =
+      typeof failure.error_type === "string" &&
+      /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(failure.error_type)
+        ? failure.error_type
+        : "UnknownError";
+    const status =
+      Number.isInteger(failure.status) &&
+      failure.status >= 400 &&
+      failure.status <= 599
+        ? failure.status
+        : undefined;
+    console.error(
+      JSON.stringify({
+        component: "cloud-compute",
+        job_kind: job.kind,
+        error_type: errorType,
+        ...(status ? { status } : {}),
+      }),
+    );
+    // Keep the parent and completed pages alive during finite transient retries.
+    await queueGarbage(originalEnv, outputPrefix + "/", true);
+    if (job.attempts < 3) {
+      await run(
+        env,
+        "UPDATE compute_jobs SET state='queued',lease_until=?,message=?,updated_at=? WHERE id=?",
+        now() + retryDelay(job.attempts),
+        JSON.stringify({
+          error_type: errorType,
+          ...(status ? { status } : {}),
+        }),
+        now(),
+        id,
+      );
+      await notifyCompute(originalEnv);
+      return json({ ok: true, retrying: true });
+    }
     if (data.parent_job) {
       await run(
         env,
@@ -236,16 +274,27 @@ export async function computeApi(
         now(),
         data.parent_job,
       );
-      await run(
+      const parent = await one(
         env,
-        "UPDATE comic_jobs SET state='error',message='章节转换失败，请重试',updated_at=? WHERE id=(SELECT parent_id FROM comic_jobs WHERE id=?)",
-        now(),
+        "SELECT p.parent_id,r.parent_id AS root_id,p.kind FROM comic_jobs p LEFT JOIN comic_jobs r ON r.id=p.parent_id WHERE p.id=?",
         data.parent_job,
       );
+      if (parent?.parent_id) {
+        if (parent.kind === "page") {
+          await run(
+            env,
+            "UPDATE comic_jobs SET state='error',message='图片兼容下载重试已用尽',updated_at=? WHERE id=?",
+            now(),
+            parent.parent_id,
+          );
+          if (parent.root_id) await completeParent(originalEnv, parent.root_id);
+        } else await completeParent(originalEnv, parent.parent_id);
+      }
     }
     await run(
       env,
-      "UPDATE compute_jobs SET state='error',message='云端转换失败，请检查 CI 日志',lease_until=0,updated_at=? WHERE id=?",
+      "UPDATE compute_jobs SET state='error',message=?,lease_until=0,updated_at=? WHERE id=?",
+      JSON.stringify({ error_type: errorType, ...(status ? { status } : {}) }),
       now(),
       id,
     );
@@ -368,6 +417,43 @@ export async function computeApi(
           "UPDATE chapters SET object_key=?,size=?,format=?,state='ready' WHERE id=?",
         ).bind(key, object.size, data.format, data.chapter_id),
       ]);
+    } else if (job.kind === "legacy-page") {
+      const object = await env.LIBRARY.get(`${outputPrefix}/page/0`);
+      if (!object || object.size > 20971520)
+        throw new HttpError(409, "补下载图片未上传或过大");
+      const pageJob = await one(
+        env,
+        "SELECT parent_id,payload FROM comic_jobs WHERE id=? AND kind='page'",
+        data.parent_job,
+      );
+      if (!pageJob || JSON.parse(pageJob.payload).key !== data.key)
+        throw new HttpError(409, "图片任务已更新");
+      const image = await imageResponse(new Response(object.body));
+      await assertComputeLease(originalEnv, id, token);
+      await putStream(
+        env,
+        data.key,
+        image.body!,
+        object.size,
+        image.headers.get("Content-Type")!,
+      );
+      await run(
+        env,
+        "UPDATE comic_jobs SET size=? WHERE id=?",
+        object.size,
+        data.parent_job,
+      );
+      await assertComputeLease(originalEnv, id, token).catch(async (error) => {
+        if (
+          !(await one(
+            originalEnv,
+            "SELECT id FROM chapters WHERE id=?",
+            data.chapter_id,
+          ))
+        )
+          await queueGarbage(originalEnv, data.key);
+        throw error;
+      });
     } else if (job.kind === "archive" || job.kind === "legacy-chapter") {
       if (job.kind === "archive") {
         const chapter = await one(
@@ -445,9 +531,24 @@ export async function computeApi(
         "SELECT parent_id FROM comic_jobs WHERE id=?",
         data.parent_job,
       );
-      if (parent?.parent_id)
-        await completeParent(originalEnv, parent.parent_id);
+      if (parent?.parent_id) {
+        if (job.kind === "legacy-page") {
+          const chapter = await one(
+            originalEnv,
+            "SELECT payload FROM comic_jobs WHERE id=?",
+            parent.parent_id,
+          );
+          if (chapter)
+            await completeNativeChapter(
+              env,
+              parent.parent_id,
+              JSON.parse(chapter.payload),
+            );
+        } else await completeParent(originalEnv, parent.parent_id);
+      }
     }
+    if (job.kind === "legacy-page")
+      await queueGarbage(originalEnv, outputPrefix + "/", true);
     return json({ ok: true });
   }
   throw new HttpError(405, "不支持的作业操作");

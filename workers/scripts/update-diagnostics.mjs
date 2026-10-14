@@ -24,9 +24,12 @@ export function safeEvent(event) {
         consoleData = JSON.parse(value);
       } catch {}
   }
-  const component = ["application", "remote-polls", "pilot-api"].includes(
-    consoleData?.component,
-  )
+  const component = [
+    "application",
+    "remote-polls",
+    "pilot-api",
+    "cloud-compute",
+  ].includes(consoleData?.component)
     ? consoleData.component
     : undefined;
   const errorType = [
@@ -35,6 +38,20 @@ export function safeEvent(event) {
     "LibsqlError",
     "DatabasePausedError",
     "HttpError",
+    "HTTPError",
+    "ReadTimeout",
+    "ConnectTimeout",
+    "TimeoutError",
+    "ConnectionError",
+    "UnidentifiedImageError",
+    "ValueError",
+    "NameError",
+    "KeyError",
+    "RuntimeError",
+    "UnknownError",
+    "SSLError",
+    "OSError",
+    "URLError",
   ].includes(consoleData?.error_type)
     ? consoleData.error_type
     : undefined;
@@ -51,11 +68,32 @@ export function safeEvent(event) {
     timestamp: event.timestamp,
     path,
     method: request.method,
-    status: response.status,
+    status:
+      response.status ||
+      (component === "cloud-compute" &&
+      Number.isInteger(consoleData?.status) &&
+      consoleData.status >= 400 &&
+      consoleData.status <= 599
+        ? consoleData.status
+        : undefined),
     outcome: workers.outcome,
     event_type: workers.eventType,
     ...(component ? { component } : {}),
     ...(errorType ? { error_type: errorType } : {}),
+    ...(component === "cloud-compute" &&
+    [
+      "legacy-page",
+      "legacy-chapter",
+      "legacy-source",
+      "cover",
+      "archive",
+      "pdf",
+      "banner",
+      "index-epub",
+      "fanqie-archive",
+    ].includes(consoleData?.job_kind)
+      ? { job_kind: consoleData.job_kind }
+      : {}),
     ...(component && typeof consoleData?.subrequest_limit === "boolean"
       ? { subrequest_limit: consoleData.subrequest_limit }
       : {}),
@@ -129,6 +167,7 @@ async function diagnostics() {
     ["error_type", "error_logs"],
     ["LibsqlError", "provider_error_logs"],
     ['"subrequest_limit":true', "subrequest_error_logs"],
+    ["cloud-compute", "compute_error_logs"],
   ]) {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`,
@@ -245,8 +284,8 @@ async function diagnostics() {
       ).rows;
       report.compute_jobs = (
         await client.execute({
-          sql: "SELECT id,kind,state,attempts,lease_until,created_at,updated_at FROM compute_jobs WHERE json_extract(payload,'$.parent_job') IN (SELECT id FROM comic_jobs WHERE id=? OR parent_id=?) ORDER BY created_at DESC LIMIT 10",
-          args: [task.id, task.id],
+          sql: "SELECT id,kind,state,attempts,lease_until,created_at,updated_at,CASE WHEN json_valid(message) THEN json_extract(message,'$.error_type') ELSE NULL END AS error_type,CASE WHEN json_valid(message) THEN json_extract(message,'$.status') ELSE NULL END AS http_status FROM compute_jobs WHERE json_extract(payload,'$.parent_job') IN (SELECT id FROM comic_jobs WHERE id=? OR parent_id=? OR parent_id IN (SELECT id FROM comic_jobs WHERE parent_id=?)) ORDER BY created_at DESC LIMIT 10",
+          args: [task.id, task.id, task.id],
         })
       ).rows;
       report.page_states = (

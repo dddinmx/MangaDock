@@ -92,3 +92,31 @@ class CloudIndexTests(unittest.TestCase):
             self.assertEqual(chapter['paragraphs'],['第一章','原文内容'])
             self.assertNotIn('bad()',str(chapter))
             self.assertEqual(requests[-1][0],'/api/admin/compute/jobs/job/complete')
+
+class FailureMetadataTests(unittest.TestCase):
+    def test_child_http_failure_retains_status_without_exporting_url_or_body(self):
+        import urllib.error
+        class Client:
+            def request(self,*args,**kwargs):return {'data':{'kind':'cover','lease_token':'synthetic'}}
+        failure=urllib.error.HTTPError('https://private.invalid/?token=secret',503,'private body',{},None)
+        with tempfile.TemporaryDirectory() as temporary,patch.object(compute,'process',side_effect=failure):
+            with self.assertRaises(compute.CloudJobError) as result:
+                compute.process_bounded(Client(),{'id':'test'},Path(temporary),2)
+        self.assertEqual(result.exception.details,{'error_type':'HTTPError','status':503})
+        self.assertNotIn('private',str(result.exception))
+
+    def test_legacy_page_uploads_only_one_failed_image(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temporary:
+            folder=Path(temporary);page=folder/'page.png';Image.new('RGB',(2,3)).save(page)
+            calls=[];uploads=[]
+            class Client:
+                def request(self,*args,**kwargs):calls.append(args);return {'ok':True}
+                def upload(self,path,file,mime):uploads.append((path,file,mime))
+            legacy=SimpleNamespace(download_page=lambda *args,**kwargs:page)
+            spec=SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module:None))
+            with patch.object(compute.importlib.util,'spec_from_file_location',return_value=spec),patch.object(compute.importlib.util,'module_from_spec',return_value=legacy):
+                result=compute.process(Client(),{'id':'test'},folder,{'kind':'legacy-page','provider':'hipmh','url':'https://fixture.invalid/page.webp','referer':'https://reader.hipmh.top/'})
+            self.assertEqual(result,{'pages':1});self.assertEqual(len(uploads),1)
+            self.assertEqual(uploads[0][0],'/api/admin/compute/jobs/test/output/page/0')
+            self.assertEqual(calls[-1][0],'/api/admin/compute/jobs/test/complete')

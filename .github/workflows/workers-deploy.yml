@@ -2,6 +2,10 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      repair_native_task_id:
+        description: One-time staging repair of an existing native task stopped by old whole-chapter fallback
+        type: string
+        required: false
       diagnostic_task_id:
         description: Optional existing task ID for read-only staging diagnosis
         type: string
@@ -189,6 +193,12 @@ jobs:
         env:
           DIAGNOSTIC_TASK_ID: ${{ inputs.diagnostic_task_id }}
         run: node --experimental-strip-types scripts/update-diagnostics.mjs
+      - name: Repair only the exact existing native fallback task
+        if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.repair_native_task_id && success() }}
+        env:
+          DEPLOY_TARGET: staging
+          REPAIR_NATIVE_TASK_ID: ${{ inputs.repair_native_task_id }}
+        run: node scripts/repair-native-fallback.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

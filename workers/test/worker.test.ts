@@ -2224,6 +2224,9 @@ describe("terminal state fencing", () => {
       { parent_job: "child-fail" },
       "legacy-chapter",
     );
+    await bindings.DB.prepare(
+      "UPDATE compute_jobs SET attempts=3 WHERE id='failure-callback'",
+    ).run();
     await reviewCompute(
       computeRequest("failure-callback", "fail", token),
       bindings,
@@ -2358,4 +2361,318 @@ it("resource diagnostics require an administrator and report persisted jobs limi
   expect(body.database.request_limit).toBe(10000);
   expect(body.database.requests).toBe(0);
   expect(body.database.paused).toBe(false);
+});
+
+import { repairNativeFallback } from "../src/native-fallback-repair";
+async function nativePageFixture() {
+  await comicFixture();
+  await bindings.DB.prepare(
+    "UPDATE chapters SET format='images',state='downloading',page_count=2 WHERE id='ch_test'",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,comic_id,kind,payload,state,created_at,updated_at) VALUES ('native-root','admin','c_test','source',?,'waiting',1,1)",
+  )
+    .bind(
+      JSON.stringify({
+        source_planned: true,
+        source_cursor: 1,
+        source_total: 1,
+      }),
+    )
+    .run();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,comic_id,parent_id,kind,payload,state,created_at,updated_at) VALUES ('native-child','admin','c_test','native-root','chapter',?,'waiting',1,1)",
+  )
+    .bind(
+      JSON.stringify({
+        chapter_id: "ch_test",
+        provider: "baozimh_org",
+        format: 0,
+      }),
+    )
+    .run();
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,comic_id,parent_id,kind,payload,state,size,created_at,updated_at) VALUES ('native-good','admin','c_test','native-child','page',?,'completed',4,1,1),('native-bad','admin','c_test','native-child','page',?,'queued',0,1,1)",
+  )
+    .bind(
+      JSON.stringify({ chapter_id: "ch_test", key: "fixture/page", format: 0 }),
+      JSON.stringify({
+        chapter_id: "ch_test",
+        key: "fixture/missing-page",
+        url: "https://c-nd3-1.6wm.top/failure.jpg",
+        referer: "https://baozimh.org/",
+        format: 0,
+      }),
+    )
+    .run();
+  const manifest = [{ key: "fixture/page" }, { key: "fixture/missing-page" }];
+  await bindings.LIBRARY.put("fixture/manifest", JSON.stringify(manifest));
+  const sends: any[] = [];
+  const local = {
+    ...bindings,
+    DOWNLOADS: {
+      send: async (body: any, options: any) => sends.push({ body, options }),
+      sendBatch: async (messages: any[]) => sends.push(...messages),
+    },
+  } as unknown as Env;
+  return { local, sends, manifest };
+}
+it("a transient page error retries only that page; exhausted retries use one-page cloud fallback without cancelling siblings", async () => {
+  const { local, sends } = await nativePageFixture();
+  fetchMock
+    .get("https://c-nd3-1.6wm.top")
+    .intercept({ path: "/failure.jpg" })
+    .reply(502, "unavailable")
+    .times(2);
+  await runJob(local, "native-bad");
+  const first = await bindings.DB.prepare(
+    "SELECT state,attempts,lease_until FROM comic_jobs WHERE id='native-bad'",
+  ).first<any>();
+  expect(first).toMatchObject({ state: "queued", attempts: 1 });
+  expect(first.lease_until).toBeGreaterThan(Math.floor(Date.now() / 1000));
+  expect(sends).toHaveLength(1);
+  expect(sends[0].options.delaySeconds).toBe(60);
+  expect(
+    (await bindings.DB.prepare("SELECT id FROM compute_jobs").all()).results,
+  ).toHaveLength(0);
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET attempts=4,lease_until=0 WHERE id='native-bad'",
+  ).run();
+  await runJob(local, "native-bad");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='native-bad'",
+    ).first("state"),
+  ).toBe("waiting");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='native-good'",
+    ).first("state"),
+  ).toBe("completed");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='native-root'",
+    ).first("state"),
+  ).toBe("waiting");
+  const compute = await bindings.DB.prepare(
+    "SELECT kind,payload FROM compute_jobs",
+  ).first<any>();
+  expect(compute.kind).toBe("legacy-page");
+  expect(JSON.parse(compute.payload).parent_job).toBe("native-bad");
+  expect((await bindings.LIBRARY.get("fixture/page"))?.size).toBe(4);
+});
+it("one-page cloud completion fills the original R2 key and completes the original chapter and root", async () => {
+  const { local, manifest } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='waiting' WHERE id='native-bad'",
+  ).run();
+  const data = JSON.parse(
+    (
+      await bindings.DB.prepare(
+        "SELECT payload FROM comic_jobs WHERE id='native-bad'",
+      ).first<any>()
+    ).payload,
+  );
+  const token = await seedCompute(
+    "native-page-compute",
+    { ...data, provider: "baozimh_org", parent_job: "native-bad" },
+    "legacy-page",
+  );
+  const png = new Uint8Array([
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+  ]);
+  await reviewCompute(
+    new Request(
+      origin + "/api/admin/compute/jobs/native-page-compute/output/page/0",
+      {
+        method: "PUT",
+        headers: { "X-Compute-Lease": token, "Content-Type": "image/png" },
+        body: png,
+      },
+    ),
+    local,
+    reviewUser,
+  );
+  await reviewCompute(
+    computeRequest("native-page-compute", "complete", token),
+    local,
+    reviewUser,
+  );
+  expect(
+    await (await bindings.LIBRARY.get("fixture/missing-page"))?.arrayBuffer(),
+  ).toEqual(png.buffer);
+  expect(
+    await (await bindings.LIBRARY.get("fixture/manifest"))?.json(),
+  ).toEqual(manifest);
+  expect((await bindings.LIBRARY.get("fixture/page"))?.size).toBe(4);
+  for (const id of ["native-bad", "native-child", "native-root"])
+    expect(
+      await bindings.DB.prepare("SELECT state FROM comic_jobs WHERE id=?")
+        .bind(id)
+        .first("state"),
+    ).toBe("completed");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM chapters WHERE id='ch_test'",
+    ).first("state"),
+  ).toBe("ready");
+  await cleanupStorage(bindings);
+  expect(
+    await bindings.LIBRARY.head(`compute/native-page-compute/${token}/page/0`),
+  ).toBeNull();
+  expect((await bindings.LIBRARY.get("fixture/missing-page"))?.size).toBe(
+    png.length,
+  );
+});
+it("cloud failures retain parents for two retries, enforce backoff, preserve safe error metadata, and terminate at attempt three", async () => {
+  const { local } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='waiting' WHERE id='native-bad'",
+  ).run();
+  let token = await seedCompute(
+    "native-failure",
+    { parent_job: "native-bad" },
+    "legacy-page",
+  );
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const result = await reviewCompute(
+      computeRequest("native-failure", "fail", token, {
+        error_type: "HTTPError",
+        status: 503,
+        message: "private secret URL",
+      }),
+      local,
+      reviewUser,
+    );
+    expect(result!.status).toBe(200);
+    const compute = await bindings.DB.prepare(
+      "SELECT state,attempts,message FROM compute_jobs WHERE id='native-failure'",
+    ).first<any>();
+    expect(compute.attempts).toBe(attempt);
+    expect(JSON.parse(compute.message)).toEqual({
+      error_type: "HTTPError",
+      status: 503,
+    });
+    expect(compute.message).not.toContain("private");
+    if (attempt < 3) {
+      expect(compute.state).toBe("queued");
+      expect(
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='native-root'",
+        ).first("state"),
+      ).toBe("waiting");
+      await expect(
+        reviewCompute(
+          computeRequest("native-failure", "claim", token),
+          local,
+          reviewUser,
+        ),
+      ).rejects.toThrow("正在运行");
+      const jobs = await reviewCompute(
+        new Request(origin + "/api/admin/compute/jobs"),
+        local,
+        reviewUser,
+      );
+      const listed = await jobs!.json<any>();
+      expect(listed.data.some((j: any) => j.id === "native-failure")).toBe(
+        false,
+      );
+      expect(listed.maintenance_pending).toBe(true);
+      await bindings.DB.prepare(
+        "UPDATE compute_jobs SET lease_until=0 WHERE id='native-failure'",
+      ).run();
+      token = (
+        await (await reviewCompute(
+          computeRequest("native-failure", "claim", token),
+          local,
+          reviewUser,
+        ))!.json<any>()
+      ).data.lease_token;
+    } else {
+      expect(compute.state).toBe("error");
+      expect(
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='native-root'",
+        ).first("state"),
+      ).toBe("error");
+      expect(
+        await bindings.DB.prepare(
+          "SELECT state FROM comic_jobs WHERE id='native-good'",
+        ).first("state"),
+      ).toBe("completed");
+    }
+  }
+});
+it("the one-time old-fallback repair keeps completed pages and attempt counts and never revives cancelled roots", async () => {
+  const { local, sends } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='error' WHERE id IN ('native-root','native-child')",
+  ).run();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='cancelled',message='改由云端兼容下载',attempts=1 WHERE id='native-bad'",
+  ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO compute_jobs(id,kind,input_key,payload,state,created_at,updated_at) VALUES ('old-fallback','legacy-chapter','old-input',?,'error',1,1)",
+  )
+    .bind(JSON.stringify({ parent_job: "native-child" }))
+    .run();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='cancelled' WHERE id='native-root'",
+  ).run();
+  await expect(repairNativeFallback(local, "native-root")).rejects.toThrow(
+    "只能修复",
+  );
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='error' WHERE id='native-root'",
+  ).run();
+  expect(await repairNativeFallback(local, "native-root")).toMatchObject({
+    repaired: true,
+    chapters: 1,
+    pages: 1,
+  });
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,attempts FROM comic_jobs WHERE id='native-bad'",
+    ).first(),
+  ).toMatchObject({ state: "queued", attempts: 1 });
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='native-good'",
+    ).first("state"),
+  ).toBe("completed");
+  expect(sends).toHaveLength(1);
+  expect(sends[0].body.ids).toEqual(["native-bad"]);
+  expect(await repairNativeFallback(local, "native-root")).toMatchObject({
+    already_repaired: true,
+  });
+  expect(sends).toHaveLength(1);
+});
+it("one-page compute callbacks cannot publish after the source root was cancelled", async () => {
+  const { local } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='waiting' WHERE id='native-bad'",
+  ).run();
+  const token = await seedCompute(
+    "cancel-page-compute",
+    { parent_job: "native-bad", key: "fixture/missing-page" },
+    "legacy-page",
+  );
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='cancelled' WHERE id='native-root'",
+  ).run();
+  await expect(
+    reviewCompute(
+      computeRequest("cancel-page-compute", "fail", token),
+      local,
+      reviewUser,
+    ),
+  ).rejects.toThrow("任务已停止");
+  await expect(
+    reviewCompute(
+      computeRequest("cancel-page-compute", "output/page/0", token),
+      local,
+      reviewUser,
+    ),
+  ).rejects.toThrow("任务已停止");
+  expect(await bindings.LIBRARY.head("fixture/missing-page")).toBeNull();
 });

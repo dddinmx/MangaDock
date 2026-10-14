@@ -884,12 +884,16 @@ export default {
                 path.startsWith("/api/admin/uploads") ||
                 path === "/api/admin/maintenance"
               ? "compute"
-              : request.method === "POST" &&
-                  ["/login", "/api/auth/login", "/api/v1/auth/login"].includes(
-                    path,
-                  )
-                ? "login"
-                : "web",
+              : path.startsWith("/api/admin/downloads/")
+                ? "jobs"
+                : request.method === "POST" &&
+                    [
+                      "/login",
+                      "/api/auth/login",
+                      "/api/v1/auth/login",
+                    ].includes(path)
+                  ? "login"
+                  : "web",
         ).fetch(request);
     } catch (error) {
       if (!(error instanceof HttpError))

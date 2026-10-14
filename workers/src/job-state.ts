@@ -55,7 +55,7 @@ export function fencedEnv(
           const states = failure
             ? "execution.state!='cancelled'"
             : "execution.state NOT IN ('cancelled','error')";
-          const guard = `EXISTS(SELECT 1 FROM ${table} execution WHERE execution.id=? AND execution.claim_token=? AND ${states}${table === "compute_jobs" ? " AND (execution.state='completed' OR execution.lease_until>unixepoch())" : ""}) AND NOT EXISTS(SELECT 1 FROM comic_jobs parent WHERE parent.id IN (${table === "comic_jobs" ? "SELECT parent_id FROM comic_jobs WHERE id=? UNION SELECT p.parent_id FROM comic_jobs j JOIN comic_jobs p ON p.id=j.parent_id WHERE j.id=?" : "SELECT id FROM comic_jobs WHERE id=? UNION SELECT parent_id FROM comic_jobs WHERE id=?"}) AND parent.state IN (${failure ? "'cancelled'" : "'cancelled','error'"}))`;
+          const guard = `EXISTS(SELECT 1 FROM ${table} execution WHERE execution.id=? AND execution.claim_token=? AND ${states}${table === "compute_jobs" ? " AND (execution.state='completed' OR execution.lease_until>unixepoch())" : ""}) AND NOT EXISTS(SELECT 1 FROM comic_jobs parent WHERE parent.id IN (${table === "comic_jobs" ? "SELECT parent_id FROM comic_jobs WHERE id=? UNION SELECT p.parent_id FROM comic_jobs j JOIN comic_jobs p ON p.id=j.parent_id WHERE j.id=?" : "SELECT id FROM comic_jobs WHERE id=? UNION SELECT p.id FROM comic_jobs j JOIN comic_jobs p ON p.id IN (j.parent_id,(SELECT parent_id FROM comic_jobs WHERE id=j.parent_id)) WHERE j.id=?"}) AND parent.state IN (${failure ? "'cancelled'" : "'cancelled','error'"}))`;
           const targetFence = /^UPDATE\s+comic_jobs\b/i.test(sql)
             ? failure
               ? " AND state NOT IN ('cancelled','completed')"
@@ -125,13 +125,14 @@ export async function assertComputeLease(
   if (data.parent_job) {
     const parent = await one(
       env,
-      "SELECT p.state,r.state AS root_state FROM comic_jobs p LEFT JOIN comic_jobs r ON r.id=p.parent_id WHERE p.id=?",
+      "SELECT p.state,r.state AS root_state,t.state AS ancestor_state FROM comic_jobs p LEFT JOIN comic_jobs r ON r.id=p.parent_id LEFT JOIN comic_jobs t ON t.id=r.parent_id WHERE p.id=?",
       data.parent_job,
     );
     if (
       !parent ||
       ["cancelled", "error", "completed"].includes(parent.state) ||
-      ["cancelled", "error"].includes(parent.root_state)
+      ["cancelled", "error"].includes(parent.root_state) ||
+      ["cancelled", "error"].includes(parent.ancestor_state)
     )
       throw new HttpError(409, "下载任务已停止");
   }

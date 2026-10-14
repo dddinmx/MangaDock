@@ -80,6 +80,7 @@ import {
   saveMetadata,
 } from "./integrations";
 import { computeApi, queueCompute } from "./compute";
+import { repairNativeFallback } from "./native-fallback-repair";
 import { importApi } from "./imports";
 import { uploadApi } from "./uploads";
 import { mediaApi } from "./media";
@@ -297,6 +298,16 @@ export class ApplicationService extends DurableObject<Env> {
         });
       }
       const user = await csrfIdentity(request, this.env);
+      const nativeRepair = url.pathname.match(
+        /^\/api\/admin\/downloads\/([a-zA-Z0-9_-]{1,100})\/repair-native-fallback$/,
+      );
+      if (nativeRepair && request.method === "POST") {
+        admin(user);
+        return json({
+          ok: true,
+          data: await repairNativeFallback(this.env, nativeRepair[1]),
+        });
+      }
       if (
         url.pathname === "/api/admin/resource-status" &&
         request.method === "GET"
