@@ -806,9 +806,11 @@ export class ApplicationService extends DurableObject<Env> {
     ) {
       downloader(user);
       if (endpoint === "update" || endpoint === "start_update") {
-        const selected = list(
-          data.comic_names || data.comic_name || data.comics,
-        );
+        const selected = data.comic_name
+          ? [String(data.comic_name).trim()]
+          : list(data.comic_names || data.comics);
+        if (!selected.length || selected.some((name) => !String(name).trim()))
+          throw new HttpError(400, "请选择要更新的漫画");
         const ids = [];
         for (const name of selected) {
           const comic = await comicById(env, user, String(name));
@@ -821,7 +823,13 @@ export class ApplicationService extends DurableObject<Env> {
             }),
           );
         }
-        result = { task_ids: ids };
+        result = {
+          task_id: ids[0],
+          task_ids: ids,
+          task: api ? (await tasks(env, user, ids[0]))[0] : undefined,
+          next_url: "/progress/" + ids[0],
+          message: "更新任务已排队",
+        };
         redirect = "/tasks";
       } else {
         const id = await createDownload(env, user, data);
@@ -1107,7 +1115,7 @@ export class ApplicationService extends DurableObject<Env> {
     if (api)
       return json(
         { ok: true, data: result },
-        endpoint === "create_user" ? 201 : 200,
+        ["create_user", "start_update"].includes(endpoint) ? 201 : 200,
       );
     const location = new URL(
       safeReturn(data.return_url || data.return_to_url, redirect),

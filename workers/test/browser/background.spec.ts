@@ -6,6 +6,59 @@ async function login(page: any) {
   await page.locator("#loginButton").click();
   await expect(page.locator(".md-topnav")).toBeVisible();
 }
+for (const width of [1280, 390]) {
+  test(`manual comic update uses the actual API and opens its progress page at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await login(page);
+    await page.goto("/update");
+    await page.locator("#comic_name").selectOption({ label: "本地测试漫画" });
+    const csrf = await page
+      .locator('input[name="csrf_token"]')
+      .first()
+      .inputValue();
+    let capture: (value: any) => void;
+    const created = new Promise<any>((resolve) => {
+      capture = resolve;
+    });
+    // Forward to the real API and capture its body before the original UI
+    // navigates away; DevTools can discard a response after navigation.
+    await page.route("**/api/v1/updates", async (route) => {
+      const response = await route.fetch();
+      capture({ status: response.status(), result: await response.json() });
+      await route.fulfill({ response });
+    });
+    await page.locator("#updateButton").click();
+    const { status, result } = await created;
+    expect(status).toBe(201);
+    expect(result.ok).toBe(true);
+    expect(result.data.task_id).toBeTruthy();
+    expect(result.data.task_ids).toEqual([result.data.task_id]);
+    await page.waitForURL(`**/progress/${result.data.task_id}`);
+    await expect(page.locator("#update-error:visible")).toHaveCount(0);
+    const options = {
+      headers: { "X-CSRFToken": csrf, Origin: "http://localhost:8787" },
+      data: {},
+    };
+    expect(
+      (
+        await page.request.post(
+          `/api/v1/tasks/${result.data.task_id}/cancel`,
+          options,
+        )
+      ).ok(),
+    ).toBeTruthy();
+    expect(
+      (
+        await page.request.delete(
+          `/api/v1/tasks/${result.data.task_id}`,
+          options,
+        )
+      ).ok(),
+    ).toBeTruthy();
+  });
+}
 test("active tasks keep polling across a fifteen-minute compute wait and stop after completion", async ({
   page,
 }) => {

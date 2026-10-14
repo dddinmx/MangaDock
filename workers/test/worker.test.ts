@@ -130,7 +130,14 @@ describe("Turso HTTP driver in actual workerd", () => {
   });
 });
 beforeEach(async () => {
-  for (const name of ["login", "web", "compute", "scheduler", "remote-polls"])
+  for (const name of [
+    "login",
+    "web",
+    "compute",
+    "scheduler",
+    "remote-polls",
+    "queue-budget",
+  ])
     await runInDurableObject(
       bindings.APPLICATION.get(bindings.APPLICATION.idFromName(name)),
       async (_instance, state) => state.storage.deleteAll(),
@@ -625,6 +632,69 @@ async function comicFixture() {
     { httpMetadata: { contentType: "image/png" } },
   );
 }
+async function pauseTestQueue() {
+  await runInDurableObject(
+    bindings.APPLICATION.get(bindings.APPLICATION.idFromName("queue-budget")),
+    async (_instance, state) => {
+      await state.storage.put("queue-budget", {
+        day: Math.floor(Date.now() / 86400000),
+        sent: 0,
+        pausedUntil: Math.floor(Date.now() / 1000) + 3600,
+      });
+    },
+  );
+}
+it("manual update returns the original singular task id and task used by the frontend", async () => {
+  await comicFixture();
+  await pauseTestQueue();
+  const { cookie, payload } = await login();
+  const response = await SELF.fetch(origin + "/api/v1/updates", {
+    method: "POST",
+    headers: auth(cookie, payload.data.csrf_token),
+    body: JSON.stringify({ comic_name: "原版漫画", format: "2" }),
+  });
+  const result = await response.json<any>();
+  expect(result.ok).toBe(true);
+  expect(result.data.task_id).toBeTypeOf("string");
+  expect(response.status).toBe(201);
+  expect(result.data.task_ids).toEqual([result.data.task_id]);
+  expect(result.data.task.id).toBe(result.data.task_id);
+  const job = await bindings.DB.prepare(
+    "SELECT payload FROM comic_jobs WHERE id=?",
+  )
+    .bind(result.data.task_id)
+    .first<any>();
+  expect(JSON.parse(job.payload).is_update).toBe(true);
+  const repeat = await SELF.fetch(origin + "/api/v1/updates", {
+    method: "POST",
+    headers: auth(cookie, payload.data.csrf_token),
+    body: JSON.stringify({ comic_name: "原版漫画", format: "2" }),
+  });
+  expect(repeat.status).toBe(409);
+  expect(
+    (
+      await bindings.DB.prepare(
+        "SELECT COUNT(*) AS n FROM comic_jobs WHERE kind='source'",
+      ).first<any>()
+    ).n,
+  ).toBe(1);
+});
+it("a single manual update preserves commas in comic names and rejects an empty selection", async () => {
+  await comicFixture();
+  await pauseTestQueue();
+  await bindings.DB.prepare(
+    "UPDATE comics SET name='One, Two' WHERE id='c_test'",
+  ).run();
+  const { cookie, payload } = await login();
+  const send = (body: unknown) =>
+    SELF.fetch(origin + "/api/v1/updates", {
+      method: "POST",
+      headers: auth(cookie, payload.data.csrf_token),
+      body: JSON.stringify(body),
+    });
+  expect((await send({ comic_name: "One, Two", format: 2 })).status).toBe(201);
+  expect((await send({ comic_name: "" })).status).toBe(400);
+});
 async function novelFixture(indexed = true) {
   const zip = zipSync({
     "META-INF/container.xml": strToU8(

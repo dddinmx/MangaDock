@@ -11,6 +11,9 @@ const child = spawn(
     "--persist-to",
     ".wrangler/state/e2e",
     "--show-interactive-dev-session=false",
+    // API/form tests persist jobs but must not fetch real comic providers.
+    "--var",
+    "QUEUE_SEND_PAUSED_UNTIL:" + (Math.floor(Date.now() / 1000) + 3600),
   ],
   { stdio: "inherit", env: { ...process.env, WRANGLER_SEND_METRICS: "false" } },
 );
