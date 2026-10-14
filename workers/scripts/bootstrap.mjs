@@ -69,7 +69,7 @@ if (
   );
 const libraryLimit = Number(
   process.env.MANGADOCK_MAX_LIBRARY_BYTES ||
-    (target === "production" ? 8000000000 : 5000000000),
+    (target === "production" ? 8000000000 : 9000000000),
 );
 if (
   !Number.isSafeInteger(libraryLimit) ||

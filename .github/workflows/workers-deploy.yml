@@ -64,7 +64,7 @@ jobs:
       MANGADOCK_DB_DOWNLOAD_REQUESTS: ${{ vars.MANGADOCK_DB_DOWNLOAD_REQUESTS || '40000' }}
       MANGADOCK_DB_DAILY_REQUESTS: ${{ vars.MANGADOCK_DB_DAILY_REQUESTS || '10000' }}
       MANGADOCK_DB_DAILY_STATEMENTS: ${{ vars.MANGADOCK_DB_DAILY_STATEMENTS || '50000' }}
-      MANGADOCK_MAX_LIBRARY_BYTES: ${{ inputs.environment != 'production' && '5000000000' || vars.MANGADOCK_MAX_LIBRARY_BYTES }}
+      MANGADOCK_MAX_LIBRARY_BYTES: ${{ inputs.environment != 'production' && '9000000000' || vars.MANGADOCK_MAX_LIBRARY_BYTES }}
       DATABASE_PROVIDER: turso
       ENABLE_FANQIE_SOURCE: ${{ inputs.test_novels && 'true' || 'false' }}
       COMIC_MAX_CHAPTERS: ${{ inputs.comic_chapters || '1' }}
