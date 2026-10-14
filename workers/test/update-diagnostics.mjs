@@ -29,6 +29,7 @@ test("update log summaries exclude credentials, query strings, headers and raw e
     method: "POST",
     status: 200,
     outcome: "ok",
+    event_type: undefined,
   });
   assert.ok(!JSON.stringify(result).includes("private"));
 });
