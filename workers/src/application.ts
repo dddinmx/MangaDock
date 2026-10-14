@@ -17,6 +17,7 @@ import {
   DatabaseBudget,
   databasePaused,
   databaseRetryAfter,
+  databasePauseMessage,
 } from "./database-budget";
 import {
   HttpError,
@@ -440,7 +441,7 @@ export class ApplicationService extends DurableObject<Env> {
           ? error.status
           : 500;
       const message = databasePaused(error)
-        ? "数据库保护已暂停请求，请稍后重试并检查额度"
+        ? databasePauseMessage(error)
         : error instanceof HttpError
           ? error.message
           : "服务暂时不可用";

@@ -3,10 +3,17 @@
 // The existing DO still serializes callers and runs CPU-heavy application code.
 import { DatabasePausedError } from "./database-budget";
 class ControlStorageUnavailableError extends DatabasePausedError {
-  constructor(cause: unknown) {
-    super(60);
+  constructor(cause: unknown, resetUntil = 0) {
+    super(
+      resetUntil
+        ? Math.max(1, Math.ceil((resetUntil - Date.now()) / 1000))
+        : 60,
+    );
     this.name = "ControlStorageUnavailableError";
     this.cause = cause;
+    if (resetUntil)
+      this.message =
+        "Cloudflare 状态存储已达到今日免费写入额度，将在北京时间 08:00 后自动恢复；已下载的图片和任务已保留";
   }
 }
 type Document = {
@@ -15,6 +22,7 @@ type Document = {
   alarm: number | null;
 };
 const MAX_BYTES = 1048576;
+const HOLD_KEY = "_system/control-quota-hold-v1.json";
 export function storageFailureKind(error: unknown) {
   for (let i = 0; i < 5 && error instanceof Error; i++, error = error.cause)
     if (
@@ -56,6 +64,8 @@ export class ControlStorage {
   private legacy: DurableObjectStorage;
   private key: string;
   private operation = "control-read";
+  private migrationBlockedUntil = 0;
+  private previousReset = 0;
   constructor(bucket: R2Bucket, legacy: DurableObjectStorage, id: string) {
     this.bucket = bucket;
     this.legacy = legacy;
@@ -78,6 +88,11 @@ export class ControlStorage {
     return next;
   }
   private async read() {
+    if (this.migrationBlockedUntil > Date.now())
+      throw new ControlStorageUnavailableError(
+        new Error("Legacy SQLite row write quota exceeded"),
+        this.migrationBlockedUntil,
+      );
     this.operation = "r2-read";
     const object = await this.bucket.get(this.key);
     if (object) {
@@ -94,6 +109,30 @@ export class ControlStorage {
     }
     // Read outside a SQLite write transaction. Preserve all old counters and
     // provider holds exactly; inaccessible counters fail closed, never reset.
+    const holdObject = await this.bucket.get(HOLD_KEY);
+    if (holdObject) {
+      if (holdObject.size > 1024) throw new Error("Invalid control quota hold");
+      const hold = await holdObject.json<{
+        version: number;
+        until: number;
+        kind: string;
+        reset_at?: number;
+      }>();
+      if (
+        hold.version !== 1 ||
+        hold.kind !== "legacy_rows_written" ||
+        !Number.isSafeInteger(hold.until)
+      )
+        throw new Error("Invalid control quota hold");
+      this.previousReset = Number(hold.reset_at || hold.until);
+      if (hold.until > Date.now()) {
+        this.migrationBlockedUntil = hold.until;
+        throw new ControlStorageUnavailableError(
+          new Error("Legacy SQLite row write quota exceeded"),
+          hold.until,
+        );
+      }
+    }
     try {
       this.operation = "legacy-list";
       const old = await this.legacy.list({ limit: 2001 });
@@ -110,6 +149,41 @@ export class ControlStorage {
         etag: null,
       };
     } catch (error) {
+      if (storageFailureKind(error) === "durable_storage_quota") {
+        const day = new Date().toISOString().slice(0, 10);
+        const nextDay = Date.parse(day + "T00:00:00Z") + 86400000;
+        const withinResetGrace =
+          this.previousReset > 0 &&
+          this.previousReset <= Date.now() &&
+          Date.now() < this.previousReset + 900000;
+        const until = withinResetGrace
+          ? Math.min(Date.now() + 60000, this.previousReset + 900000)
+          : nextDay;
+        this.migrationBlockedUntil = until;
+        console.error(
+          JSON.stringify({
+            component: "control-storage",
+            error_code: "DURABLE_STORAGE_QUOTA",
+            operation: this.operation,
+            reason_words: reasonWords(error),
+          }),
+        );
+        // This records the provider's hold only. Never create/reset quota counters
+        // while the original control state cannot be read.
+        await this.bucket
+          .put(
+            HOLD_KEY,
+            JSON.stringify({
+              version: 1,
+              until,
+              kind: "legacy_rows_written",
+              reset_at: withinResetGrace ? this.previousReset : nextDay,
+            }),
+            { httpMetadata: { contentType: "application/json" } },
+          )
+          .catch(() => null);
+        throw new ControlStorageUnavailableError(error, until);
+      }
       throw new Error("Existing control counters are unavailable", {
         cause: error,
       });

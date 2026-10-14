@@ -13,7 +13,11 @@ import {
 import { novelPermissionsEnforced } from "./library";
 import { cleanupStorage, cleanupUploads } from "./storage";
 import { loginGuard, type LoginGuard } from "./login-guard";
-import { databasePaused, databaseRetryAfter } from "./database-budget";
+import {
+  databasePaused,
+  databaseRetryAfter,
+  databasePauseMessage,
+} from "./database-budget";
 import { DurableObject } from "cloudflare:workers";
 import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -973,7 +977,13 @@ export default {
           // Pack page IDs without sharing their execution budget: every image
           // runs in a fresh DO invocation. This reduces Queue operations
           // while preserving the free external-subrequest limit per image.
-          for (const id of ids) {
+          const deadline = Date.now() + 540000;
+          for (let position = 0; position < ids.length; position++) {
+            const id = ids[position];
+            if (Date.now() >= deadline) {
+              deferred.push(...ids.slice(position));
+              break;
+            }
             try {
               const result = await applicationStub(env, "jobs").fetch(
                 "https://jobs.internal/run",
@@ -994,6 +1004,13 @@ export default {
                   retryAfter,
                   Number(result.headers.get("Retry-After")) || 60,
                 );
+                // A long database/provider hold affects every image. Persist
+                // the remaining wake once instead of probing fifty times.
+                if (retryAfter >= 600) {
+                  deferred.push(...ids.slice(position + 1));
+                  await result.body?.cancel();
+                  break;
+                }
               }
               await result.body?.cancel();
             } catch {
@@ -1225,7 +1242,7 @@ export async function pilotRoute(
         ok: false,
         error: {
           message: databasePaused(error)
-            ? "数据库保护已暂停请求，请稍后重试并检查额度"
+            ? databasePauseMessage(error)
             : error instanceof HttpError
               ? error.message
               : "服务暂时不可用",

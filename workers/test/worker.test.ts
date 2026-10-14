@@ -143,11 +143,109 @@ describe("R2 control storage", () => {
       "fail-closed-migration",
     );
     await expect(store.put("database-outbound-budget-v1", {})).rejects.toThrow(
-      "数据库保护",
+      "Cloudflare 状态存储",
     );
     expect(
       await bindings.LIBRARY.head(
         "_system/control-v1/fail-closed-migration.json",
+      ),
+    ).toBeNull();
+  });
+  it("persists the provider hold once, avoids more SQLite reads after reconstruction, and preserves counters after expiry", async () => {
+    const { ControlStorage } = await import("../src/control-storage");
+    let reads = 0,
+      unavailable = true;
+    const original = {
+      day: new Date().toISOString().slice(0, 10),
+      requests: 97311,
+      statements: 106120,
+      blockedUntil: Date.now() + 10000,
+      failures: 1,
+      failureWindow: Date.now(),
+    };
+    const legacy = {
+      list: async () => {
+        reads++;
+        if (unavailable)
+          throw new Error("Exceeded rows written on Durable Objects Free");
+        return new Map([["database-outbound-budget-v1", original]]);
+      },
+      getAlarm: async () => null,
+    } as any;
+    const first = new ControlStorage(
+      bindings.LIBRARY,
+      legacy,
+      "quota-hold-fixture",
+    );
+    const err = await first
+      .get("database-outbound-budget-v1")
+      .catch((error) => error);
+    expect(err.message).toContain("北京时间 08:00");
+    expect(err.retryAfter).toBeGreaterThan(0);
+    for (let i = 0; i < 10; i++)
+      await expect(first.get("database-outbound-budget-v1")).rejects.toThrow(
+        "Cloudflare 状态存储",
+      );
+    const rebuilt = new ControlStorage(
+      bindings.LIBRARY,
+      legacy,
+      "quota-hold-fixture",
+    );
+    await expect(rebuilt.get("database-outbound-budget-v1")).rejects.toThrow(
+      "Cloudflare 状态存储",
+    );
+    expect(reads).toBe(1);
+    await bindings.LIBRARY.put(
+      "_system/control-quota-hold-v1.json",
+      JSON.stringify({
+        version: 1,
+        until: Date.now() - 1,
+        kind: "legacy_rows_written",
+      }),
+    );
+    unavailable = false;
+    const expired = new ControlStorage(
+      bindings.LIBRARY,
+      legacy,
+      "quota-hold-fixture",
+    );
+    expect(await expired.get("database-outbound-budget-v1")).toEqual(original);
+    expect(reads).toBe(2);
+  });
+  it("a delayed provider reset retries within a bounded grace period instead of pausing another whole day", async () => {
+    const { ControlStorage } = await import("../src/control-storage");
+    const reset = Date.now() - 60000;
+    await bindings.LIBRARY.put(
+      "_system/control-quota-hold-v1.json",
+      JSON.stringify({
+        version: 1,
+        until: reset,
+        reset_at: reset,
+        kind: "legacy_rows_written",
+      }),
+    );
+    const store = new ControlStorage(
+      bindings.LIBRARY,
+      {
+        list: async () => {
+          throw new Error("Exceeded rows written on Durable Objects Free");
+        },
+      } as any,
+      "reset-grace-fixture",
+    );
+    const error = await store
+      .get("database-outbound-budget-v1")
+      .catch((error) => error);
+    expect(error.retryAfter).toBeGreaterThan(0);
+    expect(error.retryAfter).toBeLessThanOrEqual(60);
+    const hold = await (await bindings.LIBRARY.get(
+      "_system/control-quota-hold-v1.json",
+    ))!.json<any>();
+    expect(hold.reset_at).toBe(reset);
+    expect(hold.until).toBeLessThanOrEqual(reset + 900000);
+    expect(
+      await bindings.LIBRARY.head(
+        "_system/control-v1/reset-grace-fixture.json",
       ),
     ).toBeNull();
   });

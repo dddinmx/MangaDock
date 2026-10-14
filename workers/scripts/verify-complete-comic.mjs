@@ -48,12 +48,13 @@ const audit = (params) =>
     .then((r) => r.data);
 let originalProgress, browser;
 let checkId;
+const checkCommit = process.env.COMPLETE_COMIC_CHECK_SHA || process.env.GITHUB_SHA;
 async function publishStatus(snapshot, conclusion) {
   // Update one CI check rather than polling the database from multiple tools.
   if (
     !process.env.GITHUB_TOKEN ||
     !process.env.GITHUB_REPOSITORY ||
-    !process.env.GITHUB_SHA
+    !/^[a-f0-9]{40}$/.test(checkCommit || "")
   )
     return;
   const summary = snapshot
@@ -92,7 +93,7 @@ async function publishStatus(snapshot, conclusion) {
         ...(!checkId
           ? {
               name: "Complete comic verification",
-              head_sha: process.env.GITHUB_SHA,
+              head_sha: checkCommit,
               external_id: taskId,
             }
           : {}),

@@ -294,7 +294,7 @@ const config = {
         queue: prefix,
         max_batch_size: 1,
         max_retries: 1,
-        max_concurrency: target === "staging" ? 3 : 1,
+        max_concurrency: target === "staging" ? 5 : 1,
       },
     ],
   },

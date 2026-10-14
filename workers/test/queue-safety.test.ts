@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { applyD1Migrations, env } from "cloudflare:test";
 import worker, { now, type Env } from "../src/index";
 import { QueueBudget, queueSend } from "../src/queue-safety";
@@ -266,6 +266,94 @@ it("page batches use fresh invocations, finish later IDs after failure, and retr
     );
     expect(retries).toBe(attempts === 1 ? 1 : 0);
     expect(acks).toBe(attempts === 1 ? 0 : 1);
+  }
+});
+it("a provider pause records the entire remaining batch after one probe", async () => {
+  const ids = Array.from({ length: 50 }, (_, i) => `hold-page-${i}`);
+  const calls: { url: string; data: any }[] = [];
+  let acks = 0,
+    retries = 0;
+  const local = {
+    APPLICATION: {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: async (url: string, init: RequestInit) => {
+          calls.push({ url, data: JSON.parse(String(init.body)) });
+          return new Response(
+            "{}",
+            url.includes("jobs.internal")
+              ? { status: 503, headers: { "Retry-After": "28800" } }
+              : { status: 200 },
+          );
+        },
+      }),
+    },
+  } as unknown as Env;
+  await worker.queue(
+    {
+      messages: [
+        {
+          body: { kind: "comic-pages", ids },
+          attempts: 1,
+          ack: () => acks++,
+          retry: () => retries++,
+        },
+      ],
+    } as any,
+    local,
+  );
+  expect(calls).toEqual([
+    { url: "https://jobs.internal/run", data: { id: ids[0] } },
+    {
+      url: "https://recovery.internal/defer",
+      data: { ids, retry_after: 28800 },
+    },
+  ]);
+  expect(acks).toBe(1);
+  expect(retries).toBe(0);
+});
+it("a slow queue batch defers untouched IDs before the fifteen-minute consumer wall limit", async () => {
+  const ids = ["deadline-0", "deadline-1", "deadline-2"];
+  let clock = Date.now();
+  const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
+  const calls: { url: string; data: any }[] = [];
+  let acks = 0;
+  try {
+    const local = {
+      APPLICATION: {
+        idFromName: (name: string) => name,
+        get: () => ({
+          fetch: async (url: string, init: RequestInit) => {
+            calls.push({ url, data: JSON.parse(String(init.body)) });
+            if (url.includes("jobs.internal")) clock += 540001;
+            return new Response("{}");
+          },
+        }),
+      },
+    } as unknown as Env;
+    await worker.queue(
+      {
+        messages: [
+          {
+            body: { kind: "comic-pages", ids },
+            attempts: 1,
+            ack: () => acks++,
+            retry: () => {},
+          },
+        ],
+      } as any,
+      local,
+    );
+    expect(calls).toEqual([
+      { url: "https://jobs.internal/run", data: { id: ids[0] } },
+      {
+        url: "https://recovery.internal/defer",
+        data: { ids: ids.slice(1), retry_after: 1 },
+      },
+    ]);
+    expect(acks).toBe(1);
+  } finally {
+    mocked.mockRestore();
   }
 });
 

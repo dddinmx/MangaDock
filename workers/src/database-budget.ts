@@ -48,6 +48,11 @@ export function databaseRetryAfter(error: unknown) {
   }
   return 60;
 }
+export function databasePauseMessage(error: unknown) {
+  for (let i = 0; i < 5 && error instanceof Error; i++, error = error.cause)
+    if (error instanceof DatabasePausedError) return error.message;
+  return "数据库保护已暂停请求，请稍后重试并检查额度";
+}
 export class DatabaseBudget {
   storage: BudgetStorage;
   clock: () => number;
