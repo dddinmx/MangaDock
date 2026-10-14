@@ -21,7 +21,7 @@ export function safeEvent(event) {
   for (const value of [source?.message, event.$metadata?.message]) {
     if (typeof value === "string")
       try {
-        consoleData = JSON.parse(value);
+        consoleData = { ...consoleData, ...JSON.parse(value) };
       } catch {}
   }
   const component = [
@@ -297,6 +297,7 @@ async function diagnostics() {
         redactedCode = redactedCode.replaceAll(process.env[key], "[redacted]");
     await writeFile("deployed-worker-content.txt", redactedCode);
     report.deployed_code = {
+      control_reason_diagnostics: code.includes("reason_words"),
       native_batch: code.includes("missing.slice(0, 200)"),
       native_recovery: code.includes("recoverNativeChapters"),
       completeness_check: code.includes(

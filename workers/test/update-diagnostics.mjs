@@ -70,6 +70,14 @@ test("control diagnostics retain only fixed storage phases and reason vocabulary
   const rejected = safeEvent({ source: { component: "control-storage", operation: "private-operation" } });
   assert.equal(rejected.storage_operation, undefined);
 });
+test("short metadata messages do not discard richer structured source fields", () => {
+  const result = safeEvent({ source: {
+    component: "control-storage", error_code: "DURABLE_STORAGE_QUOTA",
+    operation: "legacy-list", reason_words: ["daily", "rows", "written"],
+  }, $metadata: { message: JSON.stringify({ component: "control-storage", error_code: "DURABLE_STORAGE_QUOTA" }) } });
+  assert.equal(result.storage_operation, "legacy-list");
+  assert.deepEqual(result.storage_reason_words, ["daily", "rows", "written"]);
+});
 test("cloud failure summaries preserve the actual exception and HTTP status without exporting provider response text", () => {
   const result = safeEvent({
     timestamp: 123,
