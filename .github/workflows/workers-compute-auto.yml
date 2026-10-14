@@ -85,7 +85,7 @@ jobs:
         env:
           COMPUTE_REF: ${{ steps.pending.outputs.ref }}
           DEPLOY_TARGET: ${{ matrix.target }}
-          APPROVED_COMPUTE_SHA: ${{ vars.MANGADOCK_APPROVED_COMPUTE_SHA || '17fa43ecc104f88a405ac5634ffbdf4139566a79' }}
+          APPROVED_COMPUTE_SHA: ${{ vars.MANGADOCK_APPROVED_COMPUTE_SHA || '61ee52def4e9d799ee500aec9e345017fb5854a0' }}
         run: |
           set -euo pipefail
           ref="$COMPUTE_REF"
