@@ -221,7 +221,7 @@ async function diagnostics() {
   try {
     report.recent_download_tasks = (
       await client.execute({
-        sql: "SELECT j.id,j.state,j.created_at,j.updated_at,c.name AS comic_name,json_extract(j.payload,'$.url') AS source_url FROM comic_jobs j INDEXED BY comic_jobs_kind_created LEFT JOIN comics c ON c.id=j.comic_id WHERE j.kind='source' AND j.created_at>=? ORDER BY j.created_at DESC LIMIT 20",
+        sql: "SELECT j.id,j.state,j.created_at,j.updated_at,c.name AS comic_name,(json_extract(j.payload,'$.url')='https://baozimh.org/manga/dafengdagengren-chuyingshe') AS ci_test_source FROM comic_jobs j INDEXED BY comic_jobs_kind_created LEFT JOIN comics c ON c.id=j.comic_id WHERE j.kind='source' AND j.created_at>=? ORDER BY j.created_at DESC LIMIT 20",
         args: [Math.floor(Date.now() / 1000) - 21600],
       })
     ).rows;
