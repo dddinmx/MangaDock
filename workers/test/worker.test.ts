@@ -21,6 +21,118 @@ const bindings = env as unknown as Env & {
 };
 const origin = "https://mangadock.test",
   password = "test-password-strong-2026";
+describe("R2 control storage", () => {
+  it("migrates existing quota holds exactly and works after SQLite writes and later reads fail", async () => {
+    const { ControlStorage } = await import("../src/control-storage");
+    const { DatabaseBudget } = await import("../src/database-budget");
+    const old = {
+      day: new Date().toISOString().slice(0, 10),
+      requests: 31,
+      statements: 71,
+      blockedUntil: Date.now() + 3600000,
+      failures: 3,
+      failureWindow: Date.now(),
+      lastFailure: { kind: "rate_limit", at: Date.now(), status: 429 },
+    };
+    let reads = 0;
+    const legacy = {
+      list: async () => {
+        reads++;
+        return new Map([
+          ["database-outbound-budget-v1", old],
+          [
+            "queue-budget",
+            {
+              day: Math.floor(Date.now() / 86400000),
+              sent: 950,
+              pausedUntil: 0,
+            },
+          ],
+        ]);
+      },
+      getAlarm: async () => null,
+      setAlarm: async () => {
+        throw new Error("SQLite row write quota exceeded");
+      },
+      deleteAlarm: async () => {
+        throw new Error("SQLite row write quota exceeded");
+      },
+    } as any;
+    const store = new ControlStorage(
+      bindings.LIBRARY,
+      legacy,
+      "migrate-held-budget",
+    );
+    const budget = new DatabaseBudget(
+      store,
+      Date.now,
+      { requests: 200000, statements: 200000 },
+      64,
+    );
+    await expect(budget.reserve(1)).rejects.toThrow("数据库保护");
+    expect(await store.get("database-outbound-budget-v1")).toEqual(old);
+    expect((await store.get<any>("queue-budget"))?.sent).toBe(950);
+    await store.setAlarm(Date.now() + 30000);
+    expect(await store.getAlarm()).toBeGreaterThan(Date.now());
+    const rebuilt = new ControlStorage(
+      bindings.LIBRARY,
+      {
+        list: async () => {
+          throw new Error("reads unavailable");
+        },
+      } as any,
+      "migrate-held-budget",
+    );
+    expect(await rebuilt.get("database-outbound-budget-v1")).toEqual(old);
+    expect(reads).toBe(1);
+  });
+  it("conditional R2 transactions preserve increments from independent instances", async () => {
+    const { ControlStorage } = await import("../src/control-storage");
+    const empty = {
+      list: async () => new Map(),
+      getAlarm: async () => null,
+    } as any;
+    const a = new ControlStorage(
+        bindings.LIBRARY,
+        empty,
+        "concurrent-r2-counter",
+      ),
+      b = new ControlStorage(bindings.LIBRARY, empty, "concurrent-r2-counter");
+    const increment = (store: typeof a) =>
+      store.transaction(async (tx) => {
+        const value = (await tx.get("count")) || 0;
+        await tx.put("count", value + 1);
+      });
+    await Promise.all([increment(a), increment(b)]);
+    expect(await a.get("count")).toBe(2);
+    await a.put({ "hold/a": 1, "hold/b": 2, other: 3 });
+    expect([...(await a.list({ prefix: "hold/", limit: 1 }))]).toEqual([
+      ["hold/a", 1],
+    ]);
+    expect(await a.delete(["hold/a", "missing"])).toBe(1);
+    expect((await a.get(["hold/a", "hold/b"])).size).toBe(1);
+  });
+  it("inaccessible original counters fail closed without creating a zeroed R2 counter", async () => {
+    const { ControlStorage } = await import("../src/control-storage");
+    const store = new ControlStorage(
+      bindings.LIBRARY,
+      {
+        list: async () => {
+          throw new Error("SQLite read quota exceeded");
+        },
+      } as any,
+      "fail-closed-migration",
+    );
+    await expect(store.put("database-outbound-budget-v1", {})).rejects.toThrow(
+      "数据库保护",
+    );
+    expect(
+      await bindings.LIBRARY.head(
+        "_system/control-v1/fail-closed-migration.json",
+      ),
+    ).toBeNull();
+  });
+});
 it("the real SQLite DO alarm uses the poller, not the compute wake handler", async () => {
   const stub = bindings.APPLICATION.get(
     bindings.APPLICATION.idFromName("remote-polls"),
@@ -60,6 +172,54 @@ beforeAll(async () => {
       .join("");
 });
 describe("Turso HTTP driver in actual workerd", () => {
+  it("runs overlapping Durable Object requests without sharing foreign request I/O", async () => {
+    const stub = bindings.APPLICATION.get(
+      bindings.APPLICATION.idFromName("turso-io-regression"),
+    );
+    await runInDurableObject(stub, async (instance: any) => {
+      instance.env = databaseEnv({
+        ...instance.env,
+        DATABASE_PROVIDER: "turso",
+        TURSO_DATABASE_URL: "libsql://fixture.turso.io",
+        TURSO_AUTH_TOKEN: "synthetic-token-only",
+      });
+    });
+    fetchMock
+      .get("https://fixture.turso.io")
+      .intercept({ path: "/v2/pipeline", method: "POST" })
+      .reply(200, {
+        baton: null,
+        base_url: null,
+        results: [
+          {
+            type: "ok",
+            response: {
+              type: "execute",
+              result: {
+                cols: [],
+                rows: [],
+                affected_row_count: 0,
+                last_insert_rowid: null,
+              },
+            },
+          },
+          { type: "ok", response: { type: "close" } },
+        ],
+      })
+      .delay(50)
+      .times(24);
+    const responses = await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        stub.fetch("https://jobs.internal/run", {
+          method: "POST",
+          body: JSON.stringify({ id: "io-missing-" + i }),
+        }),
+      ),
+    );
+    expect(responses.map((response) => response.status)).toEqual(
+      Array(12).fill(200),
+    );
+  });
   it("uses the same HTTP request options as the deployed Worker", async () => {
     fetchMock
       .get("https://fixture.turso.io")
@@ -2435,7 +2595,7 @@ function nativeImageReply() {
       },
     });
 }
-it("a normal image stays below ten SQL statements while actually persisting the image and fencing completion", async () => {
+it("a normal image uses six SQL statements while actually persisting the image and fencing completion", async () => {
   const { local } = await nativePageFixture();
   await bindings.DB.prepare(
     "UPDATE comic_jobs SET state='queued' WHERE id='native-good'",
@@ -2462,7 +2622,7 @@ it("a normal image stays below ten SQL statements while actually persisting the 
   };
   nativeImageReply();
   await runJob({ ...local, DB: db } as Env, "native-bad");
-  expect(statements).toBeLessThan(10);
+  expect(statements).toBe(6);
   expect(
     await bindings.DB.prepare(
       "SELECT state FROM comic_jobs WHERE id='native-bad'",

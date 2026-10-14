@@ -306,6 +306,21 @@ export async function reserve(
 ) {
   if (!Number.isSafeInteger(size) || size < 0)
     throw new HttpError(502, "文件长度无效");
+  // New images are the hot path: attempt the atomic budgeted insert first.
+  const inserted = await env.DB.prepare(
+    `INSERT INTO storage_ledger(key,size,created_at,owner,lease_until) SELECT ?,?,?,?,? FROM storage_totals WHERE id=1 AND book_bytes+ledger_bytes-overlap_bytes+reservation_bytes+?<=? ON CONFLICT(key) DO NOTHING RETURNING key`,
+  )
+    .bind(
+      key,
+      size,
+      now(),
+      owner,
+      now() + 300,
+      size,
+      Number(env.MAX_LIBRARY_BYTES) || 256000000,
+    )
+    .first();
+  if (inserted) return owner;
   const existing = await one(
     env,
     "SELECT * FROM storage_ledger WHERE key=?",
@@ -361,25 +376,7 @@ export async function reserve(
     }
     return owner;
   }
-  const row = await env.DB.prepare(
-    `INSERT INTO storage_ledger(key,size,created_at,owner,lease_until) SELECT ?,?,?,?,? FROM storage_totals WHERE id=1 AND book_bytes+ledger_bytes-overlap_bytes+reservation_bytes+?<=? ON CONFLICT(key) DO NOTHING RETURNING key`,
-  )
-    .bind(
-      key,
-      size,
-      now(),
-      owner,
-      now() + 300,
-      size,
-      Number(env.MAX_LIBRARY_BYTES) || 256000000,
-    )
-    .first();
-  if (!row) {
-    if (await one(env, "SELECT 1 FROM storage_ledger WHERE key=?", key))
-      throw new StorageBusyError(60);
-    throw new HttpError(507, "书库已达到存储预算上限，未写入文件");
-  }
-  return owner;
+  throw new HttpError(507, "书库已达到存储预算上限，未写入文件");
 }
 export async function putBytes(
   env: Env,

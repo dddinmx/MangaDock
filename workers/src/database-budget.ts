@@ -1,5 +1,5 @@
-// Stored in the existing SQLite Durable Object, never in the metered database.
-// Reserve before every outbound request, including the driver's own retries.
+// Persist reservations before outbound requests, including driver retries.
+// Production leases blocks of credits; eviction can waste credits, never refund them.
 export interface BudgetTransaction {
   get<T>(key: string): Promise<T | undefined>;
   put<T>(key: string, value: T): Promise<void>;
@@ -52,12 +52,18 @@ export class DatabaseBudget {
   storage: BudgetStorage;
   clock: () => number;
   private pausedUntil = 0;
+  private credits = { day: "", requests: 0, statements: 0 };
+  private reservationTail: Promise<unknown> = Promise.resolve();
+  private hasFailures = true;
+  private block: number;
   private limits: { requests: number; statements: number };
   constructor(
     storage: BudgetStorage,
     clock = Date.now,
     limits: { requests?: number; statements?: number } = {},
+    block = 1,
   ) {
+    this.block = block;
     this.storage = storage;
     this.clock = clock;
     this.limits = {
@@ -70,6 +76,8 @@ export class DatabaseBudget {
       )
     )
       throw new Error("数据库保护上限必须是 1–1000000 的整数");
+    if (!Number.isSafeInteger(block) || block < 1 || block > 64)
+      throw new Error("Invalid database credit block");
   }
   private async update(fn: (state: BudgetState, time: number) => void | false) {
     return this.storage.transaction(async (tx) => {
@@ -127,23 +135,57 @@ export class DatabaseBudget {
     };
   }
   async reserve(statements: number) {
+    const next = this.reservationTail.then(() =>
+      this.reserveCredits(statements),
+    );
+    this.reservationTail = next.catch(() => {});
+    return next;
+  }
+  private async reserveCredits(statements: number) {
+    const day = new Date(this.clock()).toISOString().slice(0, 10);
+    if (this.credits.day !== day)
+      this.credits = { day, requests: 0, statements: 0 };
     if (this.pausedUntil > this.clock())
       throw new DatabasePausedError(
         Math.max(1, Math.ceil((this.pausedUntil - this.clock()) / 1000)),
       );
     if (!Number.isSafeInteger(statements) || statements < 0)
       throw new DatabasePausedError();
+    if (this.credits.requests > 0 && this.credits.statements >= statements) {
+      this.credits.requests--;
+      this.credits.statements -= statements;
+      return;
+    }
     let reserved = false;
+    let grantedRequests = 0,
+      grantedStatements = 0;
     const state = await this.update((state, time) => {
+      reserved = false;
+      grantedRequests = grantedStatements = 0;
+      const needRequests = this.credits.requests > 0 ? 0 : 1,
+        needStatements = Math.max(0, statements - this.credits.statements);
       if (
         state.blockedUntil > time ||
-        state.requests >= this.limits.requests ||
-        state.statements + statements > this.limits.statements
+        state.requests + needRequests > this.limits.requests ||
+        state.statements + needStatements > this.limits.statements
       )
         return false;
-      state.requests++;
-      state.statements += statements;
+      const requests = needRequests
+          ? Math.min(this.block, this.limits.requests - state.requests)
+          : 0,
+        sql = needStatements
+          ? Math.min(
+              Math.max(this.block, needStatements),
+              this.limits.statements - state.statements,
+            )
+          : 0;
+      state.requests += requests;
+      state.statements += sql;
+      grantedRequests = requests;
+      grantedStatements = sql;
+      // Assigned after persistence below, so failed writes never grant credits.
       reserved = true;
+      return;
     });
     if (!reserved) {
       this.pausedUntil =
@@ -154,6 +196,13 @@ export class DatabaseBudget {
         Math.max(1, Math.ceil((this.pausedUntil - this.clock()) / 1000)),
       );
     }
+    // The reserved delta is exact even when the cap leaves a partial block.
+    // Read-back of the callback allocations does not issue another storage read.
+    this.hasFailures = state.failures > 0;
+    this.credits.requests += grantedRequests;
+    this.credits.statements += grantedStatements;
+    this.credits.requests--;
+    this.credits.statements -= statements;
   }
   async guardedFetch(input: RequestInfo, init: RequestInit = {}) {
     const request = new Request(input, init);
@@ -194,6 +243,7 @@ export class DatabaseBudget {
             error.message || "",
           ),
       );
+      if (!quota && response.status < 400 && !this.hasFailures) return response;
       const state = await this.update((state, time) => {
         if (quota) {
           state.lastFailure = {
@@ -227,6 +277,7 @@ export class DatabaseBudget {
         }
       });
       this.pausedUntil = state.blockedUntil;
+      this.hasFailures = state.failures > 0;
       return response;
     } catch (error) {
       const state = await this.update((state, time) => {
@@ -241,6 +292,7 @@ export class DatabaseBudget {
         this.failed(state, time);
       });
       this.pausedUntil = state.blockedUntil;
+      this.hasFailures = state.failures > 0;
       throw error;
     }
   }

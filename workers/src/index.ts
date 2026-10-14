@@ -35,6 +35,7 @@ export type QueueBody = {
   comicId?: string;
 };
 export interface Env {
+  CONTROL_STORAGE_PROVIDER?: "r2";
   QUEUE_DAILY_MESSAGE_LIMIT?: string;
   QUEUE_SEND_PAUSED_UNTIL?: string;
   COMPUTE_WAKE_TOKEN?: string;
@@ -850,7 +851,14 @@ async function pilotRouteUnsafe(request: Request, env: Env): Promise<Response> {
 }
 function applicationStub(
   env: Env,
-  name: "web" | "jobs" | "login" | "compute" | "scheduler" | "updates",
+  name:
+    | "web"
+    | "jobs"
+    | "login"
+    | "compute"
+    | "scheduler"
+    | "updates"
+    | "download-recovery",
 ) {
   return env.APPLICATION.get(
     env.APPLICATION.idFromName(name),
@@ -1040,6 +1048,11 @@ export default {
       { method: "POST" },
     );
     if (!result.ok) throw new Error("Maintenance failed");
+    const recovery = await applicationStub(env, "download-recovery").fetch(
+      "https://recovery.internal/tick",
+      { method: "POST" },
+    );
+    if (!recovery.ok) throw new Error("Download recovery tick failed");
   },
 };
 export async function maintenance(env: Env) {

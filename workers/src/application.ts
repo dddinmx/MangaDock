@@ -12,6 +12,7 @@ import { checkUpdates, dispatchUpdate, updateStatus } from "./updates";
 import { publicUser } from "./public-user";
 import { DurableObject } from "cloudflare:workers";
 import { databaseEnv } from "./database";
+import { ControlStorage } from "./control-storage";
 import {
   DatabaseBudget,
   databasePaused,
@@ -104,62 +105,86 @@ const definitions = routes.map((route) => ({
 export class ApplicationService extends DurableObject<Env> {
   private databaseBudget: DatabaseBudget;
   private rawDownloads: Queue<import("./index").QueueBody>;
+  private controlStorage: DurableObjectStorage;
   constructor(state: DurableObjectState, env: Env) {
     const jobs = state.id.equals(env.APPLICATION.idFromName("jobs"));
     const web = state.id.equals(env.APPLICATION.idFromName("web"));
-    const budget = new DatabaseBudget(state.storage, Date.now, {
-      requests: Number(
-        jobs
-          ? env.DB_JOB_DAILY_REQUEST_LIMIT ||
-              env.DB_DAILY_REQUEST_LIMIT ||
-              10000
-          : (web && env.DB_WEB_DAILY_REQUEST_LIMIT) ||
-              env.DB_DAILY_REQUEST_LIMIT ||
-              10000,
-      ),
-      statements: Number(
-        jobs
-          ? env.DB_JOB_DAILY_STATEMENT_LIMIT ||
-              env.DB_DAILY_STATEMENT_LIMIT ||
-              50000
-          : (web && env.DB_WEB_DAILY_STATEMENT_LIMIT) ||
-              env.DB_DAILY_STATEMENT_LIMIT ||
-              50000,
-      ),
-    });
+    const storage =
+      env.CONTROL_STORAGE_PROVIDER === "r2"
+        ? (new ControlStorage(
+            env.LIBRARY,
+            state.storage,
+            state.id.toString(),
+          ) as unknown as DurableObjectStorage)
+        : state.storage;
+    const budget = new DatabaseBudget(
+      storage,
+      Date.now,
+      {
+        requests: Number(
+          jobs
+            ? env.DB_JOB_DAILY_REQUEST_LIMIT ||
+                env.DB_DAILY_REQUEST_LIMIT ||
+                10000
+            : (web && env.DB_WEB_DAILY_REQUEST_LIMIT) ||
+                env.DB_DAILY_REQUEST_LIMIT ||
+                10000,
+        ),
+        statements: Number(
+          jobs
+            ? env.DB_JOB_DAILY_STATEMENT_LIMIT ||
+                env.DB_DAILY_STATEMENT_LIMIT ||
+                50000
+            : (web && env.DB_WEB_DAILY_STATEMENT_LIMIT) ||
+                env.DB_DAILY_STATEMENT_LIMIT ||
+                50000,
+        ),
+      },
+      env.CONTROL_STORAGE_PROVIDER === "r2" ? 64 : 1,
+    );
     super(
       state,
       databaseEnv(
         {
           ...env,
           DOWNLOADS: safeQueue(env),
-          LOGIN_GUARD: new LoginGuard(state.storage),
+          LOGIN_GUARD: new LoginGuard(storage),
         },
         budget,
       ),
     );
     this.databaseBudget = budget;
     this.rawDownloads = env.DOWNLOADS;
+    this.controlStorage = storage;
   }
   async alarm() {
     if (
       this.ctx.id.equals(this.env.APPLICATION.idFromName("download-recovery"))
     ) {
-      await recoveryAlarm(this.env, this.ctx.storage);
+      await recoveryAlarm(this.env, this.controlStorage);
       return;
     }
     if (this.ctx.id.equals(this.env.APPLICATION.idFromName("remote-polls"))) {
-      await remotePollAlarm(this.env, this.ctx.storage);
+      await remotePollAlarm(this.env, this.controlStorage);
       return;
     }
+    await this.controlStorage.deleteAlarm();
     await notifyCompute(this.env);
   }
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
-      const deferred = await recoveryRequest(request, this.ctx.storage);
+      if (
+        url.hostname === "recovery.internal" &&
+        url.pathname === "/tick" &&
+        request.method === "POST"
+      ) {
+        await recoveryAlarm(this.env, this.controlStorage);
+        return json({ ok: true });
+      }
+      const deferred = await recoveryRequest(request, this.controlStorage);
       if (deferred) return deferred;
-      const pollWake = await remotePollRequest(request, this.ctx.storage);
+      const pollWake = await remotePollRequest(request, this.controlStorage);
       if (
         url.hostname === "jobs.internal" &&
         url.pathname === "/resource-status" &&
@@ -183,13 +208,13 @@ export class ApplicationService extends DurableObject<Env> {
         return await queueSend(
           request,
           this.env,
-          this.ctx.storage,
+          this.controlStorage,
           this.rawDownloads,
         );
       const scheduled = await schedulerRequest(
         request,
         this.env,
-        this.ctx.storage,
+        this.controlStorage,
       );
       if (scheduled) return scheduled;
       if (

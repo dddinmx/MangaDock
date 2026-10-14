@@ -186,12 +186,9 @@ export async function createDownload(env: Env, user: Identity, data: Row) {
   });
 }
 async function currentCreator(env: Env, job: Row) {
-  const row = await one(
-    env,
-    "SELECT u.*,p.state AS parent_state,r.state AS root_state FROM users u LEFT JOIN comic_jobs j ON j.id=? LEFT JOIN comic_jobs p ON p.id=j.parent_id LEFT JOIN comic_jobs r ON r.id=p.parent_id WHERE u.id=?",
-    job.id,
-    job.user_id,
-  );
+  // The claim reads current permissions and ancestry atomically. Do not put
+  // password hashes or these ephemeral snapshots into persisted job payloads.
+  const row = job.creator_snapshot ? JSON.parse(job.creator_snapshot) : null;
   if (!row) throw new HttpError(403, "任务创建者已移除");
   const user = { ...row, user_id: row.id } as Identity;
   downloader(user);
@@ -353,7 +350,7 @@ export async function recoverNativeChapters(env: Env) {
 export async function runJob(env: Env, id: string) {
   const token = crypto.randomUUID();
   const job = await env.DB.prepare(
-    "UPDATE comic_jobs AS j SET state='running',claim_token=?,lease_until=?,remote_poll_at=CASE WHEN remote_poll_at IS NOT NULL THEN ? ELSE NULL END,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<=? AND attempts<? AND NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.id IN (j.parent_id,(SELECT parent_id FROM comic_jobs WHERE id=j.parent_id)) AND p.state IN ('cancelled','error')) RETURNING *",
+    "UPDATE comic_jobs AS j SET state='running',claim_token=?,lease_until=?,remote_poll_at=CASE WHEN remote_poll_at IS NOT NULL THEN ? ELSE NULL END,attempts=attempts+1,updated_at=? WHERE id=? AND state IN ('queued','running') AND lease_until<=? AND attempts<? AND NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.id IN (j.parent_id,(SELECT parent_id FROM comic_jobs WHERE id=j.parent_id)) AND p.state IN ('cancelled','error')) RETURNING *, (SELECT json_object('id',u.id,'username',u.username,'role',u.role,'can_download',u.can_download,'can_view_adult',u.can_view_adult,'parent_state',p.state,'root_state',r.state) FROM users u LEFT JOIN comic_jobs p ON p.id=comic_jobs.parent_id LEFT JOIN comic_jobs r ON r.id=p.parent_id WHERE u.id=comic_jobs.user_id) AS creator_snapshot, (SELECT json_object('id',c.id,'name',c.name,'provider',c.provider,'source_url',c.source_url,'group_name',c.group_name,'cover_key',c.cover_key) FROM comics c WHERE c.id=comic_jobs.comic_id) AS comic_snapshot",
   )
     .bind(token, now() + 300, now() + 300, now(), id, now(), MAX_JOB_ATTEMPTS)
     .first<Row>();
@@ -581,11 +578,7 @@ export async function runJob(env: Env, id: string) {
       await completeParent(env, id);
       return;
     }
-    const comic = await one(
-      env,
-      "SELECT * FROM comics WHERE id=?",
-      job.comic_id,
-    );
+    const comic = job.comic_snapshot ? JSON.parse(job.comic_snapshot) : null;
     if (!comic || !(await canAccess(env, user, comic)))
       throw new HttpError(403, "作品权限已撤销");
     if (job.kind === "chapter" && data.provider === "fanqie") {

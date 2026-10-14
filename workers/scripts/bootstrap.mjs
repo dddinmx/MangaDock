@@ -255,6 +255,7 @@ const config = {
     ],
   },
   vars: {
+    CONTROL_STORAGE_PROVIDER: "r2",
     DATABASE_PROVIDER: provider,
     COMPUTE_REF:
       process.env.GITHUB_SHA ||

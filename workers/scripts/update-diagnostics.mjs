@@ -29,6 +29,7 @@ export function safeEvent(event) {
     "remote-polls",
     "pilot-api",
     "cloud-compute",
+    "control-storage",
   ].includes(consoleData?.component)
     ? consoleData.component
     : undefined;
@@ -37,6 +38,7 @@ export function safeEvent(event) {
     "TypeError",
     "LibsqlError",
     "DatabasePausedError",
+    "ControlStorageUnavailableError",
     "HttpError",
     "HTTPError",
     "ReadTimeout",

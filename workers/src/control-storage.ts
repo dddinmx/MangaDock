@@ -1,0 +1,207 @@
+// Small private control records live in R2. SQL row budgets must not spend one
+// Durable Object SQLite write for every remote SQL request they protect.
+// The existing DO still serializes callers and runs CPU-heavy application code.
+import { DatabasePausedError } from "./database-budget";
+class ControlStorageUnavailableError extends DatabasePausedError {
+  constructor(cause: unknown) {
+    super(60);
+    this.name = "ControlStorageUnavailableError";
+    this.cause = cause;
+  }
+}
+type Document = {
+  version: 1;
+  values: Record<string, unknown>;
+  alarm: number | null;
+};
+const MAX_BYTES = 1048576;
+export function storageFailureKind(error: unknown) {
+  for (let i = 0; i < 5 && error instanceof Error; i++, error = error.cause)
+    if (
+      /quota|SQLITE_FULL|row.?write.*(?:limit|exceed)|storage.*(?:limit|exceed)/i.test(
+        error.message,
+      )
+    )
+      return "durable_storage_quota";
+  return "durable_storage_unavailable";
+}
+export class ControlStorage {
+  private tail: Promise<unknown> = Promise.resolve();
+  private bucket: R2Bucket;
+  private legacy: DurableObjectStorage;
+  private key: string;
+  constructor(bucket: R2Bucket, legacy: DurableObjectStorage, id: string) {
+    this.bucket = bucket;
+    this.legacy = legacy;
+    this.key = `_system/control-v1/${id}.json`;
+  }
+  private serialize<T>(fn: () => Promise<T>) {
+    const next = this.tail.then(fn).catch((error) => {
+      if (error instanceof ControlStorageUnavailableError) throw error;
+      throw new ControlStorageUnavailableError(error);
+    });
+    this.tail = next.catch(() => {});
+    return next;
+  }
+  private async read() {
+    const object = await this.bucket.get(this.key);
+    if (object) {
+      if (object.size > MAX_BYTES)
+        throw new Error("Control state exceeds capacity");
+      const document = await object.json<Document>();
+      if (
+        document.version !== 1 ||
+        !document.values ||
+        typeof document.values !== "object"
+      )
+        throw new Error("Invalid persisted control state");
+      return { document, etag: object.etag };
+    }
+    // Read outside a SQLite write transaction. Preserve all old counters and
+    // provider holds exactly; inaccessible counters fail closed, never reset.
+    try {
+      const old = await this.legacy.list({ limit: 2001 });
+      if (old.size > 2000)
+        throw new Error("Legacy control state exceeds capacity");
+      const alarm = await this.legacy.getAlarm();
+      return {
+        document: {
+          version: 1,
+          values: Object.fromEntries(old),
+          alarm,
+        } as Document,
+        etag: null,
+      };
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          component: "control-storage",
+          error_code: storageFailureKind(error).toUpperCase(),
+        }),
+      );
+      throw new Error("Existing control counters are unavailable", {
+        cause: error,
+      });
+    }
+  }
+  transaction<T>(fn: (tx: any) => Promise<T>): Promise<T> {
+    return this.serialize(async () => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { document, etag } = await this.read();
+        const before = JSON.stringify(document);
+        const values = document.values;
+        const tx = {
+          get: async (keys: string | string[]) =>
+            Array.isArray(keys)
+              ? new Map(
+                  keys
+                    .filter((key) => Object.hasOwn(values, key))
+                    .map((key) => [key, structuredClone(values[key])]),
+                )
+              : structuredClone(values[keys]),
+          put: async (
+            key: string | Record<string, unknown>,
+            value?: unknown,
+          ) => {
+            if (typeof key === "string") values[key] = structuredClone(value);
+            else
+              for (const [name, item] of Object.entries(key))
+                values[name] = structuredClone(item);
+          },
+          delete: async (keys: string | string[]) => {
+            const names = Array.isArray(keys) ? keys : [keys];
+            let count = 0;
+            for (const key of names)
+              if (Object.hasOwn(values, key)) {
+                delete values[key];
+                count++;
+              }
+            return Array.isArray(keys) ? count : count > 0;
+          },
+        };
+        const result = await fn(tx);
+        const body = JSON.stringify(document);
+        if (etag !== null && body === before) return result;
+        if (new TextEncoder().encode(body).byteLength > MAX_BYTES)
+          throw new Error("Control state exceeds capacity");
+        const saved = await this.bucket.put(this.key, body, {
+          httpMetadata: { contentType: "application/json" },
+          onlyIf:
+            etag === null ? { etagDoesNotMatch: "*" } : { etagMatches: etag },
+        });
+        if (saved) return result;
+      }
+      throw new Error("Control state changed too frequently");
+    });
+  }
+  get<T>(key: string): Promise<T | undefined>;
+  get<T>(keys: string[]): Promise<Map<string, T>>;
+  get<T>(key: string | string[]): Promise<any> {
+    return this.transaction((tx) => tx.get(key));
+  }
+  put<T>(key: string, value: T): Promise<void>;
+  put<T>(values: Record<string, T>): Promise<void>;
+  put<T>(key: string | Record<string, T>, value?: T) {
+    return this.transaction((tx) => tx.put(key, value));
+  }
+  delete(key: string): Promise<boolean>;
+  delete(keys: string[]): Promise<number>;
+  delete(key: string | string[]): Promise<any> {
+    return this.transaction((tx) => tx.delete(key));
+  }
+  list<T>(options: DurableObjectListOptions = {}): Promise<Map<string, T>> {
+    return this.serialize(async () => {
+      const { document } = await this.read();
+      let keys = Object.keys(document.values)
+        .sort()
+        .filter(
+          (key) =>
+            (!options.prefix || key.startsWith(options.prefix)) &&
+            (!options.start || key >= options.start) &&
+            (!options.startAfter || key > options.startAfter) &&
+            (!options.end || key < options.end),
+        );
+      if (options.reverse) keys.reverse();
+      keys = keys.slice(0, options.limit ?? 2000);
+      return new Map(
+        keys.map((key) => [key, structuredClone(document.values[key]) as T]),
+      );
+    });
+  }
+  getAlarm() {
+    return this.serialize(async () => (await this.read()).document.alarm);
+  }
+  private async changeAlarm(time: number | null) {
+    await this.serialize(async () => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { document, etag } = await this.read();
+        document.alarm = time;
+        const result = await this.bucket.put(
+          this.key,
+          JSON.stringify(document),
+          {
+            httpMetadata: { contentType: "application/json" },
+            onlyIf:
+              etag === null ? { etagDoesNotMatch: "*" } : { etagMatches: etag },
+          },
+        );
+        if (result) return;
+      }
+      throw new Error("Control alarm changed too frequently");
+    });
+    // A free SQLite write quota can reject alarms too. The durable R2 deadline
+    // survives, and the scheduled recovery tick drains it without resetting jobs.
+    try {
+      if (time === null) await this.legacy.deleteAlarm();
+      else await this.legacy.setAlarm(time);
+    } catch (error) {
+      if (storageFailureKind(error) !== "durable_storage_quota") throw error;
+    }
+  }
+  setAlarm(time: number | Date) {
+    return this.changeAlarm(Number(time));
+  }
+  deleteAlarm() {
+    return this.changeAlarm(null);
+  }
+}

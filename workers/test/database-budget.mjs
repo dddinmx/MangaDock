@@ -19,6 +19,94 @@ function storage() {
     },
   };
 }
+test("64-credit leases reduce 4096 counter writes to 64 without overspending under concurrency", async () => {
+  const store = storage();
+  const budget = new DatabaseBudget(
+    store,
+    Date.now,
+    { requests: 4096, statements: 4096 },
+    64,
+  );
+  const attempts = await Promise.allSettled(
+    Array.from({ length: 4200 }, () => budget.reserve(1)),
+  );
+  assert.equal(
+    attempts.filter((item) => item.status === "fulfilled").length,
+    4096,
+  );
+  assert.equal(store.stats.writes, 64);
+  assert.equal((await budget.snapshot()).statements, 4096);
+});
+test("partial credit blocks stop at the exact ceiling and failed persistence grants no credits", async () => {
+  const store = storage();
+  const budget = new DatabaseBudget(
+    store,
+    Date.now,
+    { requests: 70, statements: 70 },
+    64,
+  );
+  for (let i = 0; i < 70; i++) await budget.reserve(1);
+  await assert.rejects(budget.reserve(1), DatabasePausedError);
+  assert.equal((await budget.snapshot()).requests, 70);
+  assert.equal(store.stats.writes, 2);
+  const broken = new DatabaseBudget(
+    {
+      ...storage(),
+      put: async () => {
+        throw new Error("write failed");
+      },
+    },
+    Date.now,
+    {},
+    64,
+  );
+  await assert.rejects(broken.reserve(1), /write failed/);
+  await assert.rejects(broken.reserve(1), /write failed/);
+});
+test("reconstruction loses unused credits conservatively and a new UTC day discards old credits", async () => {
+  let time = Date.UTC(2026, 9, 14, 23, 59);
+  const store = storage();
+  const first = new DatabaseBudget(
+    store,
+    () => time,
+    { requests: 100, statements: 100 },
+    64,
+  );
+  await first.reserve(1);
+  const rebuilt = new DatabaseBudget(
+    store,
+    () => time,
+    { requests: 100, statements: 100 },
+    64,
+  );
+  for (let i = 0; i < 36; i++) await rebuilt.reserve(1);
+  await assert.rejects(rebuilt.reserve(1), DatabasePausedError);
+  time += 60000;
+  for (let i = 0; i < 100; i++) await rebuilt.reserve(1);
+  await assert.rejects(rebuilt.reserve(1), DatabasePausedError);
+});
+test("large SQL batches consume their true size and provider holds override unused leased credits", async () => {
+  const store = storage();
+  const budget = new DatabaseBudget(
+    store,
+    Date.now,
+    { requests: 1000, statements: 130 },
+    64,
+  );
+  await budget.reserve(100);
+  await budget.reserve(30);
+  await assert.rejects(budget.reserve(1), DatabasePausedError);
+  assert.equal((await budget.snapshot()).statements, 130);
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => Response.json({}, { status: 429 });
+    const held = new DatabaseBudget(storage(), Date.now, {}, 64);
+    await held.guardedFetch(request());
+    await assert.rejects(held.reserve(1), DatabasePausedError);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 test("rejected loops do not repeatedly write the DO budget counter", async () => {
   const store = storage(),
     budget = new DatabaseBudget(store);

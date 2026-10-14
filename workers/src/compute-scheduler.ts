@@ -63,6 +63,13 @@ export async function schedulerRequest(
     return json({ ok: true });
   }
   if (request.method === "GET" && url.pathname === "/api/compute-ready") {
+    // Only authenticated probes may recover an R2 deadline when SQLite alarm
+    // writes are unavailable. Authentication above must precede storage I/O.
+    const due = await storage.getAlarm();
+    if (due !== null && due <= Date.now()) {
+      await storage.deleteAlarm();
+      await notifyCompute(env);
+    }
     const data = await storage.transaction(async (tx) => {
       const state = await tx.get<Wake>("compute-wake");
       if (!state?.pending) return { pending: false };
