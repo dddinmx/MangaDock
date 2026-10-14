@@ -57,15 +57,26 @@ if (
 )
   throw new Error("Invalid free queue budget or pause time");
 const downloadRequests = Number(
-  process.env.MANGADOCK_DB_DOWNLOAD_REQUESTS || 40000,
+  process.env.MANGADOCK_DB_DOWNLOAD_REQUESTS || 200000,
 );
 if (
   !Number.isSafeInteger(downloadRequests) ||
   downloadRequests < 1 ||
-  downloadRequests > 40000
+  downloadRequests > 200000
 )
   throw new Error(
-    "MANGADOCK_DB_DOWNLOAD_REQUESTS must be an integer from 1 to 40000",
+    "MANGADOCK_DB_DOWNLOAD_REQUESTS must be an integer from 1 to 200000",
+  );
+const downloadStatements = Number(
+  process.env.MANGADOCK_DB_DOWNLOAD_STATEMENTS || 200000,
+);
+if (
+  !Number.isSafeInteger(downloadStatements) ||
+  downloadStatements < 1 ||
+  downloadStatements > 200000
+)
+  throw new Error(
+    "MANGADOCK_DB_DOWNLOAD_STATEMENTS must be an integer from 1 to 200000",
   );
 const libraryLimit = Number(
   process.env.MANGADOCK_MAX_LIBRARY_BYTES ||
@@ -236,6 +247,7 @@ const config = {
     QUEUE_DAILY_MESSAGE_LIMIT: String(queueLimit),
     QUEUE_SEND_PAUSED_UNTIL: String(queuePause),
     DB_JOB_DAILY_REQUEST_LIMIT: String(downloadRequests),
+    DB_JOB_DAILY_STATEMENT_LIMIT: String(downloadStatements),
     DB_DAILY_REQUEST_LIMIT: process.env.MANGADOCK_DB_DAILY_REQUESTS || "10000",
     DB_DAILY_STATEMENT_LIMIT:
       process.env.MANGADOCK_DB_DAILY_STATEMENTS || "50000",

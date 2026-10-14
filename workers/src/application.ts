@@ -97,15 +97,22 @@ export class ApplicationService extends DurableObject<Env> {
   private databaseBudget: DatabaseBudget;
   private rawDownloads: Queue<import("./index").QueueBody>;
   constructor(state: DurableObjectState, env: Env) {
+    const jobs = state.id.equals(env.APPLICATION.idFromName("jobs"));
     const budget = new DatabaseBudget(state.storage, Date.now, {
       requests: Number(
-        state.id.equals(env.APPLICATION.idFromName("jobs"))
+        jobs
           ? env.DB_JOB_DAILY_REQUEST_LIMIT ||
               env.DB_DAILY_REQUEST_LIMIT ||
               10000
           : env.DB_DAILY_REQUEST_LIMIT || 10000,
       ),
-      statements: Number(env.DB_DAILY_STATEMENT_LIMIT || 50000),
+      statements: Number(
+        jobs
+          ? env.DB_JOB_DAILY_STATEMENT_LIMIT ||
+              env.DB_DAILY_STATEMENT_LIMIT ||
+              50000
+          : env.DB_DAILY_STATEMENT_LIMIT || 50000,
+      ),
     });
     super(
       state,

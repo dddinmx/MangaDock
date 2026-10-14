@@ -43,6 +43,7 @@ export interface Env {
   DB: Database;
   DB_DAILY_REQUEST_LIMIT?: string;
   DB_JOB_DAILY_REQUEST_LIMIT?: string;
+  DB_JOB_DAILY_STATEMENT_LIMIT?: string;
   DB_DAILY_STATEMENT_LIMIT?: string;
   DATABASE_PROVIDER?: "d1" | "turso";
   TURSO_DATABASE_URL?: string;

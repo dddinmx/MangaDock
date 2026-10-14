@@ -123,7 +123,11 @@ async function diagnostics() {
   } catch (error) {
     report.logs = { available: false, error_type: error.name };
   }
-  for (const needle of ["application", "cron"]) {
+  for (const [needle, key] of [
+    ["application", "application_logs"],
+    ["cron", "cron_logs"],
+    ["error_type", "error_logs"],
+  ]) {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`,
       {
@@ -155,7 +159,7 @@ async function diagnostics() {
       },
     );
     const data = await response.json();
-    report[needle + "_logs"] =
+    report[key] =
       response.ok && data.success !== false
         ? (data.result?.events?.events || []).map(safeEvent)
         : { available: false, status: response.status };
@@ -286,6 +290,7 @@ async function diagnostics() {
                     [
                       "MAX_LIBRARY_BYTES",
                       "DB_JOB_DAILY_REQUEST_LIMIT",
+                      "DB_JOB_DAILY_STATEMENT_LIMIT",
                       "DB_DAILY_REQUEST_LIMIT",
                       "DB_DAILY_STATEMENT_LIMIT",
                     ].includes(b.name),

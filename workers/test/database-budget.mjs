@@ -100,7 +100,10 @@ test("three network failures open a persisted circuit and prevent further provid
       await assert.rejects(budget.guardedFetch(request()));
     for (let i = 0; i < 20; i++)
       await assert.rejects(
-        new DatabaseBudget(store, () => time).guardedFetch(request()),
+        new DatabaseBudget(store, () => time, {
+          requests: 200000,
+          statements: 200000,
+        }).guardedFetch(request()),
         DatabasePausedError,
       );
     assert.equal(sent, 3);
@@ -251,4 +254,28 @@ test("successful provider responses do not rewrite an unchanged failure counter"
   } finally {
     globalThis.fetch = original;
   }
+});
+test("raising both job limits preserves usage and pauses, and still enforces the SQL ceiling", async () => {
+  const store = storage();
+  const old = new DatabaseBudget(store, Date.now, {
+    requests: 1,
+    statements: 1,
+  });
+  await old.reserve(1);
+  await assert.rejects(old.reserve(1), DatabasePausedError);
+  const raised = new DatabaseBudget(store, Date.now, {
+    requests: 200000,
+    statements: 200000,
+  });
+  const snapshot = await raised.snapshot();
+  assert.equal(snapshot.requests, 1);
+  assert.equal(snapshot.statements, 1);
+  assert.equal(snapshot.request_limit, 200000);
+  assert.equal(snapshot.statement_limit, 200000);
+  assert.equal(snapshot.paused, false);
+  await raised.reserve(199999);
+  await assert.rejects(raised.reserve(1), DatabasePausedError);
+  const held = await raised.snapshot();
+  assert.equal(held.requests, 2);
+  assert.equal(held.statements, 200000);
 });
