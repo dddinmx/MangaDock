@@ -383,6 +383,37 @@ it("repairs a partial native plan and a lost completion callback without replaci
         "SELECT state FROM comic_jobs WHERE id='repair-job'",
       ).first("state"),
     ).toBe("completed");
+    // Old runtimes incorrectly completed a subset. A currently active root
+    // may repair that child; fully complete and cancelled roots stay stopped.
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET state='waiting' WHERE id='repair-root'",
+    ).run();
+    await bindings.DB.prepare(
+      "UPDATE chapters SET page_count=5 WHERE id='repair-chapter'",
+    ).run();
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET updated_at=0 WHERE id='repair-job'",
+    ).run();
+    expect(
+      (await recoverNativeChapters(bindings)).results.map((j) => j.id),
+    ).toContain("repair-job");
+    expect(
+      await bindings.DB.prepare(
+        "SELECT completed_chapters FROM comic_jobs WHERE id='repair-root'",
+      ).first("completed_chapters"),
+    ).toBe(0);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state FROM chapters WHERE id='repair-chapter'",
+      ).first("state"),
+    ).toBe("downloading");
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT id FROM comic_jobs WHERE parent_id='repair-job' AND state='completed'",
+        ).all()
+      ).results,
+    ).toHaveLength(4);
     fetchMock.assertNoPendingInterceptors();
   } finally {
     fetchMock.deactivate();

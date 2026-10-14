@@ -492,7 +492,7 @@ test("migration initialization is repeatable and preserves the administrator pas
   const client = createClient({ url: "file::memory:" });
   try {
     const first = await migrateTurso(client, { password: "fixture-password" });
-    assert.equal(first.applied.length, 14);
+    assert.equal(first.applied.length, 15);
     assert.ok(first.applied.includes("0009_comic_chapter_counts.sql"));
     assert.ok(
       (await client.execute("PRAGMA table_info(comics)")).rows.some(
@@ -683,6 +683,69 @@ test("native waiting recovery uses its partial age index without sorting histori
       .join(" ");
     assert.match(plan, /comic_native_waiting/);
     assert.doesNotMatch(plan, /TEMP B-TREE/);
+  } finally {
+    client.close();
+  }
+});
+test("actual Workers HTTP driver sends fifty image inserts in one external request", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  try {
+    globalThis.fetch = async (input, init) => {
+      calls++;
+      const body = await new Request(input, init).json();
+      return Response.json({
+        baton: null,
+        base_url: null,
+        results: body.requests.map((item) => ({
+          type: "ok",
+          response:
+            item.type !== "batch"
+              ? { type: item.type }
+              : {
+                  type: "batch",
+                  result: {
+                    step_results: item.batch.steps.map(() => ({
+                      cols: [],
+                      rows: [],
+                      affected_row_count: 1,
+                      last_insert_rowid: null,
+                    })),
+                    step_errors: item.batch.steps.map(() => null),
+                  },
+                },
+        })),
+      });
+    };
+    const { DB } = databaseEnv({
+      DATABASE_PROVIDER: "turso",
+      TURSO_DATABASE_URL: "libsql://batch-fixture.turso.io",
+      TURSO_AUTH_TOKEN: "synthetic-batch-token",
+    });
+    const result = await DB.batch(
+      Array.from({ length: 50 }, (_, i) =>
+        DB.prepare("INSERT INTO image_jobs(id) VALUES (?)").bind(i),
+      ),
+    );
+    assert.equal(result.length, 50);
+    assert.equal(calls, 1);
+    assert.ok(result.every((r) => r.meta.changes === 1));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test("completed-plan repair searches active source roots and parent-indexed chapter rows", async () => {
+  const { client } = await fixture();
+  try {
+    const plan = (
+      await client.execute(
+        "EXPLAIN QUERY PLAN SELECT j.id FROM comic_jobs root INDEXED BY comic_source_wait JOIN comic_jobs j INDEXED BY comic_native_plan ON j.parent_id=root.id WHERE root.kind='source' AND root.state IN ('queued','running','waiting') AND j.kind='chapter' AND j.state IN ('waiting','completed') AND j.remote_poll_at IS NULL ORDER BY j.updated_at,j.id LIMIT 4",
+      )
+    ).rows
+      .map((r) => r.detail)
+      .join(" ");
+    assert.match(plan, /SEARCH root USING.*comic_source_wait/);
+    assert.match(plan, /SEARCH j USING.*comic_native_plan/);
   } finally {
     client.close();
   }

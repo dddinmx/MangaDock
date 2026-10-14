@@ -328,11 +328,20 @@ export async function completeNativeChapter(
 }
 
 export async function recoverNativeChapters(env: Env) {
-  return env.DB.prepare(
-    "UPDATE comic_jobs SET state='queued',lease_until=0,claim_token=NULL,updated_at=?,message='恢复未完成的图片任务创建' WHERE id IN (SELECT j.id FROM comic_jobs j INDEXED BY comic_native_waiting JOIN comic_jobs root ON root.id=j.parent_id JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE j.kind='chapter' AND j.state='waiting' AND j.remote_poll_at IS NULL AND j.updated_at<? AND j.lease_until<=? AND j.attempts<? AND json_extract(j.payload,'$.provider')!='fanqie' AND root.state IN ('queued','running','waiting') AND c.state IN ('downloading','ready') AND c.page_count>0 AND NOT EXISTS(SELECT 1 FROM compute_jobs x WHERE json_extract(x.payload,'$.parent_job')=j.id AND x.state IN ('queued','running')) AND ((SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page')<c.page_count OR NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state!='completed')) ORDER BY j.updated_at,j.id LIMIT 4) RETURNING id,kind",
+  const repaired = await env.DB.prepare(
+    "UPDATE comic_jobs SET state='queued',lease_until=0,claim_token=NULL,updated_at=?,message='恢复未完成的图片任务创建' WHERE id IN (SELECT j.id FROM comic_jobs root INDEXED BY comic_source_wait JOIN comic_jobs j INDEXED BY comic_native_plan ON j.parent_id=root.id JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE root.kind='source' AND root.state IN ('queued','running','waiting') AND j.kind='chapter' AND j.state IN ('waiting','completed') AND j.remote_poll_at IS NULL AND j.updated_at<? AND j.lease_until<=? AND j.attempts<? AND json_extract(j.payload,'$.provider')!='fanqie' AND c.state IN ('downloading','ready') AND c.page_count>0 AND NOT EXISTS(SELECT 1 FROM compute_jobs x WHERE json_extract(x.payload,'$.parent_job')=j.id AND x.state IN ('queued','running')) AND ((SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page')<c.page_count OR j.state='waiting' AND NOT EXISTS(SELECT 1 FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state!='completed')) ORDER BY j.updated_at,j.id LIMIT 4) RETURNING id,kind",
   )
-    .bind(now(), now() - 900, now(), MAX_JOB_ATTEMPTS)
+    .bind(now(), now() - 120, now(), MAX_JOB_ATTEMPTS)
     .all<{ id: string; kind: string }>();
+  if (repaired.results.length) {
+    const ids = repaired.results.map((j) => j.id);
+    await env.DB.prepare(
+      `UPDATE chapters SET state='downloading' WHERE id IN (SELECT json_extract(payload,'$.chapter_id') FROM comic_jobs WHERE id IN (${ids.map(() => "?").join(",")}))`,
+    )
+      .bind(...ids)
+      .run();
+  }
+  return repaired;
 }
 
 export async function runJob(env: Env, id: string) {
