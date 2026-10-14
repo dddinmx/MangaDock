@@ -1,4 +1,4 @@
-import { safeQueue, queueSend } from "./queue-safety";
+import { safeQueue, queueSend, QueuePausedError } from "./queue-safety";
 import { notifyCompute, schedulerRequest } from "./compute-scheduler";
 import { remotePollAlarm, remotePollRequest } from "./remote-polls";
 import { collectComicGarbage, cleanupStorage, cleanupUploads } from "./storage";
@@ -1136,7 +1136,15 @@ export class ApplicationService extends DurableObject<Env> {
         env.DB.prepare("DELETE FROM comics WHERE id=?").bind(comic.id),
       ]);
       await cleanupStorage(env);
-      await env.DOWNLOADS.send({ id: "storage-gc", kind: "storage-gc" });
+      if (await one(env, "SELECT 1 FROM storage_gc LIMIT 1")) {
+        try {
+          await env.DOWNLOADS.send({ id: "storage-gc", kind: "storage-gc" });
+        } catch (error) {
+          // The deletion committed; its persisted garbage plan is also
+          // recovered by maintenance when Queue admission becomes available.
+          if (!(error instanceof QueuePausedError)) throw error;
+        }
+      }
       result = { message: "漫画已删除" };
       redirect = "/comics";
     } else throw new HttpError(404, "接口不存在");

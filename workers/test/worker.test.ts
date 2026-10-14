@@ -1715,6 +1715,92 @@ describe("review regressions", () => {
       ).first(),
     ).toBe(null);
   });
+  it.each(["urlencoded", "multipart"])(
+    "deletes through the original detail form's body CSRF token (%s)",
+    async (encoding) => {
+      await comicFixture();
+      const { cookie, payload } = await login();
+      const fields = {
+        comic_name: "原版漫画",
+        directory: "c_test",
+        csrf_token: payload.data.csrf_token,
+      };
+      const body =
+        encoding === "urlencoded"
+          ? new URLSearchParams(fields)
+          : new FormData();
+      if (body instanceof FormData)
+        for (const [key, value] of Object.entries(fields)) body.set(key, value);
+      const response = await SELF.fetch(origin + "/comic/delete", {
+        method: "POST",
+        headers: { Cookie: cookie, Origin: origin },
+        body,
+        redirect: "manual",
+      });
+      expect(response.status).toBe(303);
+      expect(
+        await bindings.DB.prepare(
+          "SELECT id FROM comics WHERE id='c_test'",
+        ).first(),
+      ).toBeNull();
+    },
+  );
+  it("rejects an invalid form CSRF token without deleting the comic", async () => {
+    await comicFixture();
+    const { cookie } = await login();
+    const response = await SELF.fetch(origin + "/comic/delete", {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: origin },
+      body: new URLSearchParams({
+        comic_name: "原版漫画",
+        csrf_token: "invalid",
+      }),
+    });
+    expect(response.status).toBe(403);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT id FROM comics WHERE id='c_test'",
+      ).first(),
+    ).not.toBeNull();
+  });
+  it("keeps a committed deletion successful and the cleanup plan durable while Queue admission is paused", async () => {
+    await comicFixture();
+    await Promise.all(
+      Array.from({ length: 101 }, (_, i) =>
+        bindings.LIBRARY.put(`comics/c_test/delete-${i}`, new Uint8Array([1])),
+      ),
+    );
+    await pauseTestQueue();
+    const { cookie, payload } = await login();
+    const response = await SELF.fetch(origin + "/comic/delete", {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: origin },
+      body: new URLSearchParams({
+        comic_name: "原版漫画",
+        csrf_token: payload.data.csrf_token,
+      }),
+      redirect: "manual",
+    });
+    expect(response.status).toBe(303);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT id FROM comics WHERE id='c_test'",
+      ).first(),
+    ).toBeNull();
+    expect(
+      await bindings.DB.prepare(
+        "SELECT key FROM storage_gc WHERE key='comics/c_test/'",
+      ).first(),
+    ).not.toBeNull();
+    expect(
+      (await bindings.LIBRARY.list({ prefix: "comics/c_test/" })).objects,
+    ).toHaveLength(1);
+    const { cleanupStorage } = await import("../src/storage");
+    await cleanupStorage(bindings);
+    expect(
+      (await bindings.LIBRARY.list({ prefix: "comics/c_test/" })).objects,
+    ).toHaveLength(0);
+  });
   it("statistics query count stays constant for 1000 ranked comics", async () => {
     await bindings.DB.batch(
       Array.from({ length: 1000 }, (_, i) =>

@@ -180,6 +180,9 @@ jobs:
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
         if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/cpu-report.mjs
+      - name: Validate original deletion forms on isolated staging fixtures
+        if: ${{ inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && !inputs.verify_only && success() }}
+        run: node --experimental-strip-types scripts/live-delete-browser.mjs
       - name: Read staging update request logs and task records without starting downloads
         if: ${{ inputs.verify_only && inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') }}
         env:
@@ -198,6 +201,7 @@ jobs:
             workers/live-comic-results.json
             workers/live-comic-browser-results.json
             workers/live-task-results.json
+            workers/live-delete-results.json
             workers/cancel-repair-results.json
             workers/update-diagnostics.json
             workers/test-results/live-task-*.png

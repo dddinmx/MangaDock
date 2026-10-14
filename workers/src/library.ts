@@ -415,7 +415,12 @@ export async function csrfIdentity(request: Request, env: Env) {
     const form = await request.clone().formData();
     const headers = new Headers(request.headers);
     headers.set("X-CSRFToken", String(form.get("csrf_token") || ""));
-    return identity(new Request(request, { headers }), env);
+    // Authentication needs only the URL, method and headers. Constructing from
+    // the original Request transfers its body, so the mutation cannot read it.
+    return identity(
+      new Request(request.url, { method: request.method, headers }),
+      env,
+    );
   }
   return identity(request, env);
 }

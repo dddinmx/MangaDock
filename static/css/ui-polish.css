@@ -185,6 +185,10 @@ html .md-setting-list--appearance .md-setting-row--static:active { background: t
     --md-ui-divider: rgba(148, 163, 184, .14);
     -webkit-font-smoothing: antialiased;
 }
+html.theme-dark .md-body {
+    --md-ui-surface: rgba(160, 160, 160, .055);
+    --md-ui-divider: rgba(160, 160, 160, .14);
+}
 .md-page-sub { margin-top: .5rem; font-size: .875rem; }
 .md-section-title { font-weight: 650; letter-spacing: -.015em; }
 .md-setting-header { padding: 0 0 1.75rem; text-align: left; }

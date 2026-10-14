@@ -1,8 +1,8 @@
 /* MangaDock cinematic theme — plain CSS (no build step required) */
 :root {
-  --md-bg: #0b0b0f;
-  --md-bg-elevated: #16161f;
-  --md-bg-card: #1e1e2a;
+  --md-bg: #121212;
+  --md-bg-elevated: #1b1b1b;
+  --md-bg-card: #242424;
   --md-text: #ededf2;
   --md-muted: #8b8b9e;
   --md-brand: #e11d48;
@@ -29,7 +29,7 @@ html.theme-dark body {
   right: 0;
   z-index: 50;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(7, 7, 10, 0.82);
+  background: rgba(16, 16, 16, 0.82);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
@@ -40,14 +40,14 @@ html.theme-dark body {
   position: absolute;
   inset: 0 0 auto;
   height: env(safe-area-inset-top, 0px);
-  background: #07070a;
+  background: #101010;
   pointer-events: none;
 }
 
 /* The standalone iOS status area shares the header's backdrop surface. */
 @media (display-mode: standalone) {
   html.platform-ios .md-topnav {
-    background: #07070a;
+    background: #101010;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -197,7 +197,7 @@ html.theme-dark body {
   gap: 0.5rem;
   border-radius: 999px;
   border: 1px solid var(--md-border);
-  background: rgba(22, 22, 31, 0.88);
+  background: rgba(27, 27, 27, 0.88);
   padding: 0.5rem 0.85rem;
   font-size: 0.875rem;
   color: #d1d1db;
@@ -263,7 +263,7 @@ html.theme-dark body {
   gap: 0.5rem;
   border-radius: 999px;
   border: 1px solid var(--md-border);
-  background: rgba(22, 22, 31, 0.88);
+  background: rgba(27, 27, 27, 0.88);
   padding: 0.4rem 0.75rem;
   font-size: 0.875rem;
   color: var(--md-text);
@@ -272,7 +272,7 @@ html.theme-dark body {
 
 .md-user-btn:hover {
   border-color: rgba(255, 255, 255, 0.2);
-  background: #1e1e2a;
+  background: #242424;
 }
 
 .md-user-dropdown {
@@ -286,7 +286,7 @@ html.theme-dark body {
   overflow: hidden;
   border-radius: 0.75rem;
   border: 1px solid var(--md-border);
-  background: #111118;
+  background: #181818;
   padding: 0.25rem 0;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 }
@@ -319,7 +319,7 @@ html.theme-dark body {
 
 .md-mobile-panel {
   border-top: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(7, 7, 10, 0.96);
+  background: rgba(16, 16, 16, 0.96);
   padding: 0.75rem 1rem 1rem;
 }
 
@@ -354,7 +354,7 @@ html.theme-dark body {
   isolation: isolate;
   min-height: min(72vh, 720px);
   overflow: hidden;
-  background: #07070a;
+  background: #101010;
   color: #fff;
 }
 
@@ -370,7 +370,7 @@ html.theme-dark body {
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  background: #07070a;
+  background: #101010;
 }
 
 .md-hero-media-img {
@@ -407,8 +407,8 @@ html.theme-dark body {
   z-index: 1;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(7, 7, 10, 0.94) 0%, rgba(7, 7, 10, 0.78) 42%, rgba(7, 7, 10, 0.35) 72%, rgba(7, 7, 10, 0.55) 100%),
-    linear-gradient(180deg, rgba(7, 7, 10, 0.45) 0%, transparent 40%, rgba(7, 7, 10, 0.5) 80%, #07070a 100%);
+    linear-gradient(90deg, rgba(16, 16, 16, 0.94) 0%, rgba(16, 16, 16, 0.78) 42%, rgba(16, 16, 16, 0.35) 72%, rgba(16, 16, 16, 0.55) 100%),
+    linear-gradient(180deg, rgba(16, 16, 16, 0.45) 0%, transparent 40%, rgba(16, 16, 16, 0.5) 80%, #101010 100%);
 }
 
 .md-hero-inner {
@@ -616,7 +616,7 @@ html.theme-dark body {
   box-shadow:
     0 28px 60px rgba(0, 0, 0, 0.55),
     0 0 0 1px rgba(0, 0, 0, 0.35);
-  background: #12121a;
+  background: #1a1a1a;
 }
 
 @media (min-width: 768px) {
@@ -702,7 +702,7 @@ html.theme-dark body {
   overflow: hidden;
   border-radius: 0.75rem;
   border: 1px solid var(--md-border);
-  background: #16161f;
+  background: #1b1b1b;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
 }
 
@@ -916,7 +916,7 @@ html.theme-dark body {
 .md-empty {
   border-radius: 1rem;
   border: 1px dashed var(--md-border);
-  background: rgba(22, 22, 31, 0.5);
+  background: rgba(27, 27, 27, 0.5);
   padding: 3rem 1.5rem;
   text-align: center;
   color: #a8a8b8;
@@ -944,7 +944,7 @@ html.theme-dark body {
 /* Soften legacy white cards when dark theme active */
 html.theme-dark .bg-white,
 body.md-body .bg-white {
-  background-color: #16161f !important;
+  background-color: #1b1b1b !important;
   color: #ededf2;
 }
 
@@ -952,14 +952,14 @@ html.theme-dark .bg-gray-50,
 html.theme-dark .bg-gray-100,
 body.md-body.bg-gray-50,
 body.md-body {
-  background-color: #0b0b0f !important;
+  background-color: #121212 !important;
 }
 
 html.theme-dark .bg-slate-50,
 html.theme-dark .bg-slate-100,
 body.md-body .bg-slate-50,
 body.md-body .bg-slate-100 {
-  background-color: #12121a !important;
+  background-color: #1a1a1a !important;
 }
 
 html.theme-dark .text-dark,
@@ -1007,7 +1007,7 @@ body.md-body input[type="number"],
 body.md-body input[type="search"],
 body.md-body textarea,
 body.md-body select {
-  background-color: rgba(11, 11, 15, 0.9);
+  background-color: rgba(18, 18, 18, 0.9);
   color: #ededf2;
   border-color: rgba(255, 255, 255, 0.12);
 }
@@ -1020,7 +1020,7 @@ body.md-body textarea::placeholder {
 /* 下载源快捷按钮深色 */
 body.md-body .source-shortcut-icon {
   border-color: rgba(255, 255, 255, 0.12) !important;
-  background: rgba(22, 22, 31, 0.95) !important;
+  background: rgba(27, 27, 27, 0.95) !important;
   box-shadow: none !important;
 }
 
@@ -1054,7 +1054,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   height: min(72vh, 43rem);
   z-index: 0;
   overflow: hidden;
-  background: #07070a;
+  background: #101010;
   pointer-events: none;
 }
 
@@ -1112,11 +1112,11 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   z-index: 1;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(7, 7, 10, 0.18) 0%, rgba(7, 7, 10, 0.12) 30%, rgba(7, 7, 10, 0.62) 68%, var(--md-bg) 100%);
+    linear-gradient(180deg, rgba(16, 16, 16, 0.18) 0%, rgba(16, 16, 16, 0.12) 30%, rgba(16, 16, 16, 0.62) 68%, var(--md-bg) 100%);
 }
 
 .comic-detail .md-detail-hero-shade {
-  background: linear-gradient(180deg, rgba(7, 7, 10, 0.18) 0%, rgba(7, 7, 10, 0.28) 32%, rgba(7, 7, 10, 0.8) 68%, var(--md-bg) 100%);
+  background: linear-gradient(180deg, rgba(16, 16, 16, 0.18) 0%, rgba(16, 16, 16, 0.28) 32%, rgba(16, 16, 16, 0.8) 68%, var(--md-bg) 100%);
 }
 
 .md-detail-topbar {
@@ -1153,7 +1153,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 }
 
 .md-detail-icon-btn:hover {
-  background: rgba(30, 30, 42, 0.9);
+  background: rgba(36, 36, 36, 0.9);
   border-color: rgba(255, 255, 255, 0.22);
 }
 
@@ -1248,7 +1248,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   padding: 0.35rem;
   border-radius: 0.9rem;
   border: 1px solid var(--md-border);
-  background: #111118;
+  background: #181818;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
   z-index: 30;
 }
@@ -1317,7 +1317,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
-  background: #12121a;
+  background: #1a1a1a;
 }
 
 @media (min-width: 768px) {
@@ -1561,7 +1561,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   padding: 0.9rem;
   border-radius: 1rem;
   border: 1px solid var(--md-border);
-  background: rgba(22, 22, 31, 0.92);
+  background: rgba(27, 27, 27, 0.92);
 }
 
 .md-detail-cover-form {
@@ -1582,7 +1582,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   flex: 1;
   border: 1px solid var(--md-border);
   border-radius: 0.75rem;
-  background: #0f0f16;
+  background: #161616;
   color: #d1d1db;
   padding: 0.65rem 0.85rem;
   font-size: 0.82rem;
@@ -1617,7 +1617,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 .md-detail-chapters {
   border-radius: 1.15rem;
   border: 1px solid var(--md-border);
-  background: rgba(22, 22, 31, 0.72);
+  background: rgba(27, 27, 27, 0.72);
   padding: 1rem 1rem 0.5rem;
 }
 
@@ -1695,7 +1695,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   width: 100%;
   border: 1px solid var(--md-border);
   border-radius: 0.75rem;
-  background: rgba(11, 11, 15, 0.8);
+  background: rgba(18, 18, 18, 0.8);
   color: #fff;
   padding: 0.55rem 0.75rem 0.55rem 2rem;
   font-size: 0.85rem;
@@ -1709,7 +1709,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 .md-detail-sort {
   border: 1px solid var(--md-border);
   border-radius: 0.75rem;
-  background: rgba(11, 11, 15, 0.8);
+  background: rgba(18, 18, 18, 0.8);
   color: #d1d1db;
   padding: 0.55rem 0.75rem;
   font-size: 0.85rem;
@@ -1829,7 +1829,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   bottom: 0;
   z-index: 40;
   padding: 0.75rem 1rem calc(0.75rem + var(--md-safe-bottom));
-  background: linear-gradient(180deg, transparent, rgba(7, 7, 10, 0.92) 28%, rgba(7, 7, 10, 0.98));
+  background: linear-gradient(180deg, transparent, rgba(16, 16, 16, 0.92) 28%, rgba(16, 16, 16, 0.98));
   pointer-events: none;
 }
 
@@ -1877,7 +1877,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   gap: 1rem;
   border-radius: 1rem;
   border: 1px solid var(--md-border);
-  background: rgba(22, 22, 31, 0.85);
+  background: rgba(27, 27, 27, 0.85);
   padding: 1.1rem 1.15rem;
   text-decoration: none !important;
   color: inherit;
@@ -1889,7 +1889,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 
 .md-tool-card:hover {
   border-color: rgba(255, 255, 255, 0.18);
-  background: #1e1e2a;
+  background: #242424;
 }
 
 .md-tool-card__icon {
@@ -1961,7 +1961,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   background:
     linear-gradient(45deg, transparent 50%, #8b8b9e 50%) calc(100% - 16px) calc(50% - 2px) / 5px 5px no-repeat,
     linear-gradient(135deg, #8b8b9e 50%, transparent 50%) calc(100% - 11px) calc(50% - 2px) / 5px 5px no-repeat,
-    rgba(22, 22, 31, 0.95);
+    rgba(27, 27, 27, 0.95);
   color: #fff;
   font-size: 0.95rem;
   font-weight: 700;
@@ -2144,7 +2144,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   height: 2rem;
   border-radius: 999px;
   border: 1px solid var(--md-border);
-  background: rgba(22, 22, 31, 0.9);
+  background: rgba(27, 27, 27, 0.9);
   color: #c4c4d4;
   cursor: pointer;
 }
@@ -2258,7 +2258,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   gap: 1rem;
   border-radius: 1.15rem;
   border: 1px solid var(--md-border);
-  background: rgba(22, 22, 31, 0.8);
+  background: rgba(27, 27, 27, 0.8);
   padding: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -2270,7 +2270,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
   aspect-ratio: 3 / 4;
-  background: #12121a;
+  background: #1a1a1a;
 }
 
 .md-lib-recent-cover img {
@@ -2349,7 +2349,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   width: 100%;
   border: 1px solid var(--md-border);
   border-radius: 0.85rem;
-  background: rgba(11, 11, 15, 0.9);
+  background: rgba(18, 18, 18, 0.9);
   color: #fff;
   padding: 0.75rem 1rem;
   font-size: 0.9rem;
@@ -2368,7 +2368,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
 .md-panel {
   border-radius: 1rem;
   border: 1px solid var(--md-border);
-  background: rgba(22, 22, 31, 0.85);
+  background: rgba(27, 27, 27, 0.85);
   padding: 1.25rem;
 }
 
@@ -3104,7 +3104,7 @@ html.theme-dark .md-history-cover {
 .md-novel-batch-toolbar {
   border: 1px solid var(--md-border);
   border-radius: 1.1rem;
-  background: rgba(22, 22, 31, 0.82);
+  background: rgba(27, 27, 27, 0.82);
   padding: 1rem;
 }
 
@@ -3332,7 +3332,7 @@ html.theme-dark .md-lib-select {
   background:
     linear-gradient(45deg, transparent 50%, #8b8b9e 50%) calc(100% - 16px) calc(50% - 2px) / 5px 5px no-repeat,
     linear-gradient(135deg, #8b8b9e 50%, transparent 50%) calc(100% - 11px) calc(50% - 2px) / 5px 5px no-repeat,
-    rgba(22, 22, 31, 0.95) !important;
+    rgba(27, 27, 27, 0.95) !important;
 }
 
 html:not(.theme-dark) .md-lib-select {
@@ -3669,12 +3669,12 @@ html.theme-dark .md-fanqie-input {
 }
 
 html.theme-dark .md-input {
-  background: rgba(11, 11, 15, 0.9) !important;
+  background: rgba(18, 18, 18, 0.9) !important;
   color: #fff !important;
 }
 
 html.theme-dark .md-detail-search input {
-  background: rgba(11, 11, 15, 0.8) !important;
+  background: rgba(18, 18, 18, 0.8) !important;
   color: #fff !important;
 }
 
@@ -3759,19 +3759,19 @@ body.md-home-page .md-main--flush {
      2026-09-22 把衰减点前移：32% 0.62 / 48% 0.26 / 66% 0.06。 */
   --fig-shade:
     linear-gradient(90deg,
-      rgba(7, 7, 10, 0.96) 0%,
-      rgba(7, 7, 10, 0.92) 18%,
-      rgba(7, 7, 10, 0.62) 32%,
-      rgba(7, 7, 10, 0.26) 48%,
-      rgba(7, 7, 10, 0.06) 66%,
-      rgba(7, 7, 10, 0.38) 100%),
+      rgba(16, 16, 16, 0.96) 0%,
+      rgba(16, 16, 16, 0.92) 18%,
+      rgba(16, 16, 16, 0.62) 32%,
+      rgba(16, 16, 16, 0.26) 48%,
+      rgba(16, 16, 16, 0.06) 66%,
+      rgba(16, 16, 16, 0.38) 100%),
     linear-gradient(180deg,
-      rgba(7, 7, 10, 0.72) 0%,
-      rgba(7, 7, 10, 0.18) 22%,
-      rgba(7, 7, 10, 0.18) 54%,
-      rgba(7, 7, 10, 0.46) 72%,
-      rgba(7, 7, 10, 0.93) 90%,
-      #07070a 100%);
+      rgba(16, 16, 16, 0.72) 0%,
+      rgba(16, 16, 16, 0.18) 22%,
+      rgba(16, 16, 16, 0.18) 54%,
+      rgba(16, 16, 16, 0.46) 72%,
+      rgba(16, 16, 16, 0.93) 90%,
+      #101010 100%);
   /* 参考稿就是满屏 hero（342/612 = 55.9% 页宽 ≈ 1080/1920） */
   height: 100vh;
   height: 100dvh;
@@ -4113,7 +4113,7 @@ body.md-home-page .md-main--flush {
   overflow-x: auto;
   padding: 6px 8px;
   border-radius: 999px;
-  background: rgba(7, 7, 10, 0.22);
+  background: rgba(16, 16, 16, 0.22);
   scrollbar-width: none;
   transform: translateX(-50%);
 }
@@ -4391,7 +4391,7 @@ html:not(.theme-dark) .md-hero--figma .md-hero-art img {
   box-shadow: none;
 }
 
-html:not(.theme-dark) .md-hero-indicators { background: rgba(7, 7, 10, 0.28); }
+html:not(.theme-dark) .md-hero-indicators { background: rgba(16, 16, 16, 0.28); }
 
 /* 书轨：浅色底上的导航按钮 / 标签 / 更多链接 / 卡片 */
 html:not(.theme-dark) .md-home-rail__nav button {
@@ -4440,7 +4440,7 @@ html:not(.theme-dark) .md-home-rail__card:hover {
 @media (max-width: 1024px), (hover: none), (pointer: coarse) {
   /* 首页主视觉末端与滚动留白使用同一底色，避免到底时出现接缝。 */
   body.md-body.md-home-page {
-    background: #07070a !important;
+    background: #101010 !important;
   }
 
   html:not(.theme-dark) body.md-body.md-home-page {
@@ -4471,11 +4471,11 @@ html:not(.theme-dark) .md-home-rail__card:hover {
     --md-mobile-art-height: clamp(300px, 46vh, 425px);
     /* 窄屏改成纵向渐变：图带在上、文案在下 */
     --fig-shade: linear-gradient(180deg,
-      rgba(7, 7, 10, 0.5) 0%,
-      rgba(7, 7, 10, 0.4) 18%,
-      rgba(7, 7, 10, 0.72) 42%,
-      #07070a 60%,
-      #07070a 100%);
+      rgba(16, 16, 16, 0.5) 0%,
+      rgba(16, 16, 16, 0.4) 18%,
+      rgba(16, 16, 16, 0.72) 42%,
+      #101010 60%,
+      #101010 100%);
     height: auto;
     min-height: 0;
   }
@@ -4924,7 +4924,7 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, transparent 38%, #07070a 99%);
+    background: linear-gradient(180deg, transparent 38%, #101010 99%);
     pointer-events: none;
   }
   html:not(.theme-dark) .md-hero--figma .md-hero-art::after {
@@ -4981,7 +4981,7 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, transparent 38%, #07070a 99%);
+    background: linear-gradient(180deg, transparent 38%, #101010 99%);
     pointer-events: none;
   }
   html:not(.theme-dark) .md-hero-native-art::after {
@@ -5039,13 +5039,13 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
     border: 1px solid rgba(255, 255, 255, .28);
     border-radius: 50%;
     color: #fff;
-    background: rgba(7, 7, 10, .46);
+    background: rgba(16, 16, 16, .46);
     cursor: pointer;
     transition: background-color .16s ease, border-color .16s ease;
   }
   .md-hero-arrow--previous { left: max(1rem, 2vw); }
   .md-hero-arrow--next { right: max(1rem, 2vw); }
-  .md-hero-arrow:hover { background: rgba(7, 7, 10, .78); border-color: rgba(255, 255, 255, .7); }
+  .md-hero-arrow:hover { background: rgba(16, 16, 16, .78); border-color: rgba(255, 255, 255, .7); }
 }
 
 /* Homepage/detail share one document, with a viewport-sized sliding panel. */
