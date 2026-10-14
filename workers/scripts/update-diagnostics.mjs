@@ -17,6 +17,27 @@ export function safeEvent(event) {
   const workers = event.$workers || source?.$workers || {},
     request = workers.event?.request || source?.request || {},
     response = workers.event?.response || source?.response || {};
+  let consoleData = source;
+  for (const value of [source?.message, event.$metadata?.message]) {
+    if (typeof value === "string")
+      try {
+        consoleData = JSON.parse(value);
+      } catch {}
+  }
+  const component = ["application", "remote-polls", "pilot-api"].includes(
+    consoleData?.component,
+  )
+    ? consoleData.component
+    : undefined;
+  const errorType = [
+    "Error",
+    "TypeError",
+    "LibsqlError",
+    "DatabasePausedError",
+    "HttpError",
+  ].includes(consoleData?.error_type)
+    ? consoleData.error_type
+    : undefined;
   let path;
   try {
     path = new URL(request.url).pathname;
@@ -33,6 +54,8 @@ export function safeEvent(event) {
     status: response.status,
     outcome: workers.outcome,
     event_type: workers.eventType,
+    ...(component ? { component } : {}),
+    ...(errorType ? { error_type: errorType } : {}),
   };
 }
 async function diagnostics() {
@@ -90,6 +113,43 @@ async function diagnostics() {
   } catch (error) {
     report.logs = { available: false, error_type: error.name };
   }
+  for (const needle of ["application", "cron"]) {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`,
+      {
+        method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(30000),
+        headers: {
+          Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          queryId: "mangadock-background-diagnostic",
+          dry: true,
+          view: "events",
+          limit: 30,
+          timeframe: { from: Date.now() - 21600000, to: Date.now() },
+          parameters: {
+            filters: [
+              {
+                key: "$metadata.service",
+                operation: "eq",
+                type: "string",
+                value: worker,
+              },
+            ],
+            needle: { value: needle },
+          },
+        }),
+      },
+    );
+    const data = await response.json();
+    report[needle + "_logs"] =
+      response.ok && data.success !== false
+        ? (data.result?.events?.events || []).map(safeEvent)
+        : { available: false, status: response.status };
+  }
   const client = createClient({
     url: tursoUrl(process.env.TURSO_DATABASE_URL),
     authToken: process.env.TURSO_AUTH_TOKEN,
@@ -120,6 +180,12 @@ async function diagnostics() {
         await client.execute({
           sql: "SELECT id,kind,state,attempts,lease_until,created_at,updated_at FROM compute_jobs WHERE json_extract(payload,'$.parent_job') IN (SELECT id FROM comic_jobs WHERE id=? OR parent_id=?) ORDER BY created_at DESC LIMIT 10",
           args: [task.id, task.id],
+        })
+      ).rows;
+      report.page_states = (
+        await client.execute({
+          sql: "SELECT state,attempts,COUNT(*) AS n,MIN(lease_until) AS min_lease,MAX(lease_until) AS max_lease FROM comic_jobs WHERE parent_id IN (SELECT id FROM comic_jobs WHERE parent_id=?) AND kind='page' GROUP BY state,attempts",
+          args: [task.id],
         })
       ).rows;
     }
