@@ -160,6 +160,25 @@ async function diagnostics() {
         ? (data.result?.events?.events || []).map(safeEvent)
         : { available: false, status: response.status };
   }
+  const contentResponse = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${worker}/content`,
+    {
+      headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(30000),
+    },
+  );
+  if (contentResponse.ok) {
+    const code = await contentResponse.text();
+    report.deployed_code = {
+      native_batch: code.includes("missing.slice(0, 200)"),
+      native_recovery: code.includes("recoverNativeChapters"),
+      completeness_check: code.includes(
+        "aggregate.total !== aggregate.page_count",
+      ),
+    };
+  } else
+    report.deployed_code = { available: false, status: contentResponse.status };
   const client = createClient({
     url: tursoUrl(process.env.TURSO_DATABASE_URL),
     authToken: process.env.TURSO_AUTH_TOKEN,
@@ -186,7 +205,7 @@ async function diagnostics() {
     if (task) {
       report.child_jobs = (
         await client.execute({
-          sql: "SELECT j.id,j.kind,j.state,j.attempts,j.lease_until,j.created_at,j.updated_at,j.remote_poll_at,c.page_count AS expected_pages,c.state AS chapter_state,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page') AS persisted_pages,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state='completed') AS completed_pages FROM comic_jobs j LEFT JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE j.parent_id=? ORDER BY j.id LIMIT 25",
+          sql: "SELECT j.id,j.kind,j.state,j.attempts,j.lease_until,j.created_at,j.updated_at,j.remote_poll_at,c.page_count AS expected_pages,c.state AS chapter_state,json_extract(j.payload,'$.provider') AS provider,json_extract(j.payload,'$.chapter.id') AS source_chapter_id,json_extract(j.payload,'$.chapter.mid') AS source_mid,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page') AS persisted_pages,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state='completed') AS completed_pages FROM comic_jobs j LEFT JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE j.parent_id=? ORDER BY j.id LIMIT 25",
           args: [task.id],
         })
       ).rows;
