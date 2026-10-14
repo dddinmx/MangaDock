@@ -243,6 +243,7 @@ jobs:
             workers/live-delete-results.json
             workers/cancel-repair-results.json
             workers/update-diagnostics.json
+            workers/deployed-worker-content.txt
             workers/complete-comic-results.json
             workers/test-results/live-task-*.png
             workers/test-results/task-waiting-*.png

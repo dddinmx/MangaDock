@@ -86,6 +86,20 @@ export function safeEvent(event) {
       : {}),
     ...(component ? { component } : {}),
     ...(errorType ? { error_type: errorType } : {}),
+    ...(Array.isArray(consoleData?.frames) &&
+    consoleData.frames.some((frame) =>
+      /\b(?:index|worker)\.js:\d+:\d+\b/.test(String(frame)),
+    )
+      ? {
+          frames: consoleData.frames
+            .map(
+              (frame) =>
+                String(frame).match(/\b(?:index|worker)\.js:\d+:\d+\b/)?.[0],
+            )
+            .filter(Boolean)
+            .slice(0, 4),
+        }
+      : {}),
     ...(component === "cloud-compute" &&
     [
       "legacy-page",
@@ -244,6 +258,17 @@ async function diagnostics() {
   );
   if (contentResponse.ok) {
     const code = await contentResponse.text();
+    let redactedCode = code;
+    for (const key of [
+      "TURSO_AUTH_TOKEN",
+      "CLOUDFLARE_API_TOKEN",
+      "CLOUDFLARE_ACCOUNT_ID",
+      "MANGADOCK_ADMIN_PASSWORD",
+      "COMPUTE_WAKE_TOKEN",
+    ])
+      if (process.env[key])
+        redactedCode = redactedCode.replaceAll(process.env[key], "[redacted]");
+    await writeFile("deployed-worker-content.txt", redactedCode);
     report.deployed_code = {
       native_batch: code.includes("missing.slice(0, 200)"),
       native_recovery: code.includes("recoverNativeChapters"),
