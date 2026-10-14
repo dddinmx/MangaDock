@@ -157,7 +157,10 @@ async function diagnostics() {
                 name: q.queue_name,
                 delivery_paused: q.settings?.delivery_paused,
               }))
-          : data.result.map((s) => ({ cron: s.cron }));
+          : (Array.isArray(data.result)
+              ? data.result
+              : data.result.schedules || []
+            ).map((s) => ({ cron: s.cron }));
   }
   await writeFile("update-diagnostics.json", JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
