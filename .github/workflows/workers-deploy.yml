@@ -178,6 +178,9 @@ jobs:
       - name: Measure deployed Turso login and library latency
         if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only) }}
         run: node scripts/latency-report.mjs
+      - name: Verify restored novel source without creating a download or writing reading progress
+        if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.test_novels && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && success() }}
+        run: node scripts/verify-novel-source.mjs
       - name: Deployed login, library and progress smoke test
         if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && inputs.test_novels) }}
         env:
@@ -272,6 +275,7 @@ jobs:
             workers/complete-comic-results.json
             workers/comic-integrity-repair-results.json
             workers/readiness-results.json
+            workers/novel-source-results.json
             workers/test-results/complete-comic-*.png
             workers/test-results/live-task-*.png
             workers/test-results/task-waiting-*.png
