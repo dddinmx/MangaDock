@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
+import { waitForVisibleComicImages } from "./comic-reader-evidence.mjs";
 import {
   createValidationReader,
   removeValidationReader,
@@ -337,6 +338,7 @@ try {
       )
       .toBeGreaterThan(0);
     await page.evaluate(() => window.scrollTo(0, 600));
+    await waitForVisibleComicImages(page);
     await expect
       .poll(
         async () =>
@@ -349,12 +351,15 @@ try {
     await expect
       .poll(() => page.evaluate(() => window.scrollY), { timeout: 30000 })
       .toBeGreaterThan(0);
+    const visibleImages = await waitForVisibleComicImages(page);
     assert.deepEqual(errors, []);
     await page.screenshot({ path: `test-results/complete-comic-${width}.png` });
     browserResults.push({
       width,
       last_chapter_readable: true,
       scroll_restored: true,
+      visible_images_after_reload: visibleImages,
+      visible_images_decoded: true,
     });
     await page.close();
   }
