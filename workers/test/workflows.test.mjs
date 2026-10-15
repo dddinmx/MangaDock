@@ -72,6 +72,30 @@ test("isolated staging rollout skips every owner-progress acceptance while retai
     block.startsWith("name: Restrict isolated deployment"),
   );
   assert.equal(allowed(guard), false);
+  const historicalGuard = blocks.find((block) =>
+    block.startsWith("name: Restrict historical image repair"),
+  );
+  const repair = blocks.find((block) =>
+    block.startsWith("name: Repair only audited historical missing images"),
+  );
+  const repairInputs = { ...inputs, repair_legacy_images: true };
+  assert.equal(allowed(historicalGuard, repairInputs), false);
+  assert.equal(allowed(repair, repairInputs), true);
+  assert.equal(allowed(repair, inputs), false);
+  for (const change of [
+    { runtime_only: false },
+    { environment: "production" },
+    { complete_comic_id: "other" },
+    { diagnostic_task_id: "other" },
+  ])
+    assert.equal(
+      allowed(historicalGuard, { ...repairInputs, ...change }),
+      true,
+    );
+  assert.ok(
+    source.indexOf("run: node scripts/repair-legacy-comic-images.mjs") <
+      source.indexOf("run: node scripts/verify-complete-comic.mjs"),
+  );
   for (const change of [
     { environment: "production" },
     { test_novels: true },

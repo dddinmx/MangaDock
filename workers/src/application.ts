@@ -84,6 +84,7 @@ import {
 import { computeApi, queueCompute } from "./compute";
 import { repairNativeFallback } from "./native-fallback-repair";
 import { repairNativeStorage } from "./native-storage-repair";
+import { repairComicIntegrity } from "./comic-integrity-repair";
 import { comicAudit } from "./comic-audit";
 import { importApi } from "./imports";
 import { uploadApi } from "./uploads";
@@ -352,6 +353,20 @@ export class ApplicationService extends DurableObject<Env> {
       const storageRepair = url.pathname.match(
         /^\/api\/admin\/downloads\/([a-zA-Z0-9_-]{1,100})\/repair-storage$/,
       );
+      const integrityRepair = url.pathname.match(
+        /^\/api\/admin\/downloads\/([a-zA-Z0-9_-]{1,100})\/repair-integrity$/,
+      );
+      if (integrityRepair && request.method === "POST") {
+        admin(user);
+        return json({
+          ok: true,
+          data: await repairComicIntegrity(
+            this.env,
+            integrityRepair[1],
+            await input(request),
+          ),
+        });
+      }
       if (storageRepair && request.method === "POST") {
         admin(user);
         return json({

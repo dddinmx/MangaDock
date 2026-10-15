@@ -2996,6 +2996,282 @@ function nativeImageReply() {
       },
     });
 }
+it("does not publish a chapter as ready when completed SQL page rows refer to missing R2 objects", async () => {
+  const { local } = await nativePageFixture();
+  await bindings.DB.prepare(
+    "UPDATE comic_jobs SET state='completed' WHERE id='native-bad'",
+  ).run();
+  const { completeNativeChapter } = await import("../src/downloads");
+  await expect(
+    completeNativeChapter(local, "native-child", {
+      chapter_id: "ch_test",
+      format: 0,
+    }),
+  ).rejects.toThrow("完整性检查未通过");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM chapters WHERE id='ch_test'",
+    ).first("state"),
+  ).toBe("downloading");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='native-root'",
+    ).first("state"),
+  ).toBe("waiting");
+});
+async function legacyIntegrityFixture() {
+  await comicFixture();
+  const { hash } = await import("../src/index");
+  const chapter = "ch_" + (await hash("c_test|7")).slice(0, 24),
+    prefix = `comics/c_test/chapters/${chapter}/`,
+    sourceKey = "comics/c_test/sources/integrity-root.json";
+  await bindings.DB.prepare(
+    "INSERT INTO chapters(id,comic_id,ordinal,title,source_id,manifest_key,page_count,state) VALUES (?,'c_test',1,'历史缺图','7',?,2,'ready')",
+  )
+    .bind(chapter, prefix + "manifest.json")
+    .run();
+  await bindings.LIBRARY.put(
+    prefix + "manifest.json",
+    JSON.stringify([{ key: prefix + "00000" }, { key: prefix + "00001" }]),
+  );
+  await bindings.LIBRARY.put(prefix + "00000", reservationPng, {
+    httpMetadata: { contentType: "image/png" },
+  });
+  await bindings.LIBRARY.put(
+    sourceKey,
+    JSON.stringify({
+      title: "原版漫画",
+      provider: "baozimh_org",
+      description: "",
+      chapters: [],
+    }),
+  );
+  await bindings.DB.prepare(
+    "INSERT INTO comic_jobs(id,user_id,comic_id,kind,payload,state,created_at,updated_at) VALUES ('integrity-root','admin','c_test','source',?,'completed',1,1),('old-cancelled','admin','c_test','source','{}','cancelled',0,0)",
+  )
+    .bind(
+      JSON.stringify({
+        url: "https://baozimh.org/manga/test",
+        provider: "baozimh_org",
+        format: 2,
+        group: "默认分组",
+        is_update: true,
+        source_planned: true,
+        source_key: sourceKey,
+        source_cursor: 0,
+        source_total: 0,
+      }),
+    )
+    .run();
+  const sends: any[] = [];
+  const local = {
+    ...bindings,
+    DOWNLOADS: {
+      send: async (body: any) => sends.push(body),
+      sendBatch: async (items: any[]) =>
+        sends.push(...items.map((item) => item.body)),
+    },
+  } as unknown as Env;
+  return { local, sends, chapter, prefix, sourceKey };
+}
+it("repairs historical missing images inside the same task, preserves present bytes and the old plan, and leaves cancelled roots stopped", async () => {
+  const { local, sends, chapter, prefix, sourceKey } =
+    await legacyIntegrityFixture();
+  const original = (await bindings.LIBRARY.head(prefix + "00000"))!.etag;
+  fetchMock
+    .get("https://baozimh.org")
+    .intercept({ path: "/manga/test" })
+    .reply(200, '<h1>原版漫画</h1><div data-mid="42"></div>');
+  fetchMock
+    .get("https://v2.apikk.top")
+    .intercept({ path: "/api/manga/get?mid=42&mode=all" })
+    .reply(
+      200,
+      JSON.stringify({
+        code: 200,
+        data: {
+          title: "原版漫画",
+          chapters: [{ id: "7", attributes: { order: 2, title: "历史缺图" } }],
+        },
+      }),
+    );
+  const { repairComicIntegrity } =
+    await import("../src/comic-integrity-repair");
+  const input = { comic_id: "c_test", chapter_ids: [chapter] };
+  expect(
+    await repairComicIntegrity(local, "integrity-root", input),
+  ).toMatchObject({
+    repaired: true,
+    task_id: "integrity-root",
+    chapters: 1,
+    missing_images: 1,
+  });
+  expect(
+    (await (await bindings.LIBRARY.get(sourceKey))!.json<any>()).chapters,
+  ).toHaveLength(0);
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='old-cancelled'",
+    ).first("state"),
+  ).toBe("cancelled");
+  await runJob(local, sends.shift().id);
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,message FROM comic_jobs WHERE id='integrity-root'",
+    ).first(),
+  ).toMatchObject({ state: "waiting" });
+  fetchMock
+    .get("https://v2.apikk.top")
+    .intercept({ path: "/api/v2/chapter/getinfo?m=42&c=7" })
+    .reply(
+      200,
+      JSON.stringify({
+        code: 200,
+        data: {
+          info: {
+            images: {
+              line: 1,
+              images: [
+                { order: 0, url: "/present.png" },
+                { order: 1, url: "/missing.png" },
+              ],
+            },
+          },
+        },
+      }),
+    );
+  await runJob(local, sends.shift().id);
+  const batch = sends.shift();
+  expect(batch.kind).toBe("comic-pages");
+  fetchMock
+    .get("https://c-nd3-1.6wm.top")
+    .intercept({ path: "/missing.png" })
+    .reply(200, reservationPng, {
+      headers: {
+        "content-type": "image/png",
+        "content-length": String(reservationPng.length),
+      },
+    });
+  for (const id of batch.ids) await runJob(local, id);
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state,completed_chapters FROM comic_jobs WHERE id='integrity-root'",
+    ).first(),
+  ).toEqual({ state: "completed", completed_chapters: 1 });
+  expect(
+    await bindings.DB.prepare("SELECT state FROM chapters WHERE id=?")
+      .bind(chapter)
+      .first("state"),
+  ).toBe("ready");
+  expect((await bindings.LIBRARY.head(prefix + "00000"))!.etag).toBe(original);
+  expect(
+    new Uint8Array(
+      await (await bindings.LIBRARY.get(prefix + "00001"))!.arrayBuffer(),
+    ),
+  ).toEqual(reservationPng);
+  expect(
+    await repairComicIntegrity(local, "integrity-root", input),
+  ).toMatchObject({ repaired: false, already_repaired: true });
+  expect(
+    await bindings.DB.prepare(
+      "SELECT COUNT(*) AS n FROM comic_jobs WHERE kind='source'",
+    ).first("n"),
+  ).toBe(2);
+});
+it("a concurrent cancellation fences the integrity repair before any chapter is reopened", async () => {
+  const { local, sends, chapter } = await legacyIntegrityFixture();
+  fetchMock
+    .get("https://baozimh.org")
+    .intercept({ path: "/manga/test" })
+    .reply(200, '<h1>原版漫画</h1><div data-mid="42"></div>');
+  fetchMock
+    .get("https://v2.apikk.top")
+    .intercept({ path: "/api/manga/get?mid=42&mode=all" })
+    .reply(
+      200,
+      JSON.stringify({
+        code: 200,
+        data: {
+          title: "原版漫画",
+          chapters: [{ id: "7", attributes: { order: 2, title: "历史缺图" } }],
+        },
+      }),
+    );
+  const library = new Proxy(bindings.LIBRARY, {
+    get(target, property) {
+      if (property === "put")
+        return async (key: string, ...args: any[]) => {
+          const result = await (target.put as any)(key, ...args);
+          if (key.includes("-integrity-"))
+            await bindings.DB.prepare(
+              "UPDATE comic_jobs SET state='cancelled' WHERE id='integrity-root'",
+            ).run();
+          return result;
+        };
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const { repairComicIntegrity } =
+    await import("../src/comic-integrity-repair");
+  await expect(
+    repairComicIntegrity({ ...local, LIBRARY: library }, "integrity-root", {
+      comic_id: "c_test",
+      chapter_ids: [chapter],
+    }),
+  ).rejects.toThrow("任务已改变");
+  expect(
+    await bindings.DB.prepare(
+      "SELECT state FROM comic_jobs WHERE id='integrity-root'",
+    ).first("state"),
+  ).toBe("cancelled");
+  expect(
+    await bindings.DB.prepare("SELECT state FROM chapters WHERE id=?")
+      .bind(chapter)
+      .first("state"),
+  ).toBe("ready");
+  expect(sends).toHaveLength(0);
+});
+it.each(["cancelled", "error", "waiting"])(
+  "does not apply historical integrity repair to a %s root",
+  async (state) => {
+    const { local, sends, chapter } = await legacyIntegrityFixture();
+    await bindings.DB.prepare(
+      "UPDATE comic_jobs SET state=? WHERE id='integrity-root'",
+    )
+      .bind(state)
+      .run();
+    const { repairComicIntegrity } =
+      await import("../src/comic-integrity-repair");
+    await expect(
+      repairComicIntegrity(local, "integrity-root", {
+        comic_id: "c_test",
+        chapter_ids: [chapter],
+      }),
+    ).rejects.toThrow("只能补齐");
+    expect(sends).toHaveLength(0);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT state FROM comic_jobs WHERE id='integrity-root'",
+      ).first("state"),
+    ).toBe(state);
+  },
+);
+it("refuses an integrity repair when the selected chapter has no actual R2 gap", async () => {
+  const { local, sends, chapter, prefix } = await legacyIntegrityFixture();
+  await bindings.LIBRARY.put(prefix + "00001", reservationPng, {
+    httpMetadata: { contentType: "image/png" },
+  });
+  const { repairComicIntegrity } =
+    await import("../src/comic-integrity-repair");
+  await expect(
+    repairComicIntegrity(local, "integrity-root", {
+      comic_id: "c_test",
+      chapter_ids: [chapter],
+    }),
+  ).rejects.toThrow("仅缺失图片");
+  expect(sends).toHaveLength(0);
+});
 it("a normal image uses six SQL statements while actually persisting the image and fencing completion", async () => {
   const { local } = await nativePageFixture();
   await bindings.DB.prepare(

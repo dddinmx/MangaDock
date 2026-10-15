@@ -444,8 +444,16 @@ it("repairs a partial native plan and a lost completion callback without replaci
     ).toEqual(["repair-page-0", "repair-page-1", "repair-page-2"]);
     expect(messages).toHaveLength(1);
     expect(messages[0].ids).toHaveLength(1);
+    // A lost completion callback has real, durable image objects; completed SQL
+    // rows alone must no longer be enough to publish this fixture as ready.
+    for (let page = 0; page < 4; page++)
+      await bindings.LIBRARY.put(
+        `comics/repair-comic/chapters/repair-chapter/${String(page).padStart(5, "0")}`,
+        new Uint8Array([137, 80, 78, 71]),
+        { httpMetadata: { contentType: "image/png" } },
+      );
     await bindings.DB.prepare(
-      "UPDATE comic_jobs SET state='completed' WHERE parent_id='repair-job'",
+      "UPDATE comic_jobs SET state='completed',size=4 WHERE parent_id='repair-job'",
     ).run();
     await bindings.DB.prepare(
       "UPDATE comic_jobs SET updated_at=0 WHERE id='repair-job'",

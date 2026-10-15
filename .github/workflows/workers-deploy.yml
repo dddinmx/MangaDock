@@ -2,6 +2,10 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      repair_legacy_images:
+        description: Explicitly append the eight audited historical missing-image chapters to the exact existing staging task
+        type: boolean
+        default: false
       runtime_only:
         description: Staging-only deployment followed by exact whole-book verification with an isolated reader; skips owner-account acceptance
         type: boolean
@@ -97,6 +101,10 @@ jobs:
       FANQIE_API_TOKEN: ${{ secrets.FANQIE_API_TOKEN }}
       FANQIE_INSTANCE_ID: ${{ secrets.FANQIE_INSTANCE_ID }}
     steps:
+      - name: Restrict historical image repair to the exact isolated staging rollout
+        if: ${{ inputs.repair_legacy_images && (!inputs.runtime_only || inputs.environment != 'staging' || inputs.complete_comic_id != 'c_ee02de2c2194' || inputs.diagnostic_task_id != 'c6fe02d4-c454-4111-b962-495120175313') }}
+        working-directory: .
+        run: exit 1
       - name: Restrict isolated deployment to the exact existing staging book
         if: ${{ inputs.runtime_only && (inputs.environment != 'staging' || inputs.complete_comic_id != 'c_ee02de2c2194' || inputs.diagnostic_task_id != 'c6fe02d4-c454-4111-b962-495120175313' || inputs.verify_only || inputs.test_novels || inputs.preflight_only || inputs.repair_cancelled_task || inputs.repair_native_task_id || inputs.repair_storage_task_id || inputs.pause_queue_until_reset || (inputs.queue_control && inputs.queue_control != 'none')) }}
         run: |
@@ -229,6 +237,11 @@ jobs:
       - name: Wait for provider recovery without changing original user progress
         if: ${{ inputs.runtime_only && success() }}
         run: node scripts/wait-staging-ready.mjs
+      - name: Repair only audited historical missing images in the existing task
+        if: ${{ inputs.runtime_only && inputs.repair_legacy_images && success() }}
+        env:
+          DIAGNOSTIC_TASK_ID: ${{ inputs.diagnostic_task_id }}
+        run: node scripts/repair-legacy-comic-images.mjs
       - name: Verify the complete existing comic, every R2 image and the last chapter reader
         if: ${{ inputs.environment == 'staging' && (inputs.verify_only || inputs.runtime_only) && inputs.complete_comic_id && success() }}
         env:
@@ -257,6 +270,7 @@ jobs:
             workers/update-diagnostics.json
             workers/deployed-worker-content.txt
             workers/complete-comic-results.json
+            workers/comic-integrity-repair-results.json
             workers/readiness-results.json
             workers/test-results/complete-comic-*.png
             workers/test-results/live-task-*.png

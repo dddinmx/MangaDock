@@ -15,6 +15,7 @@ import { StorageBusyError } from "./errors";
 import { checkUpdates } from "./updates";
 import { runR2Scan } from "./scans";
 import { imageResponse } from "./image-stream";
+import { inspectChapterImages } from "./comic-integrity";
 import { runWebdavScan } from "./integrations";
 import { queueCompute } from "./compute";
 import {
@@ -298,6 +299,9 @@ export async function completeNativeChapter(
     aggregate.done !== aggregate.page_count
   )
     return;
+  const integrity = await inspectChapterImages(env, aggregate);
+  if (integrity.missing.length || integrity.invalid.length)
+    throw new HttpError(502, "章节图片完整性检查未通过，未标记下载完成");
   await run(
     env,
     "UPDATE chapters SET state='ready',size=? WHERE id=?",
@@ -560,6 +564,9 @@ export async function runJob(env: Env, id: string) {
             chapter_id: chapterId,
             provider: source.provider,
             format: data.format,
+            ...(data.integrity_repair_v1?.chapter_ids.includes(chapterId)
+              ? { manifest_version: data.integrity_repair_v1.marker }
+              : {}),
           },
           id,
           comicId,
@@ -592,7 +599,10 @@ export async function runJob(env: Env, id: string) {
         key: `comics/${comic.id}/chapters/${data.chapter_id}/${String(i).padStart(5, "0")}`,
         url,
       }));
-      const manifestKey = `comics/${comic.id}/chapters/${data.chapter_id}/manifest.json`;
+      const manifestName = /^[a-f0-9]{24}$/.test(data.manifest_version || "")
+        ? `manifest-${data.manifest_version}.json`
+        : "manifest.json";
+      const manifestKey = `comics/${comic.id}/chapters/${data.chapter_id}/${manifestName}`;
       await putBytes(
         env,
         manifestKey,
