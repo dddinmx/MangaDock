@@ -220,7 +220,9 @@ try {
   let images = 0,
     bytes = 0;
   const allKeys = new Set(),
-    verifiedChapters = [];
+    verifiedChapters = [],
+    manifests = [],
+    invalidImages = [];
   for (const chapter of snapshot.chapters) {
     const manifest = await audit({ chapter_id: chapter.id });
     assert.equal(manifest.state, "ready");
@@ -236,14 +238,35 @@ try {
       );
       assert.equal(allKeys.has(key), false, "Two chapters reuse an image key");
       const object = objects.get(key);
-      assert.ok(
-        object && object.size > 0 && object.type?.startsWith("image/"),
-        "A chapter image is missing or empty in R2",
-      );
       allKeys.add(key);
       images++;
-      bytes += object.size;
+      if (!object || object.size <= 0 || !object.type?.startsWith("image/"))
+        invalidImages.push({
+          chapter_id: chapter.id,
+          key,
+          present: !!object,
+          size: object?.size ?? null,
+          type: object?.type ?? null,
+        });
+      else bytes += object.size;
     }
+    manifests.push({ chapter, keys: manifest.keys });
+  }
+  report.r2_inventory = {
+    listed_objects: objects.size,
+    manifest_images: images,
+    invalid_images: invalidImages.length,
+    invalid_samples: invalidImages.slice(0, 25),
+    invalid_chapters: [
+      ...new Set(invalidImages.map((image) => image.chapter_id)),
+    ],
+  };
+  assert.equal(
+    invalidImages.length,
+    0,
+    "R2 inventory has missing, empty or non-image objects",
+  );
+  for (const { chapter, keys } of manifests) {
     const pages = await (
       await request(`/api/comics/${comicId}/chapters/${chapter.id}/pages`)
     ).json();
@@ -258,7 +281,7 @@ try {
         response.headers.get("content-type")?.startsWith("image/"),
         true,
       );
-      assert.equal(content.byteLength, objects.get(manifest.keys[index]).size);
+      assert.equal(content.byteLength, objects.get(keys[index]).size);
     }
     verifiedChapters.push({ id: chapter.id, pages: chapter.page_count });
   }

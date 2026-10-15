@@ -1317,10 +1317,10 @@ describe("full legacy routes and permissions", () => {
       await bindings.DB.prepare("SELECT 1 FROM users WHERE id='admin'").first(),
     ).not.toBeNull();
   }, 15000);
-  it("limits orphan cleanup to the ordinary verifier account created during the failed CI's five-second window", async () => {
+  it("limits orphan cleanup to the exact ordinary verifier account identified in failed DELETE telemetry", async () => {
     const session = await login();
     for (const [id, username] of [
-      ["1792030438000001", "md-verify-12345678-abc"],
+      ["1792030434398631", "md-verify-12345678-abc"],
       ["1792030438000002", "original-reader"],
       ["1792030440000001", "md-verify-87654321-def"],
     ])

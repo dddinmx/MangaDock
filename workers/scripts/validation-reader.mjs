@@ -47,10 +47,9 @@ export async function removeValidationReader(request, identity) {
     throw new Error("Validation account still exists after deletion");
 }
 export async function cleanFailedRunReader(request) {
-  // Run 38659948800 created its isolated reader immediately before failing at
-  // 02:13:58 UTC. IDs encode creation milliseconds; never sweep other dates/users.
-  const start = Date.parse("2026-10-15T02:13:55Z"),
-    end = Date.parse("2026-10-15T02:14:00Z");
+  // The failed DELETE in run 38659948800 identifies this exact account in
+  // Workers telemetry. Do not infer creation time from clocks on different hosts.
+  const failedUserId = "1792030434398631";
   const items = (await (await request("/api/v1/users")).json()).data?.items;
   if (!Array.isArray(items))
     throw new Error("Cannot inspect failed-run reader cleanup");
@@ -58,9 +57,7 @@ export async function cleanFailedRunReader(request) {
     (user) =>
       usernamePattern.test(user.username) &&
       user.role === "user" &&
-      validId(user.id) &&
-      Math.floor(Number(user.id) / 1000) >= start &&
-      Math.floor(Number(user.id) / 1000) < end,
+      String(user.id) === failedUserId,
   );
   if (candidates.length > 1)
     throw new Error("Failed-run reader cleanup is ambiguous");
