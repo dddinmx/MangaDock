@@ -166,6 +166,70 @@ export function safeQuotaHold(value) {
     reset_at: value.reset_at ?? value.until,
   };
 }
+export async function durableStorageUsage(query, day) {
+  const shape =
+    "name type { name ofType { name ofType { name ofType { name ofType { name } } } } }";
+  const typeName = (type) => {
+    for (let depth = 0; depth < 5 && type; depth++, type = type.ofType)
+      if (type.name) return type.name;
+  };
+  const account = await query(
+    `{ __type(name: "Account") { fields { ${shape} } } }`,
+  );
+  const datasets = (account.__type?.fields || [])
+    .filter((field) =>
+      /^durableObjects\w*(?:Storage|Sql)\w*Groups$/.test(field.name),
+    )
+    .slice(0, 6);
+  const schemas = {};
+  for (const dataset of datasets) {
+    const name = typeName(dataset.type);
+    if (!/^[A-Za-z][A-Za-z0-9_]+$/.test(name || "")) continue;
+    const row = await query(
+      `{ __type(name: "${name}") { fields { ${shape} } } }`,
+    );
+    const sumType = typeName(
+      row.__type?.fields?.find((field) => field.name === "sum")?.type,
+    );
+    if (!/^[A-Za-z][A-Za-z0-9_]+$/.test(sumType || "")) continue;
+    const sum = await query(
+      `{ __type(name: "${sumType}") { fields { name } } }`,
+    );
+    const fields = (sum.__type?.fields || []).map((field) => field.name);
+    schemas[dataset.name] = fields.filter((field) =>
+      /row|write|read/i.test(field),
+    );
+    const written = fields.find((field) =>
+      /^(?:sql|sqlite)?rowsWritten$/i.test(field),
+    );
+    const read = fields.find((field) =>
+      /^(?:sql|sqlite)?rowsRead$/i.test(field),
+    );
+    if (!written) continue;
+    const selection = [written, read].filter(Boolean).join(" ");
+    const result = await query(
+      `query($accountTag: string) { viewer { accounts(filter: {accountTag: $accountTag}) { ${dataset.name}(filter: {date_geq: "${day}", date_leq: "${day}"}, limit: 1000) { sum { ${selection} } } } } }`,
+    );
+    const samples = result.viewer?.accounts?.[0]?.[dataset.name] || [];
+    const total = (field) => {
+      if (!field || samples.length === 0) return null;
+      const values = samples.map((sample) => sample.sum?.[field]);
+      if (!values.every((value) => Number.isSafeInteger(value) && value >= 0))
+        return null;
+      const count = values.reduce((sum, value) => sum + value, 0);
+      return Number.isSafeInteger(count) ? count : null;
+    };
+    return {
+      available: true,
+      day,
+      dataset: dataset.name,
+      samples: samples.length,
+      rows_written: total(written),
+      rows_read: total(read),
+    };
+  }
+  return { available: false, day, schemas };
+}
 async function diagnostics() {
   const taskId = process.env.DIAGNOSTIC_TASK_ID || "";
   if (taskId && !/^[a-zA-Z0-9:_-]{1,160}$/.test(taskId))
@@ -179,7 +243,9 @@ async function diagnostics() {
     const hold = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${worker}/objects/_system/control-quota-hold-v1.json`,
       {
-        headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
+        headers: {
+          Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+        },
         redirect: "error",
         signal: AbortSignal.timeout(15000),
       },
@@ -190,6 +256,35 @@ async function diagnostics() {
     report.observed_at = new Date().toISOString();
   } catch {
     report.control_quota_hold = { available: false };
+  }
+  try {
+    report.durable_storage_usage = await durableStorageUsage(
+      async (query) => {
+        const response = await fetch(
+          "https://api.cloudflare.com/client/v4/graphql",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              query,
+              variables: { accountTag: process.env.CLOUDFLARE_ACCOUNT_ID },
+            }),
+            redirect: "error",
+            signal: AbortSignal.timeout(15000),
+          },
+        );
+        const payload = await response.json();
+        if (!response.ok || payload.errors?.length)
+          throw new Error("Analytics unavailable");
+        return payload.data;
+      },
+      new Date().toISOString().slice(0, 10),
+    );
+  } catch {
+    report.durable_storage_usage = { available: false };
   }
   try {
     const response = await fetch(

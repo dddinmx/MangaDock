@@ -1,6 +1,52 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { safeEvent, safeQuotaHold } from "../scripts/update-diagnostics.mjs";
+import {
+  safeEvent,
+  safeQuotaHold,
+  durableStorageUsage,
+} from "../scripts/update-diagnostics.mjs";
+test("storage usage discovery sums real row metrics and does not treat absent samples as zero", async () => {
+  for (const samples of [
+    [],
+    [
+      { sum: { rowsWritten: 4, rowsRead: 7 } },
+      { sum: { rowsWritten: 8, rowsRead: 10 } },
+    ],
+  ]) {
+    const query = async (text) => {
+      if (text.includes('__type(name: "Account")'))
+        return {
+          __type: {
+            fields: [
+              {
+                name: "durableObjectsSqlStorageGroups",
+                type: {
+                  ofType: { ofType: { ofType: { name: "SqlStorage" } } },
+                },
+              },
+            ],
+          },
+        };
+      if (text.includes('__type(name: "SqlStorage")'))
+        return {
+          __type: { fields: [{ name: "sum", type: { name: "SqlSum" } }] },
+        };
+      if (text.includes('__type(name: "SqlSum")'))
+        return {
+          __type: { fields: [{ name: "rowsWritten" }, { name: "rowsRead" }] },
+        };
+      assert.ok(text.includes('date_geq: "2026-10-15"'));
+      assert.ok(!text.includes("private"));
+      return {
+        viewer: { accounts: [{ durableObjectsSqlStorageGroups: samples }] },
+      };
+    };
+    const result = await durableStorageUsage(query, "2026-10-15");
+    assert.equal(result.rows_written, samples.length ? 12 : null);
+    assert.equal(result.rows_read, samples.length ? 17 : null);
+    assert.equal(result.samples, samples.length);
+  }
+});
 test("quota reset diagnostics export only validated hold timestamps, never private control state", () => {
   const value = {
     version: 1,
@@ -17,8 +63,17 @@ test("quota reset diagnostics export only validated hold timestamps, never priva
     reset_at: value.reset_at,
   });
   assert.ok(!JSON.stringify(safeQuotaHold(value)).includes("private"));
-  for (const invalid of [null, {}, { ...value, until: "private" }, { ...value, reset_at: -1 }, { ...value, kind: "private" }])
-    assert.deepEqual(safeQuotaHold(invalid), { available: false, invalid_schema: true });
+  for (const invalid of [
+    null,
+    {},
+    { ...value, until: "private" },
+    { ...value, reset_at: -1 },
+    { ...value, kind: "private" },
+  ])
+    assert.deepEqual(safeQuotaHold(invalid), {
+      available: false,
+      invalid_schema: true,
+    });
 });
 test("update log summaries exclude credentials, query strings, headers and raw error payloads", () => {
   const event = {
@@ -79,21 +134,55 @@ test("CPU evidence preserves invocation type and time without exporting Durable 
   assert.ok(!JSON.stringify(result).includes("private-id"));
 });
 test("control diagnostics retain only fixed storage phases and reason vocabulary", () => {
-  const result = safeEvent({ source: { message: JSON.stringify({
-    component: "control-storage", error_code: "DURABLE_STORAGE_QUOTA",
-    operation: "legacy-list", reason_words: ["account", "daily", "rows", "written", "exceeded", "private-token", "https://private.invalid", "SELECT", { credential: "private" }],
-  }) } });
+  const result = safeEvent({
+    source: {
+      message: JSON.stringify({
+        component: "control-storage",
+        error_code: "DURABLE_STORAGE_QUOTA",
+        operation: "legacy-list",
+        reason_words: [
+          "account",
+          "daily",
+          "rows",
+          "written",
+          "exceeded",
+          "private-token",
+          "https://private.invalid",
+          "SELECT",
+          { credential: "private" },
+        ],
+      }),
+    },
+  });
   assert.equal(result.storage_operation, "legacy-list");
-  assert.deepEqual(result.storage_reason_words, ["account", "daily", "rows", "written", "exceeded"]);
+  assert.deepEqual(result.storage_reason_words, [
+    "account",
+    "daily",
+    "rows",
+    "written",
+    "exceeded",
+  ]);
   assert.ok(!JSON.stringify(result).includes("private"));
-  const rejected = safeEvent({ source: { component: "control-storage", operation: "private-operation" } });
+  const rejected = safeEvent({
+    source: { component: "control-storage", operation: "private-operation" },
+  });
   assert.equal(rejected.storage_operation, undefined);
 });
 test("short metadata messages do not discard richer structured source fields", () => {
-  const result = safeEvent({ source: {
-    component: "control-storage", error_code: "DURABLE_STORAGE_QUOTA",
-    operation: "legacy-list", reason_words: ["daily", "rows", "written"],
-  }, $metadata: { message: JSON.stringify({ component: "control-storage", error_code: "DURABLE_STORAGE_QUOTA" }) } });
+  const result = safeEvent({
+    source: {
+      component: "control-storage",
+      error_code: "DURABLE_STORAGE_QUOTA",
+      operation: "legacy-list",
+      reason_words: ["daily", "rows", "written"],
+    },
+    $metadata: {
+      message: JSON.stringify({
+        component: "control-storage",
+        error_code: "DURABLE_STORAGE_QUOTA",
+      }),
+    },
+  });
   assert.equal(result.storage_operation, "legacy-list");
   assert.deepEqual(result.storage_reason_words, ["daily", "rows", "written"]);
 });
