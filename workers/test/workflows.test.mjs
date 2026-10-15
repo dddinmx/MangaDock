@@ -473,3 +473,107 @@ print(json.dumps(calls))`;
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("staging continuation runs only after real successful work on the public repository", () => {
+  const block = automatic
+    .split(/\n      - /)
+    .find((value) => value.startsWith("name: Continue staging once"));
+  const condition = block.match(/\n        if: (.*)/)[1];
+  const evaluate = (changes = {}) => {
+    const matrix = { target: "staging", ...changes.matrix };
+    const steps = {
+      pending: { outputs: { ready: "true" } },
+      guard: { outcome: "success" },
+      ...changes.steps,
+    };
+    const github = {
+      repository: "dddinmx/MangaDock",
+      event: { repository: { visibility: "public" } },
+      ...changes.github,
+    };
+    return Function(
+      "matrix",
+      "steps",
+      "github",
+      "success",
+      `return (${condition})`,
+    )(matrix, steps, github, () => changes.success !== false);
+  };
+  assert.equal(evaluate(), true);
+  assert.equal(evaluate({ matrix: { target: "production" } }), false);
+  assert.equal(
+    evaluate({ steps: { pending: { outputs: { ready: "false" } } } }),
+    false,
+  );
+  assert.equal(evaluate({ steps: { guard: { outcome: "failure" } } }), false);
+  assert.equal(
+    evaluate({ github: { event: { repository: { visibility: "private" } } } }),
+    false,
+  );
+  assert.equal(evaluate({ github: { repository: "someone/fork" } }), false);
+  assert.equal(evaluate({ success: false }), false);
+  assert.match(automatic, /timeout-minutes: 28/);
+  assert.match(automatic, /runs-on: ubuntu-latest/);
+  assert.match(automatic, /actions: write/);
+  assert.match(automatic, /continue_at=.*int\(time\.time\(\)\)\+905/);
+  assert.ok(
+    automatic.indexOf("Release a failed launcher hold") <
+      automatic.indexOf("Continue staging once"),
+  );
+});
+
+test("real continuation code waits within bounds, dispatches staging exactly once, and rejects private repositories or ambiguous retries", () => {
+  const block = runBlocks(automatic).find((value) =>
+    value.includes("def continue_staging"),
+  );
+  const lines = block.trimEnd().split("\n").slice(1, -1);
+  const indent = lines[0].match(/^\s*/)[0].length;
+  const python = lines.map((line) => line.slice(indent)).join("\n");
+  const harness = `
+import io,json,os,urllib.error
+namespace={}
+source=os.environ['CONTINUATION_SOURCE'].rsplit('\\ncontinue_staging(',1)[0]
+exec(compile(source,'<real-continuation>','exec'),namespace)
+run=namespace['continue_staging']
+class Response(io.BytesIO):
+ def __init__(self,data,status=200):super().__init__(json.dumps(data).encode());self.status=status
+base={'CONTINUATION_REPOSITORY':'dddinmx/MangaDock','CONTINUATION_TARGET':'staging','CONTINUATION_AT':'1905','CONTINUATION_TOKEN':'synthetic-only'}
+for mode in ['success','expired_delay','private','became_private','missing_visibility','wrong_repository','production','too_long','dispatch_failure','dispatch_rejected']:
+ env=dict(base);calls=[];sleeps=[];gets=[]
+ if mode=='expired_delay':env['CONTINUATION_AT']='900'
+ if mode=='wrong_repository':env['CONTINUATION_REPOSITORY']='someone/fork'
+ if mode=='production':env['CONTINUATION_TARGET']='production'
+ if mode=='too_long':env['CONTINUATION_AT']='1906'
+ def request(req,timeout):
+  assert timeout==20
+  assert req.full_url.startswith('https://api.github.com/repos/dddinmx/MangaDock')
+  if req.get_method()=='GET':
+   gets.append(req.full_url)
+   if mode=='missing_visibility':return Response({'private':False})
+   private=mode=='private' or mode=='became_private' and len(gets)==2
+   return Response({'private':private,'visibility':'private' if private else 'public'})
+  calls.append(req)
+  assert req.full_url=='https://api.github.com/repos/dddinmx/MangaDock/actions/workflows/workers-compute-auto.yml/dispatches'
+  assert json.loads(req.data)=={'ref':'main','inputs':{'environment':'staging'}}
+  if mode=='dispatch_failure':raise urllib.error.URLError('synthetic failure')
+  return Response({},202 if mode=='dispatch_rejected' else 204)
+ error=None
+ try:run(env,request,lambda:1000,sleeps.append)
+ except (ValueError,RuntimeError,urllib.error.URLError) as exc:error=exc
+ if mode in ['success','expired_delay']:
+  assert error is None,(mode,error)
+  assert len(calls)==1 and len(gets)==2 and sleeps==[905 if mode=='success' else 0],mode
+ elif mode in ['dispatch_failure','dispatch_rejected']:
+  assert error is not None and len(calls)==1 and sleeps==[905],mode
+ else:
+  assert error is not None and calls==[],mode
+  assert sleeps==([905] if mode=='became_private' else []),mode
+print('10 bounded continuation scenarios passed; no real sleep or network')
+`;
+  const result = spawnSync("python3", ["-c", harness], {
+    encoding: "utf8",
+    env: { ...process.env, CONTINUATION_SOURCE: python },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /10 bounded continuation scenarios passed/);
+});

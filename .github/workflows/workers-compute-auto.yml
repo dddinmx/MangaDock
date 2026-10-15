@@ -10,10 +10,11 @@ on:
         default: staging
 permissions:
   contents: read
+  actions: write
 jobs:
   compute:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 28
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +70,7 @@ jobs:
               raise ValueError('Compute sequence is invalid')
           with open(os.environ['GITHUB_OUTPUT'],'a') as out:
               out.write('ready='+str(ready).lower()+'\nresume_ready='+str(resume_ready).lower()+'\n')
+              if ready:out.write('continue_at='+str(int(time.time())+905)+'\n')
               if ready or resume_ready:out.write('ref='+ref+'\n')
           if ready:
               with open(os.environ['GITHUB_ENV'],'a') as out:
@@ -85,7 +87,7 @@ jobs:
         env:
           COMPUTE_REF: ${{ steps.pending.outputs.ref }}
           DEPLOY_TARGET: ${{ matrix.target }}
-          APPROVED_COMPUTE_SHA: ${{ vars.MANGADOCK_APPROVED_COMPUTE_SHA }}
+          APPROVED_COMPUTE_SHA: ${{ vars.MANGADOCK_APPROVED_COMPUTE_SHA || 'aa53971a5c9ef871fedf05b90a4319f7bcfd05ef' }}
         run: |
           set -euo pipefail
           ref="$COMPUTE_REF"
@@ -138,4 +140,41 @@ jobs:
           data=json.dumps({'sequence':int(os.environ['MANGADOCK_COMPUTE_SEQUENCE']),'pending':True,'ok':False}).encode()
           request=urllib.request.Request(os.environ['MANGADOCK_URL']+'/api/compute-ready/finished',data=data,headers={'Authorization':'Bearer '+os.environ['MANGADOCK_COMPUTE_TOKEN'],'Content-Type':'application/json','User-Agent':'MangaDock/5.0 Cloud-Compute'})
           with urllib.request.urlopen(request,timeout=20) as response:response.read()
+          PY
+      - name: Continue staging once after cooldown instead of relying on late GitHub timers
+        if: success() && matrix.target == 'staging' && steps.pending.outputs.ready == 'true' && steps.guard.outcome == 'success' && github.repository == 'dddinmx/MangaDock' && github.event.repository.visibility == 'public'
+        env:
+          CONTINUATION_REPOSITORY: ${{ github.repository }}
+          CONTINUATION_TARGET: ${{ matrix.target }}
+          CONTINUATION_AT: ${{ steps.pending.outputs.continue_at }}
+          CONTINUATION_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json,os,time,urllib.request
+          def continue_staging(environ,request,clock,sleep):
+              if environ['CONTINUATION_REPOSITORY']!='dddinmx/MangaDock' or environ['CONTINUATION_TARGET']!='staging':
+                  raise ValueError('Continuation is restricted to the existing staging workflow')
+              delay=max(0,int(environ['CONTINUATION_AT'])-clock())
+              if delay>905:raise ValueError('Continuation cooldown exceeds its bound')
+              headers={'Authorization':'Bearer '+environ['CONTINUATION_TOKEN'],'Accept':'application/vnd.github+json','User-Agent':'MangaDock-Staging-Continuation'}
+              def public_repository():
+                  with request(urllib.request.Request('https://api.github.com/repos/dddinmx/MangaDock',headers=headers),timeout=20) as response:
+                      repository=json.load(response)
+                  if repository.get('private') is not False or repository.get('visibility')!='public':
+                      raise ValueError('Automatic waiting is restricted to free public-repository standard runners')
+              public_repository()
+              sleep(delay)
+              public_repository()
+              # Exactly one POST, no retry after an ambiguous network failure.
+              # The next run probes the unchanged 15-minute/24-run guard; an
+              # idle or capped probe skips processing and cannot continue again.
+              body=json.dumps({'ref':'main','inputs':{'environment':'staging'}}).encode()
+              dispatch=urllib.request.Request('https://api.github.com/repos/dddinmx/MangaDock/actions/workflows/workers-compute-auto.yml/dispatches',data=body,headers={**headers,'Content-Type':'application/json'},method='POST')
+              with request(dispatch,timeout=20) as response:
+                  if response.status!=204:raise RuntimeError('Staging continuation was not accepted')
+              print('Requested one staging continuation; the existing ready probe still controls eligibility.')
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs):return None
+          opener=urllib.request.build_opener(NoRedirect())
+          continue_staging(os.environ,opener.open,time.time,time.sleep)
           PY
