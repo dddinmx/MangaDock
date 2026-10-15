@@ -132,7 +132,7 @@ async function finish(
   expect(response?.status).toBe(200);
 }
 
-describe("compute wake quota", () => {
+describe("continuous compute wake leases", () => {
   it("holds a probe without spending a daily run until dispatch succeeds", async () => {
     const storage = memoryStorage();
     await wake(storage);
@@ -145,7 +145,7 @@ describe("compute wake quota", () => {
     const state = await storage.get("compute-wake");
     expect(state.runs).toBe(1);
     expect(state.pending).toBe(true);
-    expect((await probe(storage)).data.pending).toBe(false);
+    expect((await probe(storage)).data.pending).toBe(true);
   });
 
   it("refunds the hold when dispatch fails and does not count the run", async () => {
@@ -166,7 +166,7 @@ describe("compute wake quota", () => {
     expect((await storage.get("compute-wake")).runs).toBe(0);
   });
 
-  it("still refuses a probe after 24 confirmed runs", async () => {
+  it("admits the next batch after 24 successes without erasing history or the old idle cooldown", async () => {
     const storage = memoryStorage();
     const day = new Date().toISOString().slice(0, 10);
     await storage.put("compute-wake", {
@@ -174,10 +174,60 @@ describe("compute wake quota", () => {
       pending: true,
       day,
       runs: 24,
-      next: 0,
+      next: now() + 900,
+      leasedSequence: 0,
+    });
+    expect((await probe(storage)).data.pending).toBe(true);
+    expect((await storage.get("compute-wake")).runs).toBe(24);
+    await finish(storage, { sequence: 4, pending: true });
+    expect((await storage.get("compute-wake")).runs).toBe(25);
+    expect((await probe(storage)).data.pending).toBe(true);
+  });
+
+  it("keeps an active old launcher lease even after 24 successful batches", async () => {
+    const storage = memoryStorage();
+    await storage.put("compute-wake", {
+      sequence: 4,
+      pending: true,
+      day: new Date().toISOString().slice(0, 10),
+      runs: 24,
+      next: now() + 900,
+      leasedSequence: 4,
     });
     expect((await probe(storage)).data.pending).toBe(false);
     expect((await storage.get("compute-wake")).runs).toBe(24);
+  });
+
+  it("does not let a stale completion release or acknowledge a newer wake", async () => {
+    const storage = memoryStorage();
+    await wake(storage);
+    await probe(storage);
+    await wake(storage);
+    await finish(storage, { sequence: 1, pending: false });
+    expect((await probe(storage)).data).toMatchObject({
+      pending: true,
+      sequence: 2,
+    });
+    await finish(storage, { sequence: 1, pending: false });
+    expect((await storage.get("compute-wake")).leasedSequence).toBe(2);
+    expect((await probe(storage)).data.pending).toBe(false);
+    await finish(storage, { sequence: 2, pending: false });
+    expect((await probe(storage)).data.pending).toBe(false);
+    expect((await storage.get("compute-wake")).runs).toBe(2);
+  });
+
+  it("recovers an expired launcher lease without spending or resetting its runs", async () => {
+    const storage = memoryStorage();
+    await storage.put("compute-wake", {
+      sequence: 4,
+      pending: true,
+      day: new Date().toISOString().slice(0, 10),
+      runs: 26,
+      next: now() - 1,
+      leasedSequence: 4,
+    });
+    expect((await probe(storage)).data.pending).toBe(true);
+    expect((await storage.get("compute-wake")).runs).toBe(26);
   });
 });
 

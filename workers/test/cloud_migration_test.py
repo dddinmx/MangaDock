@@ -144,3 +144,41 @@ class FailureMetadataTests(unittest.TestCase):
             self.assertEqual(result,{'pages':1});self.assertEqual(len(uploads),1)
             self.assertEqual(uploads[0][0],'/api/admin/compute/jobs/test/output/page/0')
             self.assertEqual(calls[-1][0],'/api/admin/compute/jobs/test/complete')
+
+class ScheduledContinuationTests(unittest.TestCase):
+    def run_batch(self,jobs,*,fail_job=False,fail_ack=False,scheduled=True,pending=False):
+        import os
+        calls=[]
+        class Client:
+            def __init__(self,*args):pass
+            def request(self,path,method='GET',data=None,**kwargs):
+                calls.append((path,method,data))
+                if path.endswith('/fail') and fail_ack:raise RuntimeError('synthetic acknowledgement failure')
+                if path=='/api/admin/compute/jobs':return {'data':jobs if len([c for c in calls if c[0]==path])==1 else [],'maintenance_pending':pending}
+                return {'ok':True}
+        argv=['cloud-compute.py','--url','https://fixture.invalid','--limit','5']+(['--scheduled'] if scheduled else [])
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/'github-output'
+            with patch.object(compute,'Client',Client),patch.object(compute,'process_bounded',side_effect=TimeoutError('synthetic timeout') if fail_job else None,return_value={'pages':2}),patch.object(compute.sys,'argv',argv),patch.dict(os.environ,{'MANGADOCK_ADMIN_PASSWORD':'synthetic','MANGADOCK_COMPUTE_SEQUENCE':'7','MANGADOCK_COMPUTE_TOKEN':'synthetic','GITHUB_OUTPUT':str(output)}):
+                compute.main()
+            return calls,output.read_text() if output.exists() else ''
+
+    def test_acknowledged_failed_job_keeps_other_work_and_bounded_retry_eligible(self):
+        calls,output=self.run_batch([{'id':'one','kind':'legacy-chapter'},{'id':'two','kind':'index-epub'}],fail_job=True,pending=True)
+        self.assertEqual(len([c for c in calls if c[0].endswith('/fail')]),2)
+        self.assertIn('continue_work=true',output)
+        self.assertEqual([c[2] for c in calls if c[0].endswith('/finished')],[{'sequence':7,'pending':True}])
+
+    def test_failed_failure_acknowledgement_stops_the_launcher(self):
+        with self.assertRaisesRegex(RuntimeError,'acknowledgement'):
+            self.run_batch([{'id':'one','kind':'index-epub'}],fail_job=True,fail_ack=True)
+
+    def test_empty_tail_does_not_chain_even_when_maintenance_or_backoff_is_pending(self):
+        calls,output=self.run_batch([],pending=True)
+        self.assertIn('continue_work=false',output)
+        self.assertEqual([c[2] for c in calls if c[0].endswith('/finished')],[{'sequence':7,'pending':True}])
+
+    def test_unscheduled_manual_failures_still_fail_the_command(self):
+        with self.assertRaises(SystemExit) as error:
+            self.run_batch([{'id':'one','kind':'index-epub'}],fail_job=True,scheduled=False)
+        self.assertEqual(error.exception.code,1)

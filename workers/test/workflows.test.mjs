@@ -519,6 +519,7 @@ test("staging continuation runs only after real successful work on the public re
     const steps = {
       pending: { outputs: { ready: "true" } },
       guard: { outcome: "success" },
+      compute: { outputs: { continue_work: "true" } },
       ...changes.steps,
     };
     const github = {
@@ -542,15 +543,19 @@ test("staging continuation runs only after real successful work on the public re
   );
   assert.equal(evaluate({ steps: { guard: { outcome: "failure" } } }), false);
   assert.equal(
+    evaluate({ steps: { compute: { outputs: { continue_work: "false" } } } }),
+    false,
+  );
+  assert.equal(
     evaluate({ github: { event: { repository: { visibility: "private" } } } }),
     false,
   );
   assert.equal(evaluate({ github: { repository: "someone/fork" } }), false);
   assert.equal(evaluate({ success: false }), false);
-  assert.match(automatic, /timeout-minutes: 28/);
+  assert.match(automatic, /timeout-minutes: 12/);
   assert.match(automatic, /runs-on: ubuntu-latest/);
   assert.match(automatic, /actions: write/);
-  assert.match(automatic, /continue_at=.*int\(time\.time\(\)\)\+905/);
+  assert.match(automatic, /continue_at=.*int\(time\.time\(\)\)\+5/);
   assert.ok(
     automatic.indexOf("Release a failed launcher hold") <
       automatic.indexOf("Continue staging once"),
@@ -572,13 +577,13 @@ exec(compile(source,'<real-continuation>','exec'),namespace)
 run=namespace['continue_staging']
 class Response(io.BytesIO):
  def __init__(self,data,status=200):super().__init__(json.dumps(data).encode());self.status=status
-base={'CONTINUATION_REPOSITORY':'dddinmx/MangaDock','CONTINUATION_TARGET':'staging','CONTINUATION_AT':'1905','CONTINUATION_TOKEN':'synthetic-only'}
+base={'CONTINUATION_REPOSITORY':'dddinmx/MangaDock','CONTINUATION_TARGET':'staging','CONTINUATION_AT':'1005','CONTINUATION_TOKEN':'synthetic-only'}
 for mode in ['success','expired_delay','private','became_private','missing_visibility','wrong_repository','production','too_long','dispatch_failure','dispatch_rejected']:
  env=dict(base);calls=[];sleeps=[];gets=[]
  if mode=='expired_delay':env['CONTINUATION_AT']='900'
  if mode=='wrong_repository':env['CONTINUATION_REPOSITORY']='someone/fork'
  if mode=='production':env['CONTINUATION_TARGET']='production'
- if mode=='too_long':env['CONTINUATION_AT']='1906'
+ if mode=='too_long':env['CONTINUATION_AT']='1006'
  def request(req,timeout):
   assert timeout==20
   assert req.full_url.startswith('https://api.github.com/repos/dddinmx/MangaDock')
@@ -597,12 +602,12 @@ for mode in ['success','expired_delay','private','became_private','missing_visib
  except (ValueError,RuntimeError,urllib.error.URLError) as exc:error=exc
  if mode in ['success','expired_delay']:
   assert error is None,(mode,error)
-  assert len(calls)==1 and len(gets)==2 and sleeps==[905 if mode=='success' else 0],mode
+  assert len(calls)==1 and len(gets)==2 and sleeps==[5 if mode=='success' else 0],mode
  elif mode in ['dispatch_failure','dispatch_rejected']:
-  assert error is not None and len(calls)==1 and sleeps==[905],mode
+  assert error is not None and len(calls)==1 and sleeps==[5],mode
  else:
   assert error is not None and calls==[],mode
-  assert sleeps==([905] if mode=='became_private' else []),mode
+  assert sleeps==([5] if mode=='became_private' else []),mode
 print('10 bounded continuation scenarios passed; no real sleep or network')
 `;
   const result = spawnSync("python3", ["-c", harness], {

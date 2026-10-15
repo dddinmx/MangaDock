@@ -220,12 +220,19 @@ def main():
    results.append({'id':job['id'],'kind':job['kind'],'ok':True,'elapsed_s':round(time.monotonic()-start,2),**result})
   except Exception as error:
    failure=failure_details(error)
-   try:client.request(f"/api/admin/compute/jobs/{job['id']}/fail",'POST',failure)
-   except Exception:pass
+   # An acknowledged job failure retains its server-side bounded retry/backoff.
+   # A failed acknowledgement is a launcher failure: stop instead of chaining.
+   client.request(f"/api/admin/compute/jobs/{job['id']}/fail",'POST',failure)
    results.append({'id':job['id'],'kind':job['kind'],'ok':False,**failure})
  if args.scheduled:
   status=client.request('/api/admin/compute/jobs');pending=bool(status['data']) or status.get('maintenance_pending',False)
   client.request('/api/compute-ready/finished','POST',{'sequence':int(os.environ['MANGADOCK_COMPUTE_SEQUENCE']),'pending':pending},extra_headers={'Authorization':'Bearer '+os.environ['MANGADOCK_COMPUTE_TOKEN']})
+  # An empty tail probe must not create an endless chain while all work is
+  # waiting on finite retry backoff, maintenance, cancellation, or quota reset.
+  if os.environ.get('GITHUB_OUTPUT'):
+   with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('continue_work='+str(bool(results)).lower()+'\n')
  print(json.dumps(results,ensure_ascii=False))
- if any(not result['ok'] for result in results):raise SystemExit(1)
+ if any(not result['ok'] for result in results):
+  if args.scheduled:print('::warning::Some compute jobs failed and were recorded; independent pending work may continue within existing budgets and retry bounds.')
+  else:raise SystemExit(1)
 if __name__=='__main__':main()

@@ -80,13 +80,13 @@ export async function schedulerRequest(
         state.runs = 0;
         dirty = true;
       }
-      // `next` only stops a second probe. An abandoned hold expires with it
-      // and does not spend one of the 24 daily runs.
+      // `next` fences an active launcher, not normal successful batches.
+      // Historical successful-run counts remain observable without a daily cap.
       if (state.leasedSequence && state.next <= now()) {
         state.leasedSequence = 0;
         dirty = true;
       }
-      if (state.runs >= 24 || state.next > now()) {
+      if (state.leasedSequence && state.next > now()) {
         if (dirty) await tx.put("compute-wake", state);
         return { pending: false };
       }
@@ -123,8 +123,8 @@ export async function schedulerRequest(
       if (!state) return;
       const failed = data.ok === false;
       if (state.leasedSequence && state.leasedSequence === data.sequence) {
-        if (failed) state.next = 0;
-        else {
+        state.next = 0;
+        if (!failed) {
           const day = new Date().toISOString().slice(0, 10);
           if (state.day !== day) {
             state.day = day;
@@ -133,10 +133,10 @@ export async function schedulerRequest(
           state.runs++;
         }
         state.leasedSequence = 0;
+        // Only the launcher holding this lease may acknowledge its wake.
+        if (!failed && state.sequence === data.sequence && !data.pending)
+          state.pending = false;
       }
-      // A failed dispatch keeps the wake so a later probe can retry.
-      if (!failed && state.sequence === data.sequence && !data.pending)
-        state.pending = false;
       await tx.put("compute-wake", state);
     });
     return json({ ok: true });
