@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { verifyNovelSource } from "../scripts/verify-novel-source.mjs";
+import { initializeNovelSource } from "../scripts/initialize-novel-source.mjs";
 
 const url = "https://mangadock-turso-staging.dddinmx.workers.dev";
 function fixture({
@@ -59,4 +60,102 @@ test("novel availability verification refuses production and missing credentials
   );
   await assert.rejects(verifyNovelSource(url, "", fetch));
   assert.equal(calls, 0);
+});
+
+test("source initialization adds one missing credential pair and preserves all existing settings without touching progress", async () => {
+  const original = [
+    { name: "COMPUTE_REF", type: "plain_text", text: "a".repeat(40) },
+    { name: "TURSO_AUTH_TOKEN", type: "secret_text" },
+    { name: "LIBRARY", type: "r2_bucket", bucket_name: "existing-library" },
+  ];
+  let settings = 0,
+    registrations = 0,
+    stored;
+  const request = async (input, options) => {
+    assert.equal(options.redirect, "error");
+    if (input.startsWith("https://api.cloudflare.com/")) {
+      settings++;
+      return Response.json({
+        success: true,
+        result: {
+          bindings:
+            settings === 1
+              ? original
+              : [
+                  ...original,
+                  ...Object.keys(stored).map((name) => ({
+                    name,
+                    type: "secret_text",
+                  })),
+                ],
+        },
+      });
+    }
+    if (input.endsWith("/api/v1/auth/login"))
+      return Response.json(
+        { data: { csrf_token: "synthetic-csrf" } },
+        { headers: { "set-cookie": "md_session=synthetic" } },
+      );
+    assert.equal(input, url + "/api/source/register");
+    assert.equal(options.method, "POST");
+    const data = JSON.parse(options.body);
+    assert.match(data.instance, /^[a-f0-9]{32}$/);
+    assert.match(data.registration, /^fqr_[A-Za-z0-9_-]{43}$/);
+    registrations++;
+    return Response.json({
+      ok: true,
+      data: { token: "fqk_" + "x".repeat(43) },
+    });
+  };
+  const report = await initializeNovelSource(
+    {
+      CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
+      CLOUDFLARE_API_TOKEN: "synthetic",
+      MANGADOCK_ADMIN_PASSWORD: "synthetic",
+    },
+    request,
+    async (pair) => {
+      stored = pair;
+    },
+  );
+  assert.equal(registrations, 1);
+  assert.equal(settings, 2);
+  assert.equal(report.compute_ref_unchanged, true);
+  assert.equal(report.new_registration, true);
+  assert.deepEqual(Object.keys(stored).sort(), [
+    "FANQIE_API_TOKEN",
+    "FANQIE_INSTANCE_ID",
+  ]);
+  assert.doesNotMatch(JSON.stringify(report), /fqk_|synthetic/);
+});
+
+test("source initialization preserves an existing pair and refuses partial credentials without registration", async () => {
+  for (const complete of [false, true]) {
+    let calls = 0;
+    const bindings = [
+      { name: "FANQIE_API_TOKEN", type: "secret_text" },
+      ...(complete
+        ? [{ name: "FANQIE_INSTANCE_ID", type: "secret_text" }]
+        : []),
+    ];
+    const request = async () => {
+      calls++;
+      return Response.json({ success: true, result: { bindings } });
+    };
+    const init = initializeNovelSource(
+      {
+        CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
+        CLOUDFLARE_API_TOKEN: "synthetic",
+        MANGADOCK_ADMIN_PASSWORD: "synthetic",
+      },
+      request,
+      async () => {
+        throw Error("must not write");
+      },
+    );
+    if (complete)
+      assert.equal((await init).existing_credentials_preserved, true);
+    else await assert.rejects(init, /partially configured/);
+    assert.equal(calls, 1);
+  }
 });

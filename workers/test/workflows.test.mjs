@@ -145,6 +145,41 @@ test("isolated staging rollout skips every owner-progress acceptance while retai
     { queue_control: "resume" },
   ])
     assert.equal(allowed(guard, { ...santi, ...change }), true);
+  const sourceGuard = blocks.find((block) =>
+    block.startsWith("name: Restrict source credential initialization"),
+  );
+  const sourceInit = blocks.find((block) =>
+    block.startsWith(
+      "name: Initialize only missing existing staging source credentials",
+    ),
+  );
+  const sourceInputs = {
+    environment: "staging",
+    verify_only: true,
+    test_novels: true,
+    initialize_novel_source: true,
+  };
+  assert.equal(allowed(sourceGuard, sourceInputs), false);
+  assert.equal(allowed(sourceInit, sourceInputs), true);
+  assert.equal(
+    allowed(sourceInit, { ...sourceInputs, initialize_novel_source: false }),
+    false,
+  );
+  for (const change of [
+    { environment: "production" },
+    { verify_only: false },
+    { test_novels: false },
+    { runtime_only: true },
+    { preflight_only: true },
+    { complete_comic_id: "other" },
+    { repair_legacy_images: true },
+    { repair_cancelled_task: "{}" },
+    { repair_native_task_id: "other" },
+    { repair_storage_task_id: "other" },
+    { pause_queue_until_reset: true },
+    { queue_control: "pause" },
+  ])
+    assert.equal(allowed(sourceGuard, { ...sourceInputs, ...change }), true);
 });
 test("overnight verification executes only on its single UTC date and remains scoped to the existing staging task", () => {
   const source = readFileSync(

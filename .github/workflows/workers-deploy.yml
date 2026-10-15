@@ -2,6 +2,10 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      initialize_novel_source:
+        description: Explicitly initialize missing source credentials only during staging verify-only novel checks
+        type: boolean
+        default: false
       repair_legacy_images:
         description: Explicitly append the eight audited historical missing-image chapters to the exact existing staging task
         type: boolean
@@ -101,6 +105,9 @@ jobs:
       FANQIE_API_TOKEN: ${{ secrets.FANQIE_API_TOKEN }}
       FANQIE_INSTANCE_ID: ${{ secrets.FANQIE_INSTANCE_ID }}
     steps:
+      - name: Restrict source credential initialization to explicit staging verification
+        if: ${{ inputs.initialize_novel_source && (inputs.environment != 'staging' || !inputs.verify_only || !inputs.test_novels || inputs.runtime_only || inputs.preflight_only || inputs.complete_comic_id || inputs.repair_legacy_images || inputs.repair_cancelled_task || inputs.repair_native_task_id || inputs.repair_storage_task_id || inputs.pause_queue_until_reset || (inputs.queue_control && inputs.queue_control != 'none')) }}
+        run: exit 1
       - name: Restrict historical image repair to the exact isolated staging rollout
         if: ${{ inputs.repair_legacy_images && (!inputs.runtime_only || inputs.environment != 'staging' || inputs.complete_comic_id != 'c_ee02de2c2194' || inputs.diagnostic_task_id != 'c6fe02d4-c454-4111-b962-495120175313') }}
         working-directory: .
@@ -178,6 +185,9 @@ jobs:
       - name: Measure deployed Turso login and library latency
         if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only) }}
         run: node scripts/latency-report.mjs
+      - name: Initialize only missing existing staging source credentials
+        if: ${{ inputs.initialize_novel_source && inputs.environment == 'staging' && inputs.verify_only && inputs.test_novels && success() }}
+        run: node scripts/initialize-novel-source.mjs
       - name: Verify restored novel source without creating a download or writing reading progress
         if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.test_novels && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && success() }}
         run: node scripts/verify-novel-source.mjs
@@ -276,6 +286,7 @@ jobs:
             workers/comic-integrity-repair-results.json
             workers/readiness-results.json
             workers/novel-source-results.json
+            workers/novel-source-initialization.json
             workers/test-results/complete-comic-*.png
             workers/test-results/live-task-*.png
             workers/test-results/task-waiting-*.png
