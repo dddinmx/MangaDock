@@ -22,6 +22,9 @@ class CleanupTests(unittest.TestCase):
   class CF:
    def call(self,*args,**kwargs):raise AssertionError('Mutation must not execute')
   with self.assertRaisesRegex(RuntimeError,'Another project'):cleanup.teardown(CF(),{'external_references':[{'worker':'other'}]})
+ def test_settings_patch_uses_the_settings_form_field(self):
+  body,_=cleanup.multipart({'bindings':[]},field_name='settings')
+  self.assertIn(b'name="settings"',body);self.assertNotIn(b'name="metadata"',body)
  def test_bulk_delete_errors_stop_without_claiming_empty(self):
   class S3:
    def list_objects_v2(self,**kwargs):return {'Contents':[{'Key':'one'}]}

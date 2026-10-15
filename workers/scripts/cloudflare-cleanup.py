@@ -18,7 +18,9 @@ class Cloudflare:
   try:
    with urllib.request.urlopen(request,timeout=60) as response:payload=json.load(response)
   except urllib.error.HTTPError as error:
-   raise RuntimeError('Cloudflare '+method+' '+path.split('?')[0]+' HTTP '+str(error.code)) from None
+   try:codes=[item.get('code') for item in json.load(error).get('errors',[]) if isinstance(item.get('code'),int)]
+   except Exception:codes=[]
+   raise RuntimeError('Cloudflare '+method+' '+path.split('?')[0]+' HTTP '+str(error.code)+' codes '+str(codes)) from None
   if payload.get('success') is False:raise RuntimeError('Cloudflare rejected '+method+' '+path.split('?')[0])
   return payload.get('result')
  def items(self,path,key=None):
@@ -36,12 +38,12 @@ class Cloudflare:
    cursor=data.get('cursor','') if isinstance(data,dict) else ''
   raise ValueError('Resource inventory exceeds its bound')
 
-def multipart(metadata,source=None):
+def multipart(metadata,source=None,field_name='metadata'):
  boundary='mangadock-cleanup-'+uuid.uuid4().hex;parts=[]
  def field(name,content,mime,filename=None):
   disposition='Content-Disposition: form-data; name="'+name+'"'+('; filename="'+filename+'"' if filename else '')
   parts.append(('--'+boundary+'\r\n'+disposition+'\r\nContent-Type: '+mime+'\r\n\r\n').encode()+content+b'\r\n')
- field('metadata',json.dumps(metadata).encode(),'application/json')
+ field(field_name,json.dumps(metadata).encode(),'application/json')
  if source is not None:field('cleanup.mjs',source.encode(),'application/javascript+module','cleanup.mjs')
  return b''.join(parts)+('--'+boundary+'--\r\n').encode(),'multipart/form-data; boundary='+boundary
 
@@ -112,7 +114,7 @@ def teardown(cf,before):
    cf.call(base+'/consumers/'+consumer['consumer_id'],'DELETE')
  for worker in before['workers']:
   base='/workers/scripts/'+worker['name'];cf.call(base+'/schedules','PUT',[])
-  cf.call(base+'/settings','PATCH',multipart({'bindings':[]}),raw=True)
+  cf.call(base+'/settings','PATCH',multipart({'bindings':[]},field_name='settings'),raw=True)
  removed={'workers':[],'buckets':[],'queues':[],'d1':[],'kv':[],'pages':[],'workflows':[]}
  for workflow in before['workflows']:
   cf.call('/workflows/'+workflow['name'],'DELETE');removed['workflows'].append(workflow['name'])
@@ -151,4 +153,6 @@ if __name__=='__main__':
  try:main()
  except Exception as error:
   # Print neither credentials nor provider response payloads.
-  print('::error::MangaDock cleanup failed: '+type(error).__name__+(': '+str(error) if isinstance(error,(ValueError,RuntimeError)) else ''),file=sys.stderr);sys.exit(1)
+  code=getattr(error,'response',{}).get('Error',{}).get('Code','')
+  safe_code=code if re.fullmatch(r'[A-Za-z0-9_]{1,64}',str(code)) else ''
+  print('::error::MangaDock cleanup failed: '+type(error).__name__+(': '+str(error) if isinstance(error,(ValueError,RuntimeError)) else ' '+safe_code),file=sys.stderr);sys.exit(1)
