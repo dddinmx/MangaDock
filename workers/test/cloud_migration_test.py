@@ -16,6 +16,30 @@ def load(name, filename):
     return module
 importer=load('library_import','import-library.py')
 compute=load('cloud_compute','cloud-compute.py')
+legacy=load('legacy_source_tests','legacy-source.py')
+
+class BaozimhImagesTests(unittest.TestCase):
+    def test_amp_reader_and_noscript_are_one_page_each_without_adverts(self):
+        content='''<img data-src="https://s1.bzcdn.net/advert.jpg">
+        <amp-img class="comic-contain__item" src="/placeholder.gif" data-src="https://s1.bzcdn.net/001.jpg">
+        <noscript><img src="https://s1.bzcdn.net/001.jpg"></noscript></amp-img>
+        <amp-img class="comic-contain__item" src="//s1.bzcdn.net/002.jpg">
+        <noscript><img src="//s1.bzcdn.net/002.jpg"></noscript></amp-img>'''
+        self.assertEqual(legacy.baozimhcn_image_urls(content,'https://www.baozimh.com/comic/chapter/fixture/0_0.html'),
+                         ['https://s1.bzcdn.net/001.jpg','https://s1.bzcdn.net/002.jpg'])
+
+    def test_old_reader_and_nested_images_keep_order_and_skip_empty_tags(self):
+        content='''<img class="comic-contain__item" data-original="/001.jpg">
+        <div class="comic-contain__item"><img data-src="/002.jpg"></div>
+        <img class="comic-contain__item">'''
+        self.assertEqual(legacy.baozimhcn_image_urls(content,'https://www.baozimh.com/reader'),
+                         ['https://www.baozimh.com/001.jpg','https://www.baozimh.com/002.jpg'])
+
+    def test_compatibility_dispatch_uses_amp_parser_after_fetching_page(self):
+        content='<amp-img class="comic-contain__item" src="//s1.bzcdn.net/001.jpg"></amp-img>'
+        with patch.object(legacy,'namespace',return_value={'_fetch_page':lambda *args:content}):
+            self.assertEqual(legacy.image_urls('baozimhcn',{'url':'https://www.baozimh.com/reader'}),
+                             ['https://s1.bzcdn.net/001.jpg'])
 
 class CompleteMigrationTests(unittest.TestCase):
     def test_readonly_import_preserves_epub_metadata_old_ids_and_anchors(self):

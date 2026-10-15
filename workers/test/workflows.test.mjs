@@ -107,6 +107,44 @@ test("isolated staging rollout skips every owner-progress acceptance while retai
     { pause_queue_until_reset: true },
   ])
     assert.equal(allowed(guard, { ...inputs, ...change }), true);
+  const santi = {
+    ...inputs,
+    complete_comic_id: "",
+    diagnostic_task_id: "4a0378ca-c507-436c-81af-eb75edc2bcf9",
+  };
+  assert.equal(allowed(guard, santi), false);
+  for (const block of owner) assert.equal(allowed(block, santi), false);
+  assert.equal(
+    allowed(
+      blocks.find((block) => block.startsWith("name: Provision and deploy")),
+      santi,
+    ),
+    true,
+  );
+  assert.equal(
+    allowed(
+      blocks.find((block) =>
+        block.startsWith("name: Verify the complete existing comic"),
+      ),
+      santi,
+    ),
+    false,
+  );
+  for (const change of [
+    { environment: "production" },
+    { diagnostic_task_id: "other" },
+    { complete_comic_id: "c_ee02de2c2194" },
+    { repair_legacy_images: true },
+    { test_novels: true },
+    { verify_only: true },
+    { preflight_only: true },
+    { repair_cancelled_task: "{}" },
+    { repair_native_task_id: "other" },
+    { repair_storage_task_id: "other" },
+    { pause_queue_until_reset: true },
+    { queue_control: "resume" },
+  ])
+    assert.equal(allowed(guard, { ...santi, ...change }), true);
 });
 test("overnight verification executes only on its single UTC date and remains scoped to the existing staging task", () => {
   const source = readFileSync(

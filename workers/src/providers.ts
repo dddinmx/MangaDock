@@ -565,12 +565,18 @@ export async function chapterImages(provider: string, chapter: SourceChapter) {
           ? "img.lazy"
           : provider === "guazimanhua"
             ? "img.reading-image"
-            : "img.comic-contain__item,img[data-src]";
+            : "img.comic-contain__item,amp-img.comic-contain__item,.comic-contain__item img";
       images = [...document.querySelectorAll(selector)]
         .sort(
           (a, b) =>
             Number(a.getAttribute("data-page") || 0) -
             Number(b.getAttribute("data-page") || 0),
+        )
+        .filter(
+          (node) =>
+            node.getAttribute("data-original") ||
+            node.getAttribute("data-src") ||
+            node.getAttribute("src"),
         )
         .map(
           (node) =>
@@ -582,6 +588,7 @@ export async function chapterImages(provider: string, chapter: SourceChapter) {
               chapter.url || chapter.id,
             ).href,
         );
+      if (provider === "baozimhcn") images = [...new Set(images)];
     }
   }
   if (!images.length || images.length > 10000)

@@ -7,7 +7,7 @@ on:
         type: boolean
         default: false
       runtime_only:
-        description: Staging-only deployment followed by exact whole-book verification with an isolated reader; skips owner-account acceptance
+        description: Staging-only deployment for an exact existing task; skips owner-account acceptance
         type: boolean
         default: false
       complete_comic_id:
@@ -106,9 +106,9 @@ jobs:
         working-directory: .
         run: exit 1
       - name: Restrict isolated deployment to the exact existing staging book
-        if: ${{ inputs.runtime_only && (inputs.environment != 'staging' || inputs.complete_comic_id != 'c_ee02de2c2194' || inputs.diagnostic_task_id != 'c6fe02d4-c454-4111-b962-495120175313' || inputs.verify_only || inputs.test_novels || inputs.preflight_only || inputs.repair_cancelled_task || inputs.repair_native_task_id || inputs.repair_storage_task_id || inputs.pause_queue_until_reset || (inputs.queue_control && inputs.queue_control != 'none')) }}
+        if: ${{ inputs.runtime_only && (inputs.environment != 'staging' || !((inputs.complete_comic_id == 'c_ee02de2c2194' && inputs.diagnostic_task_id == 'c6fe02d4-c454-4111-b962-495120175313') || (!inputs.complete_comic_id && inputs.diagnostic_task_id == '4a0378ca-c507-436c-81af-eb75edc2bcf9' && !inputs.repair_legacy_images)) || inputs.verify_only || inputs.test_novels || inputs.preflight_only || inputs.repair_cancelled_task || inputs.repair_native_task_id || inputs.repair_storage_task_id || inputs.pause_queue_until_reset || (inputs.queue_control && inputs.queue_control != 'none')) }}
         run: |
-          echo '::error::Isolated deployment requires the exact existing staging comic/task and disabled novel acceptance'
+          echo '::error::Isolated deployment requires an exact allowed existing staging task and disabled novel acceptance'
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

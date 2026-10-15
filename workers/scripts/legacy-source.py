@@ -56,10 +56,21 @@ def image_urls(provider,chapter):
  if provider=='manhuagui':
   content=ns['fetch_html'](chapter['url']);config=ns['extract_chapter_config'](content);host=ns['pick_image_host'](config,chapter['url']);return ns['build_image_urls'](config,host)
  if provider=='baozimhcn':
-  content=ns['_fetch_page'](chapter['url'],requests.Session());soup=BeautifulSoup(content,'html.parser');return [urljoin(chapter['url'],img.get('data-src') or img.get('src')) for img in soup.select('img.comic-contain__item') if img.get('data-src') or img.get('src')]
+  content=ns['_fetch_page'](chapter['url'],requests.Session());return baozimhcn_image_urls(content,chapter['url'])
  if provider=='mxs':
   response=ns['safe_http_get'](chapter['url'],headers=ns['default_headers'](),timeout=30);response.raise_for_status();soup=BeautifulSoup(response.text,'html.parser');return [urljoin(chapter['url'],img['data-original']) for img in soup.select('img.lazy[data-original]')]
  raise ValueError('Unsupported provider')
+
+def baozimhcn_image_urls(content,url):
+ # Current pages use AMP images with a noscript fallback; older pages use img.
+ # Select only reader images, and count the AMP/fallback pair once in page order.
+ soup=BeautifulSoup(content,'html.parser');images=[];seen=set()
+ for node in soup.select('img.comic-contain__item,amp-img.comic-contain__item,.comic-contain__item img'):
+  src=node.get('data-original') or node.get('data-src') or node.get('src')
+  if not src:continue
+  image=urljoin(url,src)
+  if image not in seen:images.append(image);seen.add(image)
+ return images
 
 def download_pages(provider,chapter,folder):
  ns=namespace(provider);urls=image_urls(provider,chapter);paths=[]
