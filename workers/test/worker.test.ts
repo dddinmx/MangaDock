@@ -1351,6 +1351,45 @@ describe("full legacy routes and permissions", () => {
       ).first(),
     ).toEqual({ username: "md-verify-87654321-def" });
   }, 15000);
+  it("accepts an authenticated bodyless user DELETE while rejecting invalid CSRF and malformed JSON", async () => {
+    const session = await login(),
+      headers = auth(session.cookie, session.payload.data.csrf_token);
+    const created = await SELF.fetch(origin + "/api/v1/users", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        username: "delete-empty-reader",
+        password: "strong-reader-password",
+        role: "user",
+      }),
+    });
+    const id = ((await created.json()) as any).data.user.id;
+    const url = origin + "/api/v1/users/" + id;
+    expect(
+      (
+        await SELF.fetch(url, {
+          method: "DELETE",
+          headers: auth(session.cookie, "invalid"),
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await SELF.fetch(url, { method: "DELETE", headers, body: "{" })).status,
+    ).toBe(400);
+    expect(
+      await bindings.DB.prepare("SELECT 1 FROM users WHERE id=?")
+        .bind(String(id))
+        .first(),
+    ).not.toBeNull();
+    expect((await SELF.fetch(url, { method: "DELETE", headers })).status).toBe(
+      200,
+    );
+    expect(
+      await bindings.DB.prepare("SELECT 1 FROM users WHERE id=?")
+        .bind(String(id))
+        .first(),
+    ).toBeNull();
+  }, 15000);
   it("creates users, assigns groups and revokes sessions on password reset", async () => {
     const adminSession = await login(),
       headers = auth(adminSession.cookie, adminSession.payload.data.csrf_token);

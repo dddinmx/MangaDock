@@ -465,10 +465,14 @@ export async function csrfIdentity(request: Request, env: Env) {
   return identity(request, env);
 }
 export async function input(request: Request) {
+  // DELETE commonly has no body, including authenticated API clients. Retain
+  // normal CSRF/authorization checks and reject malformed non-empty JSON.
+  if (request.method === "DELETE" && request.body === null) return {};
   const type = request.headers.get("Content-Type") || "";
   if (type.startsWith("application/json")) {
     const text = await request.text();
     if (text.length > 16384) throw new HttpError(413, "请求过大");
+    if (request.method === "DELETE" && text.length === 0) return {};
     try {
       const data = JSON.parse(text);
       if (!data || Array.isArray(data) || typeof data !== "object")
