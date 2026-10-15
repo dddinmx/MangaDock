@@ -22,9 +22,9 @@ class Cloudflare:
   if payload.get('success') is False:raise RuntimeError('Cloudflare rejected '+method+' '+path.split('?')[0])
   return payload.get('result')
  def items(self,path,key=None):
-  out=[];cursor=''
+  out=[];cursor='';page_size=10 if path=='/pages/projects' else 100
   for page in range(1,101):
-   query={'per_page':100,'page':page}
+   query={'per_page':page_size,'page':page}
    if cursor:query['cursor']=cursor
    data=self.call(path+'?'+urllib.parse.urlencode(query))
    rows=data.get(key,[]) if isinstance(data,dict) and key else data
@@ -32,7 +32,7 @@ class Cloudflare:
    known=len(out)
    for row in rows:
     if row not in out:out.append(row)
-   if len(rows)<100 or len(out)==known:return out
+   if len(rows)<page_size or len(out)==known:return out
    cursor=data.get('cursor','') if isinstance(data,dict) else ''
   raise ValueError('Resource inventory exceeds its bound')
 

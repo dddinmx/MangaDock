@@ -113,11 +113,28 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLEANUP_MODE: ${{ inputs.cloudflare_cleanup }}
         run: python workers/scripts/cloudflare-cleanup.py
+      - uses: actions/setup-node@v4
+        if: ${{ inputs.cloudflare_cleanup == 'delete_all' }}
+        with:
+          node-version: "24"
+      - name: Install only the database cleanup client
+        if: ${{ inputs.cloudflare_cleanup == 'delete_all' }}
+        working-directory: workers
+        run: npm ci --omit=dev --ignore-scripts
+      - name: Clear only the existing MangaDock Turso staging database
+        if: ${{ inputs.cloudflare_cleanup == 'delete_all' }}
+        working-directory: workers
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_TOKEN || secrets.TURSO_AUTH_TOKEN }}
+        run: node --experimental-strip-types scripts/clear-turso-database.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: cloudflare-cleanup
-          path: cloudflare-cleanup-results.json
+          path: |
+            cloudflare-cleanup-results.json
+            workers/turso-cleanup-results.json
   deploy:
     if: ${{ !inputs.cloudflare_cleanup || inputs.cloudflare_cleanup == 'none' }}
     runs-on: ubuntu-latest
