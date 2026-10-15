@@ -2,6 +2,11 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      cloudflare_cleanup:
+        description: Explicit MangaDock resource inventory or authorized irreversible full cleanup; never provisions the app
+        type: choice
+        options: [none, inventory, delete_all]
+        default: none
       compute_budget:
         description: Preserve the configured compute budget or explicitly select 200000 requests and SQL for an isolated staging rollout
         type: choice
@@ -91,7 +96,30 @@ concurrency:
   group: workers-${{ inputs.complete_comic_id && 'book-check' || inputs.verify_only && 'inspect-status' || 'rollout' }}-${{ inputs.environment || 'staging' }}
   cancel-in-progress: false
 jobs:
+  cleanup:
+    if: ${{ inputs.cloudflare_cleanup && inputs.cloudflare_cleanup != 'none' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install boto3==1.43.114
+      - name: Inventory or remove only MangaDock Cloudflare resources
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLEANUP_MODE: ${{ inputs.cloudflare_cleanup }}
+        run: python workers/scripts/cloudflare-cleanup.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloudflare-cleanup
+          path: cloudflare-cleanup-results.json
   deploy:
+    if: ${{ !inputs.cloudflare_cleanup || inputs.cloudflare_cleanup == 'none' }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.complete_comic_id && 300 || 30 }}
     environment: ${{ inputs.environment || 'staging' }}
