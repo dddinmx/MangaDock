@@ -111,6 +111,7 @@ export class ApplicationService extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     const jobs = state.id.equals(env.APPLICATION.idFromName("jobs"));
     const web = state.id.equals(env.APPLICATION.idFromName("web"));
+    const compute = state.id.equals(env.APPLICATION.idFromName("compute"));
     const storage =
       env.CONTROL_STORAGE_PROVIDER === "r2"
         ? (new ControlStorage(
@@ -128,7 +129,8 @@ export class ApplicationService extends DurableObject<Env> {
             ? env.DB_JOB_DAILY_REQUEST_LIMIT ||
                 env.DB_DAILY_REQUEST_LIMIT ||
                 10000
-            : (web && env.DB_WEB_DAILY_REQUEST_LIMIT) ||
+            : (compute && env.DB_COMPUTE_DAILY_REQUEST_LIMIT) ||
+                (web && env.DB_WEB_DAILY_REQUEST_LIMIT) ||
                 env.DB_DAILY_REQUEST_LIMIT ||
                 10000,
         ),
@@ -137,7 +139,8 @@ export class ApplicationService extends DurableObject<Env> {
             ? env.DB_JOB_DAILY_STATEMENT_LIMIT ||
                 env.DB_DAILY_STATEMENT_LIMIT ||
                 50000
-            : (web && env.DB_WEB_DAILY_STATEMENT_LIMIT) ||
+            : (compute && env.DB_COMPUTE_DAILY_STATEMENT_LIMIT) ||
+                (web && env.DB_WEB_DAILY_STATEMENT_LIMIT) ||
                 env.DB_DAILY_STATEMENT_LIMIT ||
                 50000,
         ),

@@ -2,6 +2,7 @@ import { writeFile, readFile } from "node:fs/promises";
 import { pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { checkD1Budget } from "./d1-budget.mjs";
+import { computeBudgetSettings } from "./compute-budget-settings.mjs";
 process.on("uncaughtException", (error) => {
   console.error(
     "::error::" +
@@ -100,6 +101,8 @@ const libraryLimit = Number(
   process.env.MANGADOCK_MAX_LIBRARY_BYTES ||
     (target === "production" ? 8000000000 : 9000000000),
 );
+// Reject invalid explicit limits before any external resource changes.
+computeBudgetSettings(process.env);
 if (
   !Number.isSafeInteger(libraryLimit) ||
   libraryLimit < 1 ||
@@ -138,6 +141,16 @@ async function pages(path) {
   throw new Error("资源列表超过分页上限");
 }
 // These calls provision free-compatible resources only. They never subscribe to Workers Paid or change billing plans.
+const previousWorkerSettings = await cf(
+  `/workers/scripts/${prefix}/settings`,
+  "GET",
+  undefined,
+  true,
+);
+const computeLimits = computeBudgetSettings(
+  process.env,
+  previousWorkerSettings?.bindings || [],
+);
 let db;
 if (provider === "d1") {
   await checkD1Budget();
@@ -269,6 +282,7 @@ const config = {
     DB_JOB_DAILY_STATEMENT_LIMIT: String(downloadStatements),
     DB_WEB_DAILY_REQUEST_LIMIT: String(webRequests),
     DB_WEB_DAILY_STATEMENT_LIMIT: String(webStatements),
+    ...computeLimits,
     DB_DAILY_REQUEST_LIMIT: process.env.MANGADOCK_DB_DAILY_REQUESTS || "10000",
     DB_DAILY_STATEMENT_LIMIT:
       process.env.MANGADOCK_DB_DAILY_STATEMENTS || "50000",

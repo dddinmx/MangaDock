@@ -2922,6 +2922,10 @@ it("resource diagnostics require an administrator and report persisted jobs limi
   expect(body.database.request_limit).toBe(10000);
   expect(body.database.requests).toBe(0);
   expect(body.database.paused).toBe(false);
+  expect(body.components.compute.request_limit).toBe(200000);
+  expect(body.components.compute.statement_limit).toBe(200000);
+  expect(body.components.login.request_limit).toBe(10000);
+  expect(body.components.updates.request_limit).toBe(10000);
 });
 
 import { repairNativeFallback } from "../src/native-fallback-repair";

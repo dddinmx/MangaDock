@@ -47,6 +47,8 @@ export default defineWorkersConfig(async () => ({
             ),
             COMPUTE_WAKE_TOKEN: "test-wake-token",
             COMPUTE_REF: "a".repeat(40),
+            DB_COMPUTE_DAILY_REQUEST_LIMIT: "200000",
+            DB_COMPUTE_DAILY_STATEMENT_LIMIT: "200000",
             SETTINGS_ENCRYPTION_KEY: "test-integration-key-only",
             FANQIE_API_TOKEN: "test-token",
             FANQIE_INSTANCE_ID: "test-instance",

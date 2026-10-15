@@ -2,6 +2,11 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      compute_budget:
+        description: Preserve the configured compute budget or explicitly select 200000 requests and SQL for an isolated staging rollout
+        type: choice
+        options: [preserve, "200000"]
+        default: preserve
       repair_novel_index_id:
         description: Explicitly queue only the selected existing novel index after a reviewed fix; retains old jobs and progress
         type: string
@@ -94,6 +99,8 @@ jobs:
       run:
         working-directory: workers
     env:
+      MANGADOCK_DB_COMPUTE_REQUESTS: ${{ inputs.compute_budget == '200000' && '200000' || '' }}
+      MANGADOCK_DB_COMPUTE_STATEMENTS: ${{ inputs.compute_budget == '200000' && '200000' || '' }}
       MANGADOCK_DB_DOWNLOAD_REQUESTS: "200000"
       MANGADOCK_DB_DOWNLOAD_STATEMENTS: "200000"
       MANGADOCK_DB_WEB_REQUESTS: ${{ inputs.environment != 'production' && '200000' || vars.MANGADOCK_DB_WEB_REQUESTS || vars.MANGADOCK_DB_DAILY_REQUESTS || '10000' }}
@@ -113,6 +120,9 @@ jobs:
       FANQIE_API_TOKEN: ${{ secrets.FANQIE_API_TOKEN }}
       FANQIE_INSTANCE_ID: ${{ secrets.FANQIE_INSTANCE_ID }}
     steps:
+      - name: Restrict an explicit compute budget change to the isolated staging rollout
+        if: ${{ inputs.compute_budget == '200000' && (inputs.environment != 'staging' || !inputs.runtime_only) }}
+        run: exit 1
       - name: Restrict local novel index repair to explicit staging verification
         if: ${{ inputs.repair_novel_index_id && (inputs.environment != 'staging' || !inputs.verify_only || !inputs.diagnostic_novel_title || inputs.runtime_only || inputs.preflight_only || inputs.test_novels || inputs.initialize_novel_source || inputs.complete_comic_id || inputs.repair_legacy_images || inputs.repair_native_task_id || inputs.repair_storage_task_id || inputs.repair_cancelled_task || (inputs.queue_control && inputs.queue_control != 'none')) }}
         run: exit 1

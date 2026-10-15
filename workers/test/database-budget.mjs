@@ -65,13 +65,28 @@ test("partial credit blocks stop at the exact ceiling and failed persistence gra
 });
 test("a snapshot does not pause usable leased credits, while reconstruction still loses them conservatively", async () => {
   const store = storage();
-  const budget = new DatabaseBudget(store, Date.now, { requests: 64, statements: 64 }, 64);
+  const budget = new DatabaseBudget(
+    store,
+    Date.now,
+    { requests: 64, statements: 64 },
+    64,
+  );
   await budget.reserve(1);
   const active = await budget.snapshot();
   assert.equal(active.requests, 64);
   assert.equal(active.unused_request_credits, 63);
   assert.equal(active.paused, false);
-  assert.equal((await new DatabaseBudget(store, Date.now, { requests: 64, statements: 64 }, 64).snapshot()).paused, true);
+  assert.equal(
+    (
+      await new DatabaseBudget(
+        store,
+        Date.now,
+        { requests: 64, statements: 64 },
+        64,
+      ).snapshot()
+    ).paused,
+    true,
+  );
   for (let i = 0; i < 63; i++) await budget.reserve(1);
   assert.equal((await budget.snapshot()).paused, true);
 });
@@ -407,5 +422,43 @@ test("failure snapshots distinguish Worker subrequest errors from provider serve
     }
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+test("an explicitly raised compute budget keeps all 10000 used credits and real failure holds", async () => {
+  const clock = () => Date.UTC(2026, 9, 15, 12);
+  for (const held of [false, true]) {
+    const store = storage(),
+      state = {
+        day: "2026-10-15",
+        requests: 10000,
+        statements: 10176,
+        blockedUntil: held ? clock() + 600000 : 0,
+        failures: held ? 3 : 0,
+        failureWindow: clock(),
+        ...(held
+          ? { lastFailure: { kind: "server_error", at: clock(), status: 503 } }
+          : {}),
+      };
+    await store.put("database-outbound-budget-v1", state);
+    const budget = new DatabaseBudget(
+      store,
+      clock,
+      { requests: 200000, statements: 200000 },
+      64,
+    );
+    const before = await budget.snapshot();
+    assert.equal(before.requests, 10000);
+    assert.equal(before.statements, 10176);
+    assert.equal(before.paused, held);
+    if (held) {
+      await assert.rejects(budget.reserve(1), DatabasePausedError);
+      assert.deepEqual(await store.get("database-outbound-budget-v1"), state);
+    } else {
+      await budget.reserve(1);
+      const after = await budget.snapshot();
+      assert.equal(after.requests, 10064);
+      assert.equal(after.statements, 10240);
+    }
   }
 });
