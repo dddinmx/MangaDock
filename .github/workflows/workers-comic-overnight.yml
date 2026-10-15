@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.window.outputs.active == 'true'
         with:
-          ref: 8ccd015006a5ad00a1cf5a54faf4cf1ccace36eb
+          ref: 4aeb0704efca3dcc32ab619b636b4d39ac0fbad6
           persist-credentials: false
       - uses: actions/setup-node@v4
         if: steps.window.outputs.active == 'true'
@@ -63,7 +63,7 @@ jobs:
           MANGADOCK_ADMIN_PASSWORD: ${{ secrets.MANGADOCK_ADMIN_PASSWORD }}
           COMPLETE_COMIC_ID: c_ee02de2c2194
           DIAGNOSTIC_TASK_ID: c6fe02d4-c454-4111-b962-495120175313
-          COMPLETE_COMIC_CHECK_SHA: 8ccd015006a5ad00a1cf5a54faf4cf1ccace36eb
+          COMPLETE_COMIC_CHECK_SHA: 4aeb0704efca3dcc32ab619b636b4d39ac0fbad6
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/verify-complete-comic.mjs
       - name: Record actual Cloudflare CPU separately from wall time
