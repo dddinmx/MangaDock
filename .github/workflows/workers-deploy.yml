@@ -2,6 +2,10 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      repair_novel_index_id:
+        description: Explicitly queue only the selected existing novel index after a reviewed fix; retains old jobs and progress
+        type: string
+        required: false
       diagnostic_novel_title:
         description: Optional exact local novel title for bounded read-only EPUB diagnosis
         type: string
@@ -109,6 +113,9 @@ jobs:
       FANQIE_API_TOKEN: ${{ secrets.FANQIE_API_TOKEN }}
       FANQIE_INSTANCE_ID: ${{ secrets.FANQIE_INSTANCE_ID }}
     steps:
+      - name: Restrict local novel index repair to explicit staging verification
+        if: ${{ inputs.repair_novel_index_id && (inputs.environment != 'staging' || !inputs.verify_only || !inputs.diagnostic_novel_title || inputs.runtime_only || inputs.preflight_only || inputs.test_novels || inputs.initialize_novel_source || inputs.complete_comic_id || inputs.repair_legacy_images || inputs.repair_native_task_id || inputs.repair_storage_task_id || inputs.repair_cancelled_task || (inputs.queue_control && inputs.queue_control != 'none')) }}
+        run: exit 1
       - name: Restrict novel diagnostics to read-only staging inspection
         if: ${{ inputs.diagnostic_novel_title && (inputs.environment != 'staging' || !inputs.verify_only || inputs.runtime_only || inputs.preflight_only) }}
         run: exit 1
@@ -195,6 +202,18 @@ jobs:
       - name: Initialize only missing existing staging source credentials
         if: ${{ inputs.initialize_novel_source && inputs.environment == 'staging' && inputs.verify_only && inputs.test_novels && success() }}
         run: node scripts/initialize-novel-source.mjs
+      - name: Repair only the selected existing local novel index
+        if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.repair_novel_index_id && success() }}
+        env:
+          REPAIR_NOVEL_INDEX_ID: ${{ inputs.repair_novel_index_id }}
+          EXPECTED_NOVEL_TITLE: ${{ inputs.diagnostic_novel_title }}
+        run: node scripts/repair-novel-index.mjs
+      - name: Verify novel detail cover description and chapters without opening the owner reader
+        if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.diagnostic_novel_title && inputs.source_book_id && !inputs.repair_novel_index_id && success() }}
+        env:
+          NOVEL_DETAIL_ID: ${{ inputs.source_book_id }}
+          EXPECTED_NOVEL_TITLE: ${{ inputs.diagnostic_novel_title }}
+        run: node --experimental-strip-types scripts/verify-novel-detail.mjs
       - name: Verify restored novel source without creating a download or writing reading progress
         if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.test_novels && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && success() }}
         run: node scripts/verify-novel-source.mjs
@@ -295,6 +314,9 @@ jobs:
             workers/readiness-results.json
             workers/novel-source-results.json
             workers/novel-source-initialization.json
+            workers/novel-index-repair-results.json
+            workers/novel-detail-browser-results.json
+            workers/test-results/novel-detail-*.png
             workers/test-results/complete-comic-*.png
             workers/test-results/live-task-*.png
             workers/test-results/task-waiting-*.png

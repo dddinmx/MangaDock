@@ -3,6 +3,7 @@
 import argparse,importlib.util,hashlib,mimetypes,shutil,gzip,io,json,os,re,subprocess,sys,tempfile,time,multiprocessing,signal,urllib.request,urllib.error,zipfile
 from pathlib import Path
 from PIL import Image,ImageFilter,ImageOps
+from concurrent.futures import ThreadPoolExecutor
 ROOT=Path(__file__).resolve().parents[2]
 def failure_details(error):
  if isinstance(error,CloudJobError):return error.details
@@ -107,6 +108,34 @@ def archive_pages(input_path,folder):
     file=folder/f'{i:05}.{suffix}';file.write_bytes(content);paths.append(file)
  return paths
 
+def index_epub(client,base,folder,claimed):
+ # Keep EPUB parsing off Workers. Only five independent uploads may run at once;
+ # the existing enclosing process deadline and per-job retry budget still apply.
+ spec=importlib.util.spec_from_file_location('legacy_sources',ROOT/'workers/scripts/legacy-source.py');legacy=importlib.util.module_from_spec(spec);spec.loader.exec_module(legacy)
+ ns=legacy.namespace('baozimh_org');ns['NOVEL_ROOT']=str(folder);ns['NOVEL_COVER_ROOT']=str(folder/'covers');legacy.load_functions(ROOT/'mangadock/services/novels.py',ns)
+ source=folder/(claimed['book_id']+'.epub');client.download(base+'/input',source)
+ chapters=ns['get_novel_chapters'](claimed['book_id'])
+ if not chapters or len(chapters)>10000:raise ValueError('Invalid EPUB chapter count')
+ metadata=ns['_metadata'](str(source))
+ def upload_chapter(item):
+  chapter=ns['get_novel_chapter'](claimed['book_id'],item['index'])
+  if not chapter or not chapter.get('paragraphs'):raise ValueError('EPUB chapter has no text')
+  file=folder/f"chapter-{item['index']}.gz";file.write_bytes(gzip.compress(json.dumps(chapter,ensure_ascii=False).encode()))
+  client.upload(base+f"/output/chapter/{item['index']}",file,'application/gzip')
+  return {'index':item['index'],'title':item['title'],'filename':item.get('filename',''),'key':f"{claimed['output_prefix']}/chapter/{item['index']}",'gzip':True}
+ with ThreadPoolExecutor(max_workers=5) as uploads:index=list(uploads.map(upload_chapter,chapters))
+ manifest={'chapters':index,'total_chapters':len(index),'metadata':{'description':metadata.get('description','')[:20000]}}
+ if metadata.get('cover_path'):
+  with zipfile.ZipFile(source) as archive:
+   entry=archive.getinfo(metadata['cover_path'])
+   if entry.file_size>20*1024**2:raise ValueError('EPUB cover exceeds extraction budget')
+   with Image.open(io.BytesIO(archive.read(entry))) as image:
+    if image.width*image.height>40_000_000:raise ValueError('EPUB cover exceeds pixel budget')
+    image=ImageOps.exif_transpose(image).convert('RGB');image.thumbnail((1920,1920));image.save(folder/'original.jpg',quality=92)
+  client.upload(base+'/output/original',folder/'original.jpg','image/jpeg');manifest['cover_key']=claimed['output_prefix']+'/original'
+ file=folder/'index.json';file.write_text(json.dumps(manifest,ensure_ascii=False));client.upload(base+'/output/index',file,'application/json');client.request(base+'/complete','POST',{})
+ return {'chapters':len(index)}
+
 def process(client,job,folder,claimed=None):
  job_id=job['id'];base=f'/api/admin/compute/jobs/{job_id}'
  claimed=claimed or client.request(base+'/claim','POST',{})['data'];kind=claimed['kind']
@@ -142,10 +171,7 @@ def process(client,job,folder,claimed=None):
    except Exception:continue
   client.request(base+'/complete','POST',{'found':False});return {'found':False}
  if kind=='index-epub':
-  spec=importlib.util.spec_from_file_location('legacy_sources',ROOT/'workers/scripts/legacy-source.py');legacy=importlib.util.module_from_spec(spec);spec.loader.exec_module(legacy);ns=legacy.namespace('baozimh_org');ns['NOVEL_ROOT']=str(folder);ns['NOVEL_COVER_ROOT']=str(folder/'covers');legacy.load_functions(ROOT/'mangadock/services/novels.py',ns);source=folder/(claimed['book_id']+'.epub');client.download(base+'/input',source);chapters=ns['get_novel_chapters'](claimed['book_id']);index=[]
-  for item in chapters:
-   chapter=ns['get_novel_chapter'](claimed['book_id'],item['index']);file=folder/f"chapter-{item['index']}.gz";file.write_bytes(gzip.compress(json.dumps(chapter,ensure_ascii=False).encode()));client.upload(base+f"/output/chapter/{item['index']}",file,'application/gzip');index.append({'index':item['index'],'title':item['title'],'key':f"{claimed['output_prefix']}/chapter/{item['index']}",'gzip':True})
-  file=folder/'index.json';file.write_text(json.dumps({'chapters':index,'total_chapters':len(index)},ensure_ascii=False));client.upload(base+'/output/index',file,'application/json');client.request(base+'/complete','POST',{});return {'chapters':len(index)}
+  return index_epub(client,base,folder,claimed)
  if kind=='fanqie-archive':
   client.download(base+'/input',folder/'outer.zip')
   with zipfile.ZipFile(folder/'outer.zip') as archive:

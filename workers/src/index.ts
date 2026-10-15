@@ -429,12 +429,15 @@ export async function processJob(env: Env, id: string) {
     const metadata = remote.metadata ?? {};
     await env.DB.batch([
       env.DB.prepare(
-        "INSERT INTO books (id,source_id,title,author,object_key,size,sha256,created_at) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM jobs WHERE id=? AND lease_until=? AND state IN ('queued','running','submitting')) ON CONFLICT(source_id) DO UPDATE SET title=excluded.title,author=excluded.author,object_key=excluded.object_key,size=excluded.size,sha256=excluded.sha256,index_key=NULL,chapter_count=0",
+        "INSERT INTO books (id,source_id,title,author,description,object_key,size,sha256,created_at) SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM jobs WHERE id=? AND lease_until=? AND state IN ('queued','running','submitting')) ON CONFLICT(source_id) DO UPDATE SET title=excluded.title,author=excluded.author,description=CASE WHEN books.description='' THEN excluded.description ELSE books.description END,object_key=excluded.object_key,size=excluded.size,sha256=excluded.sha256,index_key=NULL,chapter_count=0",
       ).bind(
         job.source_id,
         job.source_id,
         String(metadata.title || `番茄小说 ${job.source_id}`).slice(0, 500),
         String(metadata.author || "未知作者").slice(0, 200),
+        typeof metadata.description === "string"
+          ? metadata.description.slice(0, 20000)
+          : "",
         key,
         artifact.size,
         artifact.sha256.toLowerCase(),

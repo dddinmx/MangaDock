@@ -291,6 +291,7 @@ export async function pages(
         "novel:" + novel.id,
       );
     novel.total_chapters = index.total_chapters;
+    novel.chapter_count = index.total_chapters;
     if (endpoint === "novel_detail")
       return show("novel_detail.html", {
         novel,

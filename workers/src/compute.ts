@@ -77,6 +77,33 @@ export async function computeApi(
   if (!url.pathname.startsWith("/api/admin/compute/")) return null;
   admin(user);
   if (
+    url.pathname === "/api/admin/compute/novel-index" &&
+    request.method === "POST"
+  ) {
+    const data = await input(request);
+    if (
+      typeof data.book_id !== "string" ||
+      typeof data.expected_title !== "string"
+    )
+      throw new HttpError(400, "请提供小说及确切书名");
+    const book = await one(
+      env,
+      "SELECT id,title,object_key,sha256,index_key FROM books WHERE id=?",
+      data.book_id,
+    );
+    if (!book || book.title !== data.expected_title)
+      throw new HttpError(404, "小说或书名不匹配");
+    if (book.index_key)
+      return json({ ok: true, data: { already_indexed: true } });
+    // Explicit repair only: reuse active work, retain exhausted old jobs, and
+    // never submit a new source download or change reading progress.
+    const id = await queueCompute(env, "index-epub", book.object_key, {
+      book_id: book.id,
+      sha256: book.sha256,
+    });
+    return json({ ok: true, data: { job_id: id, already_indexed: false } });
+  }
+  if (
     url.pathname === "/api/admin/compute/discover" &&
     request.method === "POST"
   ) {
@@ -344,6 +371,7 @@ export async function computeApi(
       const key = `${outputPrefix}/index`,
         indexObject = await env.LIBRARY.get(key);
       if (!indexObject) throw new HttpError(409, "章节索引未上传");
+      if (indexObject.size > 2097152) throw new HttpError(413, "章节索引过大");
       const index = (await indexObject.json()) as Row;
       if (
         !Array.isArray(index.chapters) ||
@@ -351,17 +379,51 @@ export async function computeApi(
         index.chapters.length > 10000
       )
         throw new HttpError(400, "章节索引无效");
-      for (const chapter of index.chapters)
+      const missing = new Set<string>();
+      for (const [ordinal, chapter] of index.chapters.entries()) {
         if (
-          chapter.key !== `${outputPrefix}/chapter/${chapter.index}` ||
-          !(await env.LIBRARY.head(chapter.key))
+          chapter.index !== ordinal ||
+          chapter.key !== `${outputPrefix}/chapter/${ordinal}`
         )
-          throw new HttpError(409, "章节正文未全部上传");
+          throw new HttpError(400, "章节索引顺序或路径无效");
+        missing.add(chapter.key);
+      }
+      // A bounded prefix listing verifies every real object without one
+      // subrequest per chapter, which exceeds the Workers limit on long novels.
+      let cursor: string | undefined;
+      for (let page = 0; page < 11; page++) {
+        const objects = await env.LIBRARY.list({
+          prefix: `${outputPrefix}/chapter/`,
+          limit: 1000,
+          ...(cursor ? { cursor } : {}),
+        });
+        for (const object of objects.objects)
+          if (object.size > 0) missing.delete(object.key);
+        if (!objects.truncated) break;
+        if (page === 10) throw new HttpError(409, "章节对象数量超过核验上限");
+        cursor = objects.cursor;
+      }
+      if (missing.size) throw new HttpError(409, "章节正文未全部上传");
+      let coverKey: string | null = null;
+      if (index.cover_key !== undefined) {
+        if (index.cover_key !== `${outputPrefix}/original`)
+          throw new HttpError(400, "封面路径无效");
+        const cover = await env.LIBRARY.head(index.cover_key);
+        if (!cover?.size || cover.httpMetadata?.contentType !== "image/jpeg")
+          throw new HttpError(409, "小说封面未上传");
+        coverKey = index.cover_key;
+      }
+      const description =
+        typeof index.metadata?.description === "string"
+          ? index.metadata.description.slice(0, 20000)
+          : "";
       await run(
         env,
-        "UPDATE books SET index_key=?,chapter_count=? WHERE id=? AND sha256=?",
+        "UPDATE books SET index_key=?,chapter_count=?,description=CASE WHEN description='' THEN ? ELSE description END,cover_key=COALESCE(cover_key,?) WHERE id=? AND sha256=?",
         key,
         index.chapters.length,
+        description,
+        coverKey,
         data.book_id,
         data.sha256,
       );

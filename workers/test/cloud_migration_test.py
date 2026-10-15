@@ -182,3 +182,40 @@ class ScheduledContinuationTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as error:
             self.run_batch([{'id':'one','kind':'index-epub'}],fail_job=True,scheduled=False)
         self.assertEqual(error.exception.code,1)
+
+class ParallelNovelIndexTests(unittest.TestCase):
+    def test_parallel_index_preserves_order_embedded_cover_and_description(self):
+        import gzip
+        import io
+        import json
+        import shutil
+        import threading
+        import time
+        uploads={};active=0;peak=0;lock=threading.Lock();calls=[]
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);source=root/'fixture.epub';folder=root/'job';folder.mkdir()
+            cover=io.BytesIO();Image.new('RGB',(20,30),'red').save(cover,format='JPEG')
+            with zipfile.ZipFile(source,'w') as epub:
+                epub.writestr('META-INF/container.xml','<container><rootfile full-path="OEBPS/book.opf"/></container>')
+                manifest=''.join(f'<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(12))
+                spine=''.join(f'<itemref idref="c{i}"/>' for i in range(12))
+                epub.writestr('OEBPS/book.opf','<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:description>原书简介内容</dc:description><meta name="cover" content="cover"/></metadata><manifest>'+manifest+'<item id="cover" href="cover.jpg" media-type="image/jpeg"/></manifest><spine>'+spine+'</spine></package>')
+                epub.writestr('OEBPS/cover.jpg',cover.getvalue())
+                for i in range(12):epub.writestr(f'OEBPS/c{i}.xhtml',f'<html><body><h1>章节{i}</h1><p>真实正文{i}</p></body></html>')
+            class Client:
+                def download(self,path,destination):shutil.copyfile(source,destination)
+                def upload(self,path,file,mime):
+                    nonlocal active,peak
+                    with lock:active+=1;peak=max(peak,active)
+                    time.sleep(.01)
+                    with lock:uploads[path]=file.read_bytes();active-=1
+                def request(self,*args,**kwargs):calls.append(args);return {'ok':True}
+            result=compute.index_epub(Client(),'/api/admin/compute/jobs/job',folder,{'book_id':'parallel-book','output_prefix':'compute/job/lease'})
+            self.assertEqual(result,{'chapters':12});self.assertGreater(peak,1);self.assertLessEqual(peak,5)
+            index=json.loads(uploads['/api/admin/compute/jobs/job/output/index'])
+            self.assertEqual([c['index'] for c in index['chapters']],list(range(12)))
+            self.assertEqual(index['metadata']['description'],'原书简介内容')
+            self.assertEqual(index['cover_key'],'compute/job/lease/original')
+            with Image.open(io.BytesIO(uploads['/api/admin/compute/jobs/job/output/original'])) as image:self.assertEqual(image.size,(20,30));image.verify()
+            self.assertEqual(json.loads(gzip.decompress(uploads['/api/admin/compute/jobs/job/output/chapter/11']))['paragraphs'],['章节11','真实正文11'])
+            self.assertEqual(calls[-1][0],'/api/admin/compute/jobs/job/complete')
