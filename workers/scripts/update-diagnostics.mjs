@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { createClient } from "@libsql/client/web";
 import { tursoUrl } from "../src/database.ts";
 
@@ -452,6 +453,86 @@ async function diagnostics() {
       }),
   });
   try {
+    const novelTitle = process.env.DIAGNOSTIC_NOVEL_TITLE;
+    if (novelTitle) {
+      const books = (
+        await client.execute(
+          "SELECT id,title,author,description,cover_key,index_key,chapter_count,object_key,size FROM books INDEXED BY books_created ORDER BY created_at DESC LIMIT 20",
+        )
+      ).rows;
+      const book = books.find((item) => item.title === novelTitle);
+      report.novel_detail = {
+        title: novelTitle,
+        found_in_latest_twenty: !!book,
+      };
+      if (book) {
+        const jobs = (
+          await client.execute({
+            sql: "SELECT id,state,attempts,lease_until,message FROM compute_jobs WHERE kind='index-epub' AND input_key=? ORDER BY created_at DESC,rowid DESC LIMIT 3",
+            args: [book.object_key],
+          })
+        ).rows;
+        Object.assign(report.novel_detail, {
+          id: book.id,
+          description_length: book.description.length,
+          local_cover: !!book.cover_key,
+          index_ready: !!book.index_key,
+          chapter_count: book.chapter_count,
+          index_jobs: jobs,
+        });
+        if (book.size > 0 && book.size <= 32 * 1024 * 1024) {
+          const object = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${worker}/objects/${book.object_key.split("/").map(encodeURIComponent).join("/")}`,
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+              },
+              redirect: "error",
+              signal: AbortSignal.timeout(30000),
+            },
+          );
+          if (!object.ok)
+            report.novel_detail.epub = {
+              available: false,
+              status: object.status,
+            };
+          else {
+            const bytes = Buffer.from(await object.arrayBuffer());
+            if (bytes.length !== book.size)
+              throw new Error("Novel diagnostic EPUB length mismatch");
+            const probe = spawnSync(
+              "python3",
+              [
+                "-c",
+                `import io,json,sys,zipfile,posixpath,xml.etree.ElementTree as E
+with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
+ def read(name):
+  if z.getinfo(name).file_size>2*1024*1024:raise ValueError('Metadata too large')
+  return z.read(name)
+ container=E.fromstring(read('META-INF/container.xml'))
+ opf=next(e.attrib['full-path'] for e in container.iter() if e.tag.split('}')[-1]=='rootfile')
+ root=E.fromstring(read(opf));items={e.attrib.get('id'):e.attrib for e in root.iter() if e.tag.split('}')[-1]=='item'}
+ cover_id=next((e.attrib.get('content') for e in root.iter() if e.tag.split('}')[-1]=='meta' and e.attrib.get('name')=='cover'),'')
+ cover=next((v for v in items.values() if 'cover-image' in v.get('properties','').split()),items.get(cover_id))
+ description=next((''.join(e.itertext()) for e in root.iter() if e.tag.split('}')[-1]=='description'),'')
+ print(json.dumps({'available':True,'spine_count':sum(e.tag.split('}')[-1]=='itemref' for e in root.iter()),'description_length':len(description),'description_preview':description[:160],'embedded_cover':bool(cover),'cover_entry_present':bool(cover and posixpath.normpath(posixpath.join(posixpath.dirname(opf),cover['href'])) in z.namelist())},ensure_ascii=False))
+`,
+              ],
+              {
+                input: bytes,
+                encoding: "utf8",
+                timeout: 15000,
+                maxBuffer: 100000,
+              },
+            );
+            report.novel_detail.epub =
+              probe.status === 0
+                ? JSON.parse(probe.stdout)
+                : { available: false, error_type: "MetadataParseError" };
+          }
+        }
+      }
+    }
     report.recent_download_tasks = (
       await client.execute({
         sql: "SELECT j.id,j.state,j.created_at,j.updated_at,c.name AS comic_name,(json_extract(j.payload,'$.url')='https://baozimh.org/manga/dafengdagengren-chuyingshe') AS ci_test_source FROM comic_jobs j INDEXED BY comic_jobs_kind_created LEFT JOIN comics c ON c.id=j.comic_id WHERE j.kind='source' AND j.created_at>=? ORDER BY j.created_at DESC LIMIT 20",

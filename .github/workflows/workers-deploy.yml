@@ -2,6 +2,10 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      diagnostic_novel_title:
+        description: Optional exact local novel title for bounded read-only EPUB diagnosis
+        type: string
+        required: false
       initialize_novel_source:
         description: Explicitly initialize missing source credentials only during staging verify-only novel checks
         type: boolean
@@ -105,6 +109,9 @@ jobs:
       FANQIE_API_TOKEN: ${{ secrets.FANQIE_API_TOKEN }}
       FANQIE_INSTANCE_ID: ${{ secrets.FANQIE_INSTANCE_ID }}
     steps:
+      - name: Restrict novel diagnostics to read-only staging inspection
+        if: ${{ inputs.diagnostic_novel_title && (inputs.environment != 'staging' || !inputs.verify_only || inputs.runtime_only || inputs.preflight_only) }}
+        run: exit 1
       - name: Restrict source credential initialization to explicit staging verification
         if: ${{ inputs.initialize_novel_source && (inputs.environment != 'staging' || !inputs.verify_only || !inputs.test_novels || inputs.runtime_only || inputs.preflight_only || inputs.complete_comic_id || inputs.repair_legacy_images || inputs.repair_cancelled_task || inputs.repair_native_task_id || inputs.repair_storage_task_id || inputs.pause_queue_until_reset || (inputs.queue_control && inputs.queue_control != 'none')) }}
         run: exit 1
@@ -233,6 +240,7 @@ jobs:
         if: ${{ !cancelled() && (inputs.verify_only || inputs.diagnostic_task_id) && inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && hashFiles('workers/deployment.json') != '' }}
         env:
           DIAGNOSTIC_TASK_ID: ${{ inputs.diagnostic_task_id }}
+          DIAGNOSTIC_NOVEL_TITLE: ${{ inputs.diagnostic_novel_title }}
         run: node --experimental-strip-types scripts/update-diagnostics.mjs
       - name: Repair only the exact existing native fallback task
         if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.repair_native_task_id && success() }}
