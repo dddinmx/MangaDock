@@ -16,6 +16,74 @@ const workflow = new URL(
   "../../.github/workflows/workers-compute.yml",
   import.meta.url,
 );
+test("isolated staging rollout skips every owner-progress acceptance while retaining deployment and scoped whole-book verification", () => {
+  const source = readFileSync(
+    new URL("../../.github/workflows/workers-deploy.yml", import.meta.url),
+    "utf8",
+  );
+  const blocks = source.split(/\n      - /);
+  const inputs = {
+    runtime_only: true,
+    environment: "staging",
+    complete_comic_id: "c_ee02de2c2194",
+    diagnostic_task_id: "c6fe02d4-c454-4111-b962-495120175313",
+    queue_control: "none",
+  };
+  const allowed = (block, values = inputs) => {
+    const condition = block.match(/\n        if: \$\{\{ (.*) \}\}/)?.[1];
+    return condition
+      ? Boolean(
+          Function(
+            "inputs",
+            "success",
+            "cancelled",
+            "hashFiles",
+            "steps",
+            `return (${condition})`,
+          )(
+            values,
+            () => true,
+            () => false,
+            () => "fixture",
+            { cloud_compute: { conclusion: "success" } },
+          ),
+        )
+      : true;
+  };
+  const owner = blocks.filter((block) =>
+    /run: (?:npm run test:live|node scripts\/(?:latency-report|live-browser|live-comic|live-comic-browser|live-task-browser)\.mjs)/.test(
+      block,
+    ),
+  );
+  assert.ok(owner.length >= 7);
+  for (const block of owner)
+    assert.equal(allowed(block), false, block.split("\n")[0]);
+  for (const name of [
+    "Provision and deploy without upgrading plan",
+    "Wait for provider recovery without changing original user progress",
+    "Verify the complete existing comic, every R2 image and the last chapter reader",
+  ])
+    assert.equal(
+      allowed(blocks.find((block) => block.startsWith("name: " + name))),
+      true,
+      name,
+    );
+  const guard = blocks.find((block) =>
+    block.startsWith("name: Restrict isolated deployment"),
+  );
+  assert.equal(allowed(guard), false);
+  for (const change of [
+    { environment: "production" },
+    { test_novels: true },
+    { complete_comic_id: "other" },
+    { diagnostic_task_id: "other" },
+    { verify_only: true },
+    { preflight_only: true },
+    { queue_control: "pause" },
+    { pause_queue_until_reset: true },
+  ])
+    assert.equal(allowed(guard, { ...inputs, ...change }), true);
+});
 test("overnight verification executes only on its single UTC date and remains scoped to the existing staging task", () => {
   const source = readFileSync(
     new URL(

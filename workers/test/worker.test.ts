@@ -180,7 +180,7 @@ describe("R2 control storage", () => {
     const err = await first
       .get("database-outbound-budget-v1")
       .catch((error) => error);
-    expect(err.message).toContain("北京时间 08:00");
+    expect(err.message).toContain("系统将自动复查");
     expect(err.retryAfter).toBeGreaterThan(0);
     for (let i = 0; i < 10; i++)
       await expect(first.get("database-outbound-budget-v1")).rejects.toThrow(
@@ -248,6 +248,109 @@ describe("R2 control storage", () => {
         "_system/control-v1/reset-grace-fixture.json",
       ),
     ).toBeNull();
+  });
+  it("a reset delayed beyond fifteen minutes keeps read probes bounded without renewing a day-long pause", async () => {
+    const { ControlStorage } = await import("../src/control-storage");
+    const reset = Date.now() - 1200000;
+    await bindings.LIBRARY.put(
+      "_system/control-quota-hold-v1.json",
+      JSON.stringify({
+        version: 1,
+        until: reset,
+        reset_at: reset,
+        kind: "legacy_rows_written",
+        read_probe_v2: true,
+      }),
+    );
+    let reads = 0;
+    const legacy = {
+      list: async () => {
+        reads++;
+        throw new Error("Exceeded rows written on Durable Objects Free");
+      },
+    } as any;
+    const store = new ControlStorage(
+      bindings.LIBRARY,
+      legacy,
+      "late-reset-probe",
+    );
+    const error = await store
+      .get("database-outbound-budget-v1")
+      .catch((error) => error);
+    expect(error.retryAfter).toBeGreaterThan(0);
+    expect(error.retryAfter).toBeLessThanOrEqual(900);
+    const hold = await (await bindings.LIBRARY.get(
+      "_system/control-quota-hold-v1.json",
+    ))!.json<any>();
+    expect(hold.reset_at).toBe(reset);
+    expect(hold.read_probe_v2).toBe(true);
+    const rebuilt = new ControlStorage(
+      bindings.LIBRARY,
+      legacy,
+      "late-reset-probe",
+    );
+    await expect(rebuilt.get("database-outbound-budget-v1")).rejects.toThrow(
+      "Cloudflare 状态存储",
+    );
+    expect(reads).toBe(1);
+    expect(
+      await bindings.LIBRARY.head("_system/control-v1/late-reset-probe.json"),
+    ).toBeNull();
+  });
+  it("caps an old renewed hold once and migrates the unchanged original counters only after a successful read", async () => {
+    const { ControlStorage } = await import("../src/control-storage");
+    const originalUntil = Date.now() + 86400000;
+    await bindings.LIBRARY.put(
+      "_system/control-quota-hold-v1.json",
+      JSON.stringify({
+        version: 1,
+        until: originalUntil,
+        reset_at: originalUntil,
+        kind: "legacy_rows_written",
+      }),
+    );
+    const counters = {
+      requests: 97311,
+      statements: 106120,
+      failures: 3,
+      blockedUntil: 1792108800000,
+    };
+    let reads = 0;
+    const legacy = {
+      list: async () => {
+        reads++;
+        return new Map([["database-outbound-budget-v1", counters]]);
+      },
+      getAlarm: async () => null,
+    } as any;
+    const first = new ControlStorage(
+      bindings.LIBRARY,
+      legacy,
+      "old-renewed-hold",
+    );
+    const error = await first
+      .get("database-outbound-budget-v1")
+      .catch((error) => error);
+    expect(error.retryAfter).toBeLessThanOrEqual(900);
+    expect(reads).toBe(0);
+    const hold = await (await bindings.LIBRARY.get(
+      "_system/control-quota-hold-v1.json",
+    ))!.json<any>();
+    expect(hold.reset_at).toBe(originalUntil);
+    expect(hold.read_probe_v2).toBe(true);
+    await bindings.LIBRARY.put(
+      "_system/control-quota-hold-v1.json",
+      JSON.stringify({ ...hold, until: Date.now() - 1 }),
+    );
+    const recovered = new ControlStorage(
+      bindings.LIBRARY,
+      legacy,
+      "old-renewed-hold",
+    );
+    expect(await recovered.get("database-outbound-budget-v1")).toEqual(
+      counters,
+    );
+    expect(reads).toBe(1);
   });
 });
 it("the real SQLite DO alarm uses the poller, not the compute wake handler", async () => {

@@ -13,7 +13,7 @@ class ControlStorageUnavailableError extends DatabasePausedError {
     this.cause = cause;
     if (resetUntil)
       this.message =
-        "Cloudflare 状态存储已达到今日免费写入额度，将在北京时间 08:00 后自动恢复；已下载的图片和任务已保留";
+        "Cloudflare 状态存储暂时受免费额度限制，系统将自动复查；已下载的图片和任务已保留";
   }
 }
 type Document = {
@@ -117,6 +117,7 @@ export class ControlStorage {
         until: number;
         kind: string;
         reset_at?: number;
+        read_probe_v2?: boolean;
       }>();
       if (
         hold.version !== 1 ||
@@ -126,6 +127,24 @@ export class ControlStorage {
         throw new Error("Invalid control quota hold");
       this.previousReset = Number(hold.reset_at || hold.until);
       if (hold.until > Date.now()) {
+        // Older releases could extend a delayed reset to the following day.
+        // Keep the original reset evidence, but permit a bounded read-only
+        // migration probe. No database credits are created or reset here.
+        if (!hold.read_probe_v2 && hold.until > Date.now() + 900000) {
+          hold.until = Date.now() + 900000;
+          hold.reset_at = this.previousReset;
+          hold.read_probe_v2 = true;
+          this.operation = "r2-write";
+          const saved = await this.bucket.put(HOLD_KEY, JSON.stringify(hold), {
+            onlyIf: { etagMatches: holdObject.etag },
+            httpMetadata: { contentType: "application/json" },
+          });
+          if (!saved)
+            throw new ControlStorageUnavailableError(
+              new Error("Provider hold changed concurrently"),
+              Date.now() + 60000,
+            );
+        }
         this.migrationBlockedUntil = hold.until;
         throw new ControlStorageUnavailableError(
           new Error("Legacy SQLite row write quota exceeded"),
@@ -156,9 +175,13 @@ export class ControlStorage {
           this.previousReset > 0 &&
           this.previousReset <= Date.now() &&
           Date.now() < this.previousReset + 900000;
-        const until = withinResetGrace
-          ? Math.min(Date.now() + 60000, this.previousReset + 900000)
-          : nextDay;
+        // At most one shared migration probe per fifteen minutes outside the
+        // short reset grace. A delayed provider reset must not lock out the
+        // entire next day. Provider errors never grant outbound SQL credits.
+        const until = Math.min(
+          nextDay,
+          Date.now() + (withinResetGrace ? 60000 : 900000),
+        );
         this.migrationBlockedUntil = until;
         console.error(
           JSON.stringify({
@@ -177,7 +200,8 @@ export class ControlStorage {
               version: 1,
               until,
               kind: "legacy_rows_written",
-              reset_at: withinResetGrace ? this.previousReset : nextDay,
+              reset_at: this.previousReset || nextDay,
+              read_probe_v2: true,
             }),
             { httpMetadata: { contentType: "application/json" } },
           )

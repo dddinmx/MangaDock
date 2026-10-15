@@ -2,6 +2,10 @@ name: Deploy Workers (free plan)
 on:
   workflow_dispatch:
     inputs:
+      runtime_only:
+        description: Staging-only deployment followed by exact whole-book verification with an isolated reader; skips owner-account acceptance
+        type: boolean
+        default: false
       complete_comic_id:
         description: Staging-only full-book completion and R2 integrity acceptance; requires diagnostic_task_id
         type: string
@@ -93,6 +97,11 @@ jobs:
       FANQIE_API_TOKEN: ${{ secrets.FANQIE_API_TOKEN }}
       FANQIE_INSTANCE_ID: ${{ secrets.FANQIE_INSTANCE_ID }}
     steps:
+      - name: Restrict isolated deployment to the exact existing staging book
+        if: ${{ inputs.runtime_only && (inputs.environment != 'staging' || inputs.complete_comic_id != 'c_ee02de2c2194' || inputs.diagnostic_task_id != 'c6fe02d4-c454-4111-b962-495120175313' || inputs.verify_only || inputs.test_novels || inputs.preflight_only || inputs.repair_cancelled_task || inputs.repair_native_task_id || inputs.repair_storage_task_id || inputs.pause_queue_until_reset || (inputs.queue_control && inputs.queue_control != 'none')) }}
+        run: |
+          echo '::error::Isolated deployment requires the exact existing staging comic/task and disabled novel acceptance'
+          exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -159,45 +168,45 @@ jobs:
           await writeFile('deployment.json',JSON.stringify({url:`https://${name}.${result.result.subdomain}.workers.dev`,database_provider:'turso'}));
           JS
       - name: Measure deployed Turso login and library latency
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only) }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only) }}
         run: node scripts/latency-report.mjs
       - name: Deployed login, library and progress smoke test
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && inputs.test_novels) }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && inputs.test_novels) }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
           SOURCE_CHAPTER_IDS: ${{ inputs.source_chapter_ids || (!inputs.source_book_id && '6838937005267616264') || '' }}
         run: npm run test:live
       - name: Read real-source EPUB in deployed browser and restore progress
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && inputs.test_novels) }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && inputs.test_novels) }}
         env:
           SOURCE_BOOK_ID: ${{ inputs.source_book_id || '6838936284967209991' }}
         run: node scripts/live-browser.mjs
       - name: Measure progress latency after the real-source test
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/latency-report.mjs
       - name: Run pending cloud conversions and original-model cover super-resolution
         id: cloud_compute
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: |
           pip install -r scripts/cloud-compute-requirements.txt
           python scripts/cloud-compute.py --limit 10
       - name: Real comic source, private R2 pages and progress
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && steps.cloud_compute.conclusion == 'success') }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && steps.cloud_compute.conclusion == 'success') }}
         run: node scripts/live-comic.mjs
       - name: Read real comic in the original browser reader and restore progress
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && success()) }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && success()) }}
         run: node scripts/live-comic-browser.mjs
       - name: Measure real comic progress latency
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && success()) }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && success()) }}
         run: node scripts/latency-report.mjs
       - name: Validate real task status, logs and execution times on desktop and mobile
-        if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
+        if: ${{ !inputs.runtime_only && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!inputs.verify_only && !cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/live-task-browser.mjs
       - name: Report real Cloudflare CPU (never treat wall time as CPU)
         if: ${{ !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && (!cancelled() && hashFiles('workers/deployment.json') != '') }}
         run: node scripts/cpu-report.mjs
       - name: Validate original deletion forms on isolated staging fixtures
-        if: ${{ inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && !inputs.verify_only && success() }}
+        if: ${{ !inputs.runtime_only && inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && !inputs.verify_only && success() }}
         run: node --experimental-strip-types scripts/live-delete-browser.mjs
       - name: Read staging update request logs and task records without starting downloads
         if: ${{ !cancelled() && (inputs.verify_only || inputs.diagnostic_task_id) && inputs.environment == 'staging' && !inputs.preflight_only && !inputs.repair_cancelled_task && (!inputs.queue_control || inputs.queue_control == 'none') && hashFiles('workers/deployment.json') != '' }}
@@ -217,8 +226,11 @@ jobs:
           REPAIR_NATIVE_MODE: storage
           REPAIR_NATIVE_TASK_ID: ${{ inputs.repair_storage_task_id }}
         run: node scripts/repair-native-fallback.mjs
+      - name: Wait for provider recovery without changing original user progress
+        if: ${{ inputs.runtime_only && success() }}
+        run: node scripts/wait-staging-ready.mjs
       - name: Verify the complete existing comic, every R2 image and the last chapter reader
-        if: ${{ inputs.environment == 'staging' && inputs.verify_only && inputs.complete_comic_id && success() }}
+        if: ${{ inputs.environment == 'staging' && (inputs.verify_only || inputs.runtime_only) && inputs.complete_comic_id && success() }}
         env:
           COMPLETE_COMIC_ID: ${{ inputs.complete_comic_id }}
           DIAGNOSTIC_TASK_ID: ${{ inputs.diagnostic_task_id }}
@@ -245,6 +257,7 @@ jobs:
             workers/update-diagnostics.json
             workers/deployed-worker-content.txt
             workers/complete-comic-results.json
+            workers/readiness-results.json
             workers/test-results/complete-comic-*.png
             workers/test-results/live-task-*.png
             workers/test-results/task-waiting-*.png

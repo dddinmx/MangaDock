@@ -164,6 +164,7 @@ export function safeQuotaHold(value) {
     kind: value.kind,
     until: value.until,
     reset_at: value.reset_at ?? value.until,
+    ...(value.read_probe_v2 === true ? { read_probe_v2: true } : {}),
   };
 }
 export async function durableStorageUsage(query, day) {
