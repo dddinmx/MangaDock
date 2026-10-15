@@ -470,6 +470,32 @@ async function diagnostics() {
     ).rows;
     const task = report.recent_update_tasks[0];
     if (task) {
+      if (task.id === "c6fe02d4-c454-4111-b962-495120175313") {
+        const chapterIds = [
+          "ch_1343b6318ac0b40a75eabb13",
+          "ch_3955c68f8c5560c5b02ab4a2",
+          "ch_f8f9024b7bd195b0dd7e2f5d",
+          "ch_6a87accba4ed80dfd9fd775b",
+          "ch_e2ee13b58739e5c778bb910d",
+          "ch_2fe93e6f0e7d7e0f4e202c5f",
+          "ch_ae317b56917dcbc8e93b3fb4",
+          "ch_eb761c3675d7040107e62892",
+        ];
+        report.integrity_chapter_plans = (
+          await client.execute({
+            sql: `SELECT c.id,c.ordinal,c.title,c.state,c.source_id,c.page_count,j.id AS current_job,j.state AS job_state,j.attempts,j.created_at,j.updated_at,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page') AS planned_pages,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state='completed') AS completed_pages FROM chapters c LEFT JOIN comic_jobs j ON j.id=? || ':' || c.id WHERE c.comic_id='c_ee02de2c2194' AND c.id IN (${chapterIds.map(() => "?").join(",")}) ORDER BY c.ordinal`,
+            args: [task.id, ...chapterIds],
+          })
+        ).rows;
+        report.integrity_ledger_sample = (
+          await client.execute({
+            sql: "SELECT key,state,size,created_at,lease_until,owner IS NOT NULL AS has_owner FROM storage_ledger WHERE key=?",
+            args: [
+              "comics/c_ee02de2c2194/chapters/ch_1343b6318ac0b40a75eabb13/00037",
+            ],
+          })
+        ).rows;
+      }
       report.child_jobs = (
         await client.execute({
           sql: "SELECT j.id,j.kind,j.state,j.attempts,j.lease_until,j.created_at,j.updated_at,j.remote_poll_at,c.page_count AS expected_pages,c.state AS chapter_state,json_extract(j.payload,'$.provider') AS provider,json_extract(j.payload,'$.chapter.id') AS source_chapter_id,json_extract(j.payload,'$.chapter.mid') AS source_mid,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page') AS persisted_pages,(SELECT COUNT(*) FROM comic_jobs p WHERE p.parent_id=j.id AND p.kind='page' AND p.state='completed') AS completed_pages FROM comic_jobs j LEFT JOIN chapters c ON c.id=json_extract(j.payload,'$.chapter_id') WHERE j.parent_id=? ORDER BY j.id LIMIT 25",
