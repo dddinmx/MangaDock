@@ -1,10 +1,51 @@
-import { test, expect } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
 import { waitForVisibleComicImages } from "../../scripts/comic-reader-evidence.mjs";
+import {
+  createValidationReader,
+  removeValidationReader,
+} from "../../scripts/validation-reader.mjs";
 
-async function login(page) {
+const test = base.extend({
+  reader: async ({ request, baseURL }, use) => {
+    const login = await request.post("/api/v1/auth/login", {
+      headers: { Origin: baseURL },
+      data: { username: "admin", password: "local-e2e-password-2026" },
+    });
+    expect(login.ok()).toBe(true);
+    const csrf = (await login.json()).data.csrf_token;
+    const adminRequest = async (path, method = "GET", body) => {
+      const response = await request.fetch(path, {
+        method,
+        headers: { Origin: baseURL, "X-CSRFToken": csrf },
+        ...(body !== undefined ? { data: body } : {}),
+      });
+      expect(response.ok()).toBe(true);
+      return response;
+    };
+    const detail = (await (await adminRequest("/api/comics/c_test")).json())
+      .item;
+    const credentials = {
+      username: `md-verify-${crypto.randomUUID().slice(0, 12)}`,
+      password: crypto.randomUUID() + crypto.randomUUID(),
+    };
+    let identity = { username: credentials.username };
+    try {
+      identity = await createValidationReader(adminRequest, {
+        ...credentials,
+        role: "user",
+        group_names: detail.group_name ? [detail.group_name] : [],
+      });
+      await use(credentials);
+    } finally {
+      await removeValidationReader(adminRequest, identity);
+    }
+  },
+});
+
+async function login(page, reader) {
   await page.goto("/login");
-  await page.getByLabel("用户名").fill("admin");
-  await page.getByLabel("密码").fill("local-e2e-password-2026");
+  await page.getByLabel("用户名").fill(reader.username);
+  await page.getByLabel("密码").fill(reader.password);
   await page.locator("#loginButton").click();
   await expect(page.locator(".md-topnav")).toBeVisible();
 }
@@ -12,9 +53,10 @@ async function login(page) {
 for (const width of [1280, 390]) {
   test(`whole-book evidence waits for real images after reload at ${width}px`, async ({
     page,
+    reader,
   }) => {
     await page.setViewportSize({ width, height: 900 });
-    await login(page);
+    await login(page, reader);
     await page.goto("/reader/c_test");
     await waitForVisibleComicImages(page);
     let release;
@@ -42,8 +84,9 @@ for (const width of [1280, 390]) {
 
 test("whole-book evidence rejects a reader containing only failed image placeholders", async ({
   page,
+  reader,
 }) => {
-  await login(page);
+  await login(page, reader);
   await page.route("**/api/comic-pages/**", async (route) => {
     if (new URL(route.request().url()).searchParams.has("page"))
       await route.fulfill({ status: 503, body: "Unavailable" });
