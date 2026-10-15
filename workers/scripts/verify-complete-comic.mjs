@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
+import {
+  createValidationReader,
+  removeValidationReader,
+  cleanFailedRunReader,
+} from "./validation-reader.mjs";
 
 const { url } = JSON.parse(await readFile("deployment.json", "utf8"));
 const comicId = process.env.COMPLETE_COMIC_ID || "";
@@ -120,6 +125,8 @@ try {
   cookie = login.headers.get("set-cookie")?.split(";")[0] || "";
   csrf = (await login.json()).data.csrf_token;
   adminSession = { cookie, csrf };
+  report.recovered_failed_run_readers_removed =
+    await cleanFailedRunReader(request);
   // Full books take longer than a smoke test; keep the check finite without
   // treating a healthy multi-hour native download as a 45-minute failure.
   const deadline = Date.now() + 240 * 60000;
@@ -168,13 +175,15 @@ try {
   const detail = (await (await request(`/api/comics/${comicId}`)).json()).item;
   const username = `md-verify-${crypto.randomUUID().slice(0, 12)}`;
   const password = crypto.randomUUID() + crypto.randomUUID();
-  const created = await request("/api/v1/users", "POST", {
+  // Keep the exact generated username before POST so malformed responses and
+  // failed identity assertions still reach verified cleanup in finally.
+  validationUser = { username };
+  validationUser = await createValidationReader(request, {
     username,
     password,
     role: "user",
     group_names: detail.group_name ? [detail.group_name] : [],
   });
-  validationUser = (await created.json()).data;
   assert.equal(validationUser.role, "user");
   assert.match(String(validationUser.id), /^\d{1,20}$/);
   const readerLogin = await request("/api/v1/auth/login", "POST", {
@@ -182,7 +191,13 @@ try {
     password,
   });
   cookie = readerLogin.headers.get("set-cookie")?.split(";")[0] || "";
-  csrf = (await readerLogin.json()).data.csrf_token;
+  const readerIdentity = (await readerLogin.json()).data;
+  csrf = readerIdentity.csrf_token;
+  assert.equal(readerIdentity.user.role, "user");
+  assert.equal(String(readerIdentity.user.id), String(validationUser.id));
+  const me = (await (await request("/api/v1/auth/me")).json()).data.user;
+  assert.equal(me.role, "user");
+  assert.equal(String(me.id), String(validationUser.id));
   report.original_user_progress_untouched = true;
   assert.equal(snapshot.chapters.length, expectedIds.size);
   assert.deepEqual(
@@ -358,7 +373,7 @@ try {
   if (validationUser && adminSession) {
     cookie = adminSession.cookie;
     csrf = adminSession.csrf;
-    await request(`/api/v1/users/${validationUser.id}`, "DELETE")
+    await removeValidationReader(request, validationUser)
       .then(() => {
         report.validation_user_removed = true;
       })

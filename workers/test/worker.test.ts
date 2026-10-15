@@ -16,6 +16,11 @@ import type { Env } from "../src/index";
 import { databaseEnv } from "../src/database";
 import { mediaApi } from "../src/media";
 import { DatabaseBudget, databasePaused } from "../src/database-budget";
+import {
+  createValidationReader,
+  removeValidationReader,
+  cleanFailedRunReader,
+} from "../scripts/validation-reader.mjs";
 const bindings = env as unknown as Env & {
   TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
 };
@@ -1212,6 +1217,140 @@ describe("full legacy routes and permissions", () => {
         .status,
     ).toBe(401);
   });
+  it("runs the whole-book verifier reader lifecycle against actual account, R2 and progress routes", async () => {
+    await comicFixture();
+    const session = await login();
+    const request = async (path: string, method = "GET", body?: any) => {
+      const response = await SELF.fetch(origin + path, {
+        method,
+        headers: auth(session.cookie, session.payload.data.csrf_token),
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      expect(response.status, await response.clone().text()).toBeLessThan(300);
+      return response;
+    };
+    const input = {
+      username: "md-verify-12345678-abc",
+      password: "strong-verifier-password",
+      role: "user",
+      group_names: ["默认分组"],
+    };
+    const user = await createValidationReader(request, input);
+    const reader = await login(input.username, input.password);
+    expect(reader.payload.data.user.role).toBe("user");
+    expect(reader.payload.data.user.id).toBe(user.id);
+    expect(
+      (
+        await fullGet(
+          "/api/comics/c_test/chapters/ch_test/pages/0",
+          reader.cookie,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await SELF.fetch(origin + "/api/comics/c_test/progress", {
+          method: "POST",
+          headers: auth(reader.cookie, reader.payload.data.csrf_token),
+          body: JSON.stringify({
+            chapter_index: 0,
+            page_index: 0,
+            scroll_position: 600,
+            client_progress_ms: Date.now(),
+          }),
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        (await (
+          await fullGet("/api/comics/c_test/progress", reader.cookie)
+        ).json()) as any
+      ).progress.scroll_position,
+    ).toBe(600);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT 1 FROM comic_progress WHERE user_id='admin'",
+      ).first(),
+    ).toBeNull();
+    await removeValidationReader(request, user);
+    expect(
+      await bindings.DB.prepare("SELECT 1 FROM users WHERE username=?")
+        .bind(input.username)
+        .first(),
+    ).toBeNull();
+    expect((await fullGet("/api/comics", reader.cookie)).status).toBe(401);
+  }, 15000);
+  it("cleans the exact newly created reader even when the account response is malformed", async () => {
+    const session = await login();
+    const request = async (path: string, method = "GET", body?: any) => {
+      const response = await SELF.fetch(origin + path, {
+        method,
+        headers: auth(session.cookie, session.payload.data.csrf_token),
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      expect(response.status, await response.clone().text()).toBeLessThan(300);
+      if (path === "/api/v1/users" && method === "POST") {
+        const payload = (await response.json()) as any;
+        return Response.json({ data: { id: payload.data.id } });
+      }
+      return response;
+    };
+    const input = {
+      username: "md-verify-87654321-def",
+      password: "strong-verifier-password",
+      role: "user",
+    };
+    try {
+      await expect(createValidationReader(request, input)).rejects.toThrow(
+        "expected ordinary reader",
+      );
+    } finally {
+      await removeValidationReader(request, { username: input.username });
+    }
+    expect(
+      await bindings.DB.prepare("SELECT 1 FROM users WHERE username=?")
+        .bind(input.username)
+        .first(),
+    ).toBeNull();
+    expect(
+      await bindings.DB.prepare("SELECT 1 FROM users WHERE id='admin'").first(),
+    ).not.toBeNull();
+  }, 15000);
+  it("limits orphan cleanup to the ordinary verifier account created during the failed CI's five-second window", async () => {
+    const session = await login();
+    for (const [id, username] of [
+      ["1792030438000001", "md-verify-12345678-abc"],
+      ["1792030438000002", "original-reader"],
+      ["1792030440000001", "md-verify-87654321-def"],
+    ])
+      await bindings.DB.prepare(
+        "INSERT INTO users(id,username,password_hash,role) VALUES (?,?,?,'user')",
+      )
+        .bind(id, username, "unused")
+        .run();
+    const request = async (path: string, method = "GET", body?: any) => {
+      const response = await SELF.fetch(origin + path, {
+        method,
+        headers: auth(session.cookie, session.payload.data.csrf_token),
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      expect(response.status, await response.clone().text()).toBeLessThan(300);
+      return response;
+    };
+    expect(await cleanFailedRunReader(request)).toBe(1);
+    expect(await cleanFailedRunReader(request)).toBe(0);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT username FROM users WHERE id='1792030438000002'",
+      ).first(),
+    ).toEqual({ username: "original-reader" });
+    expect(
+      await bindings.DB.prepare(
+        "SELECT username FROM users WHERE id='1792030440000001'",
+      ).first(),
+    ).toEqual({ username: "md-verify-87654321-def" });
+  }, 15000);
   it("creates users, assigns groups and revokes sessions on password reset", async () => {
     const adminSession = await login(),
       headers = auth(adminSession.cookie, adminSession.payload.data.csrf_token);
