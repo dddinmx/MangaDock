@@ -1,6 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { safeEvent } from "../scripts/update-diagnostics.mjs";
+import { safeEvent, safeQuotaHold } from "../scripts/update-diagnostics.mjs";
+test("quota reset diagnostics export only validated hold timestamps, never private control state", () => {
+  const value = {
+    version: 1,
+    kind: "legacy_rows_written",
+    until: 1792022460000,
+    reset_at: 1792022400000,
+    private_token: "private-token",
+    values: { password: "private-password" },
+  };
+  assert.deepEqual(safeQuotaHold(value), {
+    available: true,
+    kind: "legacy_rows_written",
+    until: value.until,
+    reset_at: value.reset_at,
+  });
+  assert.ok(!JSON.stringify(safeQuotaHold(value)).includes("private"));
+  for (const invalid of [null, {}, { ...value, until: "private" }, { ...value, reset_at: -1 }, { ...value, kind: "private" }])
+    assert.deepEqual(safeQuotaHold(invalid), { available: false, invalid_schema: true });
+});
 test("update log summaries exclude credentials, query strings, headers and raw error payloads", () => {
   const event = {
     timestamp: 123,

@@ -149,6 +149,23 @@ export function safeEvent(event) {
       : {}),
   };
 }
+export function safeQuotaHold(value) {
+  if (
+    value?.version !== 1 ||
+    value?.kind !== "legacy_rows_written" ||
+    !Number.isSafeInteger(value.until) ||
+    value.until <= 0 ||
+    (value.reset_at !== undefined &&
+      (!Number.isSafeInteger(value.reset_at) || value.reset_at <= 0))
+  )
+    return { available: false, invalid_schema: true };
+  return {
+    available: true,
+    kind: value.kind,
+    until: value.until,
+    reset_at: value.reset_at ?? value.until,
+  };
+}
 async function diagnostics() {
   const taskId = process.env.DIAGNOSTIC_TASK_ID || "";
   if (taskId && !/^[a-zA-Z0-9:_-]{1,160}$/.test(taskId))
@@ -158,6 +175,22 @@ async function diagnostics() {
   if (worker !== "mangadock-turso-staging")
     throw new Error("Update diagnostics are restricted to staging");
   const report = { worker, read_only: true };
+  try {
+    const hold = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${worker}/objects/_system/control-quota-hold-v1.json`,
+      {
+        headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
+        redirect: "error",
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    report.control_quota_hold = hold.ok
+      ? safeQuotaHold(await hold.json())
+      : { available: false, status: hold.status };
+    report.observed_at = new Date().toISOString();
+  } catch {
+    report.control_quota_hold = { available: false };
+  }
   try {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`,
