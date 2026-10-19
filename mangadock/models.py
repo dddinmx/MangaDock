@@ -2,7 +2,6 @@
 """SQLAlchemy models and database initialization."""
 import os
 from datetime import datetime
-import secrets
 import time
 
 from sqlalchemy import UniqueConstraint, or_, text
@@ -328,13 +327,8 @@ def initialize_database():
             admin_user = User(username="admin", role='admin')
             initial_admin_password = os.environ.get('MANGADOCK_ADMIN_PASSWORD', '').strip()
             if not initial_admin_password:
-                initial_admin_password = secrets.token_urlsafe(18)
-                os.makedirs(app.instance_path, exist_ok=True)
-                password_path = os.path.join(app.instance_path, 'initial_admin_password')
-                with open(password_path, 'w', encoding='utf-8') as handle:
-                    handle.write(initial_admin_password + '\n')
-                os.chmod(password_path, 0o600)
-                print(f"已生成初始管理员密码，写入 {password_path}。登录后请立即修改并删除该文件。")
+                initial_admin_password = 'mangadock'
+                print("默认管理员初始密码为 mangadock，登录后请前往「我的 → 修改密码」修改。")
             admin_user.set_password(initial_admin_password)
             db.session.add(admin_user)
             db.session.commit()

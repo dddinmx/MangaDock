@@ -30,9 +30,9 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:2.11.29`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.29` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.30`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.30` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
-本版接入小说封面自动超分，已有小说会在封面访问时后台生成高清缓存，也可在容器内运行 `python tools/refresh_novel_covers.py --apply` 批量补算。修复登录页封面背景缺口、小说首页大封面留白、同名小说下载覆盖、阅读时长重复累计、账号间浏览器阅读进度串用和 EPUB 编码路径读取问题，并限制超分输出尺寸。
+本版简化首次部署：默认管理员账号为 `admin`，初始密码为 `mangadock`，登录后在「我的 → 修改密码」自行修改，不再生成初始密码文件。仍支持通过 `MANGADOCK_ADMIN_PASSWORD` 自定义初始密码，已有账号密码不受影响。
 
 ### 1. 准备目录
 
@@ -79,7 +79,7 @@ docker compose up -d
 docker compose logs -f mangadock
 ```
 
-访问 `http://127.0.0.1:5001`。管理员用户名为 `admin`；如果首次启动时未设置 `MANGADOCK_ADMIN_PASSWORD`，系统会将随机密码写入持久化的 `/app/instance/initial_admin_password` 文件。登录后请修改密码并删除该文件。
+访问 `http://127.0.0.1:5001`。首次部署的默认管理员账号为 `admin`，初始密码为 `mangadock`，登录后请前往「我的 → 修改密码」自行修改，无需查看密码文件。也可在首次启动前设置 `MANGADOCK_ADMIN_PASSWORD` 自定义初始密码。已有账号的密码不会因重启或升级而改变。
 
 ### 网络与代理
 
