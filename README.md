@@ -32,8 +32,6 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 
 Docker Hub 镜像：[`dddinmx/mangadock:2.11.30`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.30` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
-本版简化首次部署：默认管理员账号为 `admin`，初始密码为 `mangadock`，登录后在「我的 → 修改密码」自行修改，不再生成初始密码文件。仍支持通过 `MANGADOCK_ADMIN_PASSWORD` 自定义初始密码，已有账号密码不受影响。
-
 ### 1. 准备目录
 
 ```bash
