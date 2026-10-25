@@ -14,7 +14,7 @@ REPORT_SECRET = os.environ.get("MANGADOCK_REPORT_SECRET", "").strip()
 REPORT_INTERVAL = int(os.environ.get("MANGADOCK_REPORT_INTERVAL", "1800"))
 ENABLE_REPORT = bool(REPORT_URL and REPORT_SECRET)
 APP_VERSION = "5.0"
-RELEASE_VERSION = "2.11.30"
+RELEASE_VERSION = "2.11.31"
 
 CONFIG = {
     'max_workers': 2,
@@ -121,9 +121,6 @@ SAFE_HTTP_ALLOWED_HOST_SUFFIXES = (
     'cnbzmg.com',
     'mgsearcher.com',
     'g-mh.online',
-    'jjmhw6.top',
-    'jjmhw8.top',
-    'jjmhw9.top',
     'mxs12.cc',
     'twbzmg.com',
     'wzd1.cc',

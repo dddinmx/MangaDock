@@ -3,6 +3,7 @@
 import ipaddress
 import logging
 import os
+import re
 import socket
 import time
 from urllib.parse import urljoin, urlparse
@@ -94,7 +95,8 @@ def should_verify_upstream_tls(requested_verify=True):
 
 def is_allowed_upstream_host(hostname):
     normalized_host = (hostname or '').strip().lower().rstrip('.')
-    return any(
+    # 漫小肆图床按编号轮换；完整匹配域名，避免放行仿冒前缀或外部域名后缀。
+    return re.fullmatch(r'(?:[a-z0-9-]+\.)*jjmhw[0-9]+\.top', normalized_host) is not None or any(
         normalized_host == suffix or normalized_host.endswith(f'.{suffix}')
         for suffix in SAFE_HTTP_ALLOWED_HOST_SUFFIXES
     )
