@@ -54,30 +54,16 @@
 .md-body input:focus-visible,
 .md-body select:focus-visible,
 .md-body textarea:focus-visible { outline-offset: 1px; }
-.novel-detail .md-detail-title { line-height: 1.3; overflow-wrap: anywhere; text-wrap: balance; }
-.novel-detail .md-detail-sub { line-height: 1.7; }
-.novel-detail .md-detail-icon-btn { width: 44px; height: 44px; backdrop-filter: none; -webkit-backdrop-filter: none; }
-.novel-detail .md-detail-tags { flex-wrap: wrap; margin-bottom: 1rem; }
 .md-auth-page .form-control { transition: border-color .16s ease, box-shadow .16s ease; }
 .md-auth-page .btn-login { min-height: 48px; }
 .md-auth-page .theme-toggle-floating { min-height: 44px; }
-.md-novel-reader .novel-reader-back { min-width: 44px; min-height: 44px; }
-.md-novel-reader .novel-control { min-width: 44px; height: 44px; }
-.md-novel-reader .novel-font-option,
-.md-novel-reader .novel-background-picker,
-.md-novel-reader .novel-margin-slider { min-height: 44px; }
-.md-novel-reader .novel-background-presets { display: grid; grid-template-columns: repeat(3, 1fr); justify-items: center; }
-.md-novel-reader .novel-background-swatch { width: 44px; height: 44px; }
-.md-novel-reader :is(a, button, input):focus-visible { outline: 2px solid var(--reader-brand); outline-offset: 3px; }
 .md-error-page { max-width: 34rem; margin: min(10vh, 6rem) auto 0; padding: 2rem clamp(1.25rem, 4vw, 2.5rem); border: 1px solid var(--md-border); border-radius: 1.5rem; background: var(--md-bg-elevated); text-align: center; }
 .md-error-icon { display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto 1.25rem; border-radius: 50%; background: rgba(var(--md-brand-rgb), .14); color: var(--md-brand-soft); font-size: 1.5rem; }
 .md-error-message { margin: 1rem 0 1.75rem; color: var(--md-muted); line-height: 1.75; overflow-wrap: anywhere; }
 @media (max-width: 768px) {
     .md-body .md-input,
     .md-body .md-lib-select,
-    .md-body .md-anilist-search input,
-    .novel-detail .md-detail-search input,
-    .novel-detail .md-detail-sort { font-size: 16px; }
+    .md-body .md-anilist-search input { font-size: 16px; }
     .md-setting-row__title { white-space: normal; line-height: 1.4; }
     .stats-overview { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
     .stats-overview-value { white-space: normal; overflow-wrap: anywhere; font-size: clamp(1.2rem, 4.5vw, 1.6rem); line-height: 1.4; }
@@ -86,16 +72,10 @@
     .stats-rank-duration { font-size: 0.8rem; }
     .stats-card-head { align-items: flex-start; }
     .stats-card-note { max-width: 45%; line-height: 1.5; }
-    .novel-detail .md-detail-inner { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
-    .novel-detail .md-detail-sticky-btn { min-height: 48px; backdrop-filter: none; -webkit-backdrop-filter: none; }
-    .md-novel-reader .novel-control { padding-inline: 5px; }
-    .md-novel-reader .novel-background-panel { bottom: max(84px, calc(env(safe-area-inset-bottom) + 74px)); }
     .md-auth-page .login-container { padding-top: max(78px, calc(env(safe-area-inset-top) + 60px)); padding-bottom: max(30px, env(safe-area-inset-bottom)); backdrop-filter: none; -webkit-backdrop-filter: none; }
     .md-auth-page .login-cover-tile img { filter: none; }
 }
 @media (max-width: 389px) {
-    .md-novel-reader .novel-reader-controls { display: grid; grid-template-columns: repeat(4, 1fr); width: min(292px, calc(100vw - 24px)); border-radius: 22px; }
-    .md-novel-reader .novel-background-panel { bottom: max(130px, calc(env(safe-area-inset-bottom) + 120px)); }
     .md-setting-row { padding-inline: 0.85rem; gap: 0.65rem; }
 }
 @media (hover: none) and (pointer: coarse) {
@@ -103,10 +83,7 @@
     .md-cover-card:hover .md-book { transform: none; filter: none; box-shadow: 0 6px 16px rgba(0,0,0,.16); transition: none; }
     .md-body .action-press:hover,
     .md-body .card-lift:hover { transform: none; }
-    .md-setting-color:hover,
-    .md-novel-reader .novel-background-swatch:hover { transform: none; }
-    .md-novel-reader .novel-reader-controls,
-    .md-novel-reader .novel-background-panel { backdrop-filter: none; -webkit-backdrop-filter: none; }
+    .md-setting-color:hover { transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
     .md-body .md-book,
@@ -114,27 +91,24 @@
     .md-body .md-ios-pill,
     .md-body .md-ios-segment > *,
     .md-body .md-setting-segment,
-    .md-body .md-setting-color,
-    .md-novel-reader .novel-reader-controls { transition: none; }
+    .md-body .md-setting-color { transition: none; }
     .md-body .page-shell-content { transform: none; transition: none; }
 }
 .md-search-results-head { overflow-wrap: anywhere; }
-.md-novel-group-chip button { display: inline-flex; justify-content: center; align-items: center; min-width: 44px; min-height: 44px; }
-.md-novel-group-chip { max-width: 100%; }
-.md-novel-group-chip > a { min-width: 0; overflow-wrap: anywhere; }
+.md-comic-group-chip button { display: inline-flex; justify-content: center; align-items: center; min-width: 44px; min-height: 44px; }
+.md-comic-group-chip { max-width: 100%; }
+.md-comic-group-chip > a { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 768px) {
     .md-search input { font-size: 16px; }
     .md-body .md-input,
-    .md-body .md-lib-select,
-    .md-body .md-fanqie-input { min-height: 44px; }
-    .md-body .md-fanqie-input { font-size: 16px; }
+    .md-body .md-lib-select { min-height: 44px; }
 }
 .md-body :is(.md-btn-primary, .md-btn-ghost, .md-btn-secondary),
-.md-novel-batch-toolbar .md-chip,
+.md-comic-batch-toolbar .md-chip,
 .md-scan-remove { min-height: 44px; }
 .md-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .6rem 1rem; border: 1px solid var(--md-border); border-radius: 999px; color: var(--md-text); background: var(--md-bg-elevated); font-size: .85rem; font-weight: 600; }
 .md-scan-remove { display: inline-flex; align-items: center; justify-content: center; padding: .6rem .85rem; }
-.md-comic-groups-page .md-novel-group-chip button { min-width: 44px; min-height: 44px; }
+.md-comic-groups-page .md-comic-group-chip button { min-width: 44px; min-height: 44px; }
 .md-body .md-setting-panel .md-input[type="file"] { max-width: 100%; }
 
 @media (max-width: 768px) {
@@ -143,9 +117,9 @@
     .md-body textarea { font-size: 16px; }
 }
 @media (max-width: 768px) {
-    .md-body .md-comic-groups-page .md-novel-group-create .md-input,
-    .md-body .md-comic-groups-page .md-novel-batch-toolbar .md-input,
-    .md-body .md-comic-groups-page .md-novel-batch-toolbar .md-lib-select,
+    .md-body .md-comic-groups-page .md-comic-group-create .md-input,
+    .md-body .md-comic-groups-page .md-comic-batch-toolbar .md-input,
+    .md-body .md-comic-groups-page .md-comic-batch-toolbar .md-lib-select,
     html .md-auth-page .form-control { font-size: 16px; }
 }
 html:not(.theme-dark) .md-auth-page .login-brand { color: #15151e; text-shadow: none; }
@@ -160,8 +134,7 @@ html:not(.theme-dark) .md-auth-page .login-brand { color: #15151e; text-shadow: 
 .md-library-heading > div,
 .md-search-results-head > div { min-width: 0; max-width: 100%; }
 .stats-rank-title { max-width: 100%; overflow-wrap: anywhere; }
-.md-hero .md-chapter-pill,
-.novel-detail .md-detail-author-chip { min-width: 0; max-width: 100%; }
+.md-hero .md-chapter-pill { min-width: 0; max-width: 100%; }
 .md-hero-author,
 .md-detail-author { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -194,8 +167,7 @@ html .md-setting-list--appearance .md-setting-row--static:active { background: t
 .md-setting-group__note { margin-inline: 0; }
 html .md-setting-list,
 html .md-setting-profile,
-html .md-anilist-panel,
-html .md-fanqie-panel {
+html .md-anilist-panel {
     border-color: var(--md-ui-divider);
     border-radius: var(--md-ui-radius);
     background: var(--md-bg-elevated);
@@ -212,7 +184,6 @@ html .md-fanqie-panel {
 .md-ios-field + .md-ios-field { margin-top: 1rem; }
 .md-ios-field__label { font-weight: 500; }
 html .md-body .md-input,
-html .md-body .md-fanqie-input,
 html .md-body .md-anilist-search input {
     border-radius: 10px;
     border-color: var(--md-ui-divider);
@@ -220,7 +191,6 @@ html .md-body .md-anilist-search input {
     box-shadow: none;
 }
 html .md-body .md-input:focus,
-html .md-body .md-fanqie-input:focus,
 html .md-body .md-anilist-search input:focus {
     border-color: var(--md-brand);
     box-shadow: 0 0 0 3px rgba(var(--md-brand-rgb), .1);
@@ -295,10 +265,10 @@ html .md-history-card:hover {
 .md-progress-head__title { font-weight: 600; font-size: 1.2rem; align-self: end; }
 .md-progress-head > .md-setting-header__sub { margin: 0; align-self: start; }
 .md-comic-groups-page > div:first-child { margin-bottom: 1.5rem; }
-.md-comic-groups-page .md-novel-group-panel { padding-bottom: 1.5rem; border-bottom: 1px solid var(--md-ui-divider); }
-html .md-comic-groups-page .md-novel-select-card { background: transparent; border-radius: 0; border-bottom: 1px solid var(--md-ui-divider); padding-inline: 0; }
-html .md-comic-groups-page .md-novel-select-item > input:checked + .md-novel-select-card { background: rgba(var(--md-brand-rgb), .07); border-bottom: 1px solid rgba(var(--md-brand-rgb), .3); }
-.md-novel-select-copy strong { font-weight: 550; }
+.md-comic-groups-page .md-comic-group-panel { padding-bottom: 1.5rem; border-bottom: 1px solid var(--md-ui-divider); }
+html .md-comic-groups-page .md-comic-select-card { background: transparent; border-radius: 0; border-bottom: 1px solid var(--md-ui-divider); padding-inline: 0; }
+html .md-comic-groups-page .md-comic-select-item > input:checked + .md-comic-select-card { background: rgba(var(--md-brand-rgb), .07); border-bottom: 1px solid rgba(var(--md-brand-rgb), .3); }
+.md-comic-select-copy strong { font-weight: 550; }
 .md-anilist-page { padding: 0 0 3rem; max-width: 44rem; }
 .md-anilist-back { margin-bottom: .75rem; }
 .md-anilist-connect .md-page-title { margin-top: 0; }
@@ -312,36 +282,8 @@ html .md-auth-page .login-header h2 { font-weight: 650; letter-spacing: -.025em;
 .md-auth-page .form-control { border-radius: 10px; }
 .md-auth-page .btn-login { border-radius: 10px; }
 html .md-ud-danger { border-color: rgba(225,29,72,.35); }
-.md-novel-reader .novel-reader-controls { border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
-.md-novel-reader .novel-control { border-radius: 8px; }
-.md-novel-reader .novel-background-panel { border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
-html .md-fanqie-tool-secondary { background: transparent; }
-.md-fanqie-tool-copy h2,
-.md-fanqie-results-heading h2 { font-weight: 600; }
-.md-fanqie-back { min-height: 44px; padding-inline: 0; border: 0; font-weight: 500; }
-.md-novel-home-library-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
-.md-novel-home-library-head h2 { flex: 0 0 auto; margin: 0; }
-.md-novel-home-library-actions { display: flex; align-items: center; gap: .9rem; }
-.md-novel-home-library-actions a { display: inline-flex; align-items: center; min-height: 44px; gap: .4rem; color: var(--md-muted); font-size: .8125rem; line-height: 1.4; white-space: nowrap; text-decoration: none; }
-.md-fanqie-home-search .fa { color: var(--md-brand-soft); font-size: .8rem; }
-.md-novel-home-page .md-home-sections { padding-bottom: 0; }
-.md-novel-home-page .md-hero-art img { width: auto; max-width: 100%; }
-.md-novel-home-reading { --fig-card-w: clamp(128px, 11vw, 168px); --fig-card-gap: 12px; padding-bottom: 1rem; }
-.md-novel-home-reading .md-home-rail__card { width: var(--fig-card-w); height: calc(var(--fig-card-w) * 1.298245614); }
-.md-novel-home-reading .md-home-rail__track { padding: 10px 0 .75rem; margin-top: -10px; scroll-padding-inline: 0; }
-.md-novel-home-reading .md-home-rail__card,
-.md-novel-home-reading .md-home-rail__card:hover { box-shadow: none; }
-.md-novel-home-reading-empty { margin: 0; color: var(--md-muted); font-size: .85rem; line-height: 1.7; }
 .md-hero--figma .md-home-rail__nav button { position: relative; width: 36px; height: 36px; border-radius: 7px; font-size: .85rem; }
 .md-hero--figma .md-home-rail__nav button::after { content: ''; position: absolute; inset: -4px; }
-@media (max-width: 767px) {
-    .md-novel-home-page .md-hero-inner { padding-bottom: 1rem; }
-    .md-novel-home-reading { --fig-card-w: clamp(120px, 32vw, 144px); padding-top: 1rem; padding-bottom: 0; }
-    html[data-mobile-dock="off"] body.md-novel-home-page .md-main--flush.app-main-content { padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)) !important; }
-}
-@media (hover: hover) {
-    .md-novel-home-library-actions a:hover { color: var(--md-text); }
-}
 
 /* Cover-led pages retain their image composition and native swipe geometry. */
 html .md-body .md-hero-actions :is(.md-btn-primary, .md-btn-ghost),
@@ -470,18 +412,6 @@ html .md-body .md-hero-actions .md-btn-primary { box-shadow: none; }
         .md-hero--figma { --md-mobile-art-height: clamp(340px, 56svh, 520px); }
     }
 }
-html body.md-body.md-novel-home-page { background: var(--md-bg) !important; }
-html .md-novel-home-page .md-hero,
-html .md-novel-home-page .md-hero-media { background: var(--md-bg); }
-.md-novel-home-page .md-hero::after {
-    content: '';
-    position: absolute;
-    inset: auto 0 0;
-    height: 28%;
-    z-index: 2;
-    background: linear-gradient(180deg, transparent, var(--md-bg) 95%);
-    pointer-events: none;
-}
 .md-hero-title,
 .md-hero--figma .md-hero-title { font-weight: 650; letter-spacing: -.025em; }
 .md-detail-title { font-weight: 650; letter-spacing: -.02em; }
@@ -490,29 +420,10 @@ html .md-novel-home-page .md-hero-media { background: var(--md-bg); }
 .md-detail-chapters-bar .md-section-title { margin: 0; }
 html .md-body .md-detail-action { border-color: var(--md-ui-divider); border-radius: 10px; }
 html .md-body .md-detail-sticky-btn { box-shadow: 0 4px 16px rgba(0,0,0,.15); }
-.novel-detail .md-detail-cover { position: relative; }
-.novel-detail .md-detail-synopsis-text {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    overflow: hidden;
-}
-.novel-detail .md-detail-synopsis-text.is-expanded {
-    display: block;
-    -webkit-line-clamp: unset;
-    overflow: visible;
-}
 .md-detail-cover-toggle { position: absolute; bottom: 0; right: 0; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: #fff; font-size: 14px; cursor: pointer; }
 .md-detail-cover-toggle::before { content: ''; position: absolute; inset: 7px; border-radius: 8px; background: rgba(12,12,18,.85); border: 1px solid rgba(255,255,255,.2); }
 .md-detail-cover-toggle i { position: relative; }
 .md-detail-cover-toggle:focus-visible { outline-offset: -3px !important; }
-.novels-library-add { min-width: 44px; }
-@media (max-width: 480px) {
-    .novels-library-add span { display: none; }
-    .novels-library-toolbar { gap: .25rem; }
-    .novels-library-toolbar .comics-group-picker,
-    .novels-library-toolbar .comics-library-manage { font-size: .8rem; }
-}
 @media (min-width: 768px) {
     .md-setting-page { max-width: 44rem; }
     .md-history-page,
@@ -538,7 +449,7 @@ html .md-body .md-detail-sticky-btn { box-shadow: 0 4px 16px rgba(0,0,0,.15); }
 }
 @media (hover: hover) and (pointer: fine) {
     html .md-history-card:hover,
-    html .md-comic-groups-page .md-novel-select-card:hover { background: var(--md-ui-surface); }
+    html .md-comic-groups-page .md-comic-select-card:hover { background: var(--md-ui-surface); }
 }
 @media (prefers-reduced-motion: reduce) {
     html .md-body .md-btn-primary,

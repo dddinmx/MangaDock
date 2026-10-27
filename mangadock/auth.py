@@ -950,7 +950,7 @@ def build_api_statistics_payload(year, user_id):
     # 否则「曾被授权、读过、之后被撤权」的漫画标题仍会出现在 /api/statistics，
     # 与已经修好的 /history 口径不一致（信息泄露）。
     # 注意只剔除「确实存在于漫画库、但当前账号无权的分组」的条目；
-    # 小说等不在 get_available_comics() 里的条目继续走 build_local_comic_entry 兜底。
+    # 不在 get_available_comics() 里的条目继续走 build_local_comic_entry 兜底。
     all_comics = get_available_comics()
     statistic_user = User.query.filter_by(id=user_id).first()
     accessible_comics, _stat_groups, _stat_counts, _stat_lookup = filter_grouped_comics_for_user(

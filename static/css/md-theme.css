@@ -87,76 +87,6 @@ html.theme-dark body {
   cursor: pointer;
 }
 
-.md-mode-switcher {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.md-logo-chevron {
-  margin-left: 0.05rem;
-  color: #777789;
-  font-size: 0.7rem;
-  transition: transform 0.18s ease;
-}
-
-.md-logo[aria-expanded="true"] .md-logo-chevron {
-  transform: rotate(180deg);
-}
-
-.md-mode-dropdown {
-  position: absolute;
-  top: calc(100% + 0.7rem);
-  left: 0;
-  z-index: 70;
-  display: none;
-  width: 15rem;
-  overflow: hidden;
-  padding: 0.4rem;
-  border: 1px solid var(--md-border);
-  border-radius: 0.9rem;
-  background: rgba(20, 20, 28, 0.98);
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.48);
-  backdrop-filter: blur(18px);
-}
-
-.md-mode-dropdown.is-open {
-  display: block;
-}
-
-.md-mode-option {
-  display: grid;
-  grid-template-columns: 1.2rem minmax(0, 1fr) 1rem;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.7rem 0.65rem;
-  border-radius: 0.65rem;
-  color: #aaaabb;
-  text-decoration: none;
-}
-
-.md-mode-option:hover,
-.md-mode-option.is-active {
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
-}
-
-.md-mode-option span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.md-mode-option strong {
-  font-size: 0.86rem;
-  font-weight: 650;
-}
-
-.md-mode-option small {
-  color: #777789;
-  font-size: 0.7rem;
-}
-
 .md-logo-mark {
   width: 2rem;
   height: 2rem;
@@ -1621,7 +1551,7 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   padding: 1rem 1rem 0.5rem;
 }
 
-:is(.comic-detail, .novel-detail) .md-detail-chapters {
+:is(.comic-detail) .md-detail-chapters {
   box-sizing: border-box;
   width: 100%;
   max-width: 48rem;
@@ -1646,14 +1576,14 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   margin-bottom: 1rem;
 }
 
-:is(.comic-detail, .novel-detail) .md-detail-chapters-bar {
+:is(.comic-detail) .md-detail-chapters-bar {
   gap: 0.85rem;
   margin-bottom: 1rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--md-border);
 }
 
-:is(.comic-detail, .novel-detail) .md-detail-chapter-tools { gap: 0.4rem; }
+:is(.comic-detail) .md-detail-chapter-tools { gap: 0.4rem; }
 
 @media (min-width: 640px) {
   .md-detail-chapters-bar {
@@ -1735,15 +1665,15 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-:is(.comic-detail, .novel-detail) .md-chapter-list { gap: 0; padding-bottom: 0; }
-:is(.comic-detail, .novel-detail) .md-chapter-item {
+:is(.comic-detail) .md-chapter-list { gap: 0; padding-bottom: 0; }
+:is(.comic-detail) .md-chapter-item {
   padding: 0.65rem 0.4rem;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
-:is(.comic-detail, .novel-detail) .md-chapter-meta {
+:is(.comic-detail) .md-chapter-meta {
   display: block;
   overflow: hidden;
   margin-top: 0.1rem;
@@ -1771,13 +1701,13 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   background: rgba(255, 255, 255, 0.14);
 }
 
-:is(.comic-detail, .novel-detail) .md-chapter-item + .md-chapter-item {
+:is(.comic-detail) .md-chapter-item + .md-chapter-item {
   border-top: 1px solid rgba(148, 163, 184, 0.22);
 }
 
-:is(.comic-detail, .novel-detail) .md-chapter-item.is-in-reading-progress { background: transparent; }
-:is(.comic-detail, .novel-detail) .md-chapter-item:hover,
-:is(.comic-detail, .novel-detail) .md-chapter-item.is-in-reading-progress:hover {
+:is(.comic-detail) .md-chapter-item.is-in-reading-progress { background: transparent; }
+:is(.comic-detail) .md-chapter-item:hover,
+:is(.comic-detail) .md-chapter-item.is-in-reading-progress:hover {
   background: rgba(255, 255, 255, 0.045);
 }
 
@@ -2391,333 +2321,6 @@ body.md-body .source-shortcut:hover .source-shortcut-label {
   color: #8b8b9e;
 }
 
-/* Fanqie novel discovery */
-.md-fanqie-page {
-  width: min(100%, 68rem);
-  margin: 0 auto;
-}
-
-.md-fanqie-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.md-fanqie-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 0.55rem;
-  color: var(--md-brand);
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.md-fanqie-panel,
-.md-fanqie-card {
-  border: 1px solid var(--md-border);
-  background: var(--md-bg-card);
-  color: var(--md-text);
-}
-
-.md-fanqie-panel {
-  border-radius: 1.25rem;
-  background: var(--md-bg-elevated);
-}
-
-.md-fanqie-tools {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  overflow: hidden;
-}
-
-.md-fanqie-tool {
-  min-width: 0;
-  padding: 1.5rem;
-}
-
-.md-fanqie-tool + .md-fanqie-tool {
-  border-left: 1px solid var(--md-border);
-}
-
-.md-fanqie-tool-secondary { background: rgba(var(--md-brand-rgb), 0.035); }
-
-.md-fanqie-tool-copy {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  margin-bottom: 1.15rem;
-}
-
-.md-fanqie-tool-copy h2,
-.md-fanqie-results-heading h2 {
-  color: var(--md-text);
-  font-size: 1rem;
-  font-weight: 750;
-}
-
-.md-fanqie-tool-copy p,
-.md-fanqie-results-heading p,
-.md-fanqie-intro p {
-  margin-top: 0.18rem;
-  color: var(--md-muted);
-  font-size: 0.82rem;
-  line-height: 1.5;
-}
-
-.md-fanqie-tool-icon,
-.md-fanqie-intro > span {
-  display: inline-flex;
-  width: 2.45rem;
-  height: 2.45rem;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.8rem;
-  background: rgba(var(--md-brand-rgb), 0.12);
-  color: var(--md-brand);
-}
-
-.md-fanqie-form {
-  display: flex;
-  align-items: stretch;
-  gap: 0.65rem;
-}
-
-.md-fanqie-input {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid var(--md-border);
-  border-radius: 0.85rem;
-  background: var(--md-bg);
-  color: var(--md-text);
-  padding: 0.78rem 0.95rem;
-  outline: none;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
-}
-.md-fanqie-input::placeholder { color: var(--md-muted); }
-.md-fanqie-input:focus {
-  border-color: var(--md-brand);
-  box-shadow: 0 0 0 3px rgba(var(--md-brand-rgb), 0.12);
-}
-
-.md-fanqie-form .md-btn-primary,
-.md-fanqie-form .md-btn-ghost {
-  flex: 0 0 auto;
-  gap: 0.45rem;
-  white-space: nowrap;
-  padding-inline: 1.15rem;
-}
-
-.md-fanqie-title { color: var(--md-text); }
-.md-fanqie-muted,
-.md-fanqie-back { color: var(--md-muted); }
-.md-fanqie-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  flex: 0 0 auto;
-  border: 1px solid var(--md-border);
-  border-radius: 999px;
-  padding: 0.55rem 0.9rem;
-  font-size: 0.82rem;
-  font-weight: 650;
-  text-decoration: none;
-}
-.md-fanqie-back:hover {
-  border-color: rgba(var(--md-brand-rgb), 0.45);
-  color: var(--md-brand);
-}
-
-.md-fanqie-results { margin-top: 2.25rem; }
-.md-fanqie-results-heading { margin-bottom: 1rem; }
-.md-fanqie-result-list { display: grid; gap: 1rem; }
-
-.md-fanqie-card {
-  display: grid;
-  grid-template-columns: 7rem minmax(0, 1fr);
-  gap: 1.4rem;
-  border-radius: 1.15rem;
-  padding: 1.2rem;
-  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.md-fanqie-card:hover {
-  border-color: rgba(var(--md-brand-rgb), 0.35);
-  transform: translateY(-1px);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.09);
-}
-
-.md-fanqie-cover {
-  width: 7rem;
-  aspect-ratio: 3 / 4;
-  overflow: hidden;
-  border-radius: 0.8rem;
-  background: var(--md-bg-elevated);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
-}
-
-.md-fanqie-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.md-fanqie-book-body {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.md-fanqie-book-topline {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.md-fanqie-title {
-  font-size: 1.12rem;
-  font-weight: 750;
-  line-height: 1.35;
-}
-
-.md-fanqie-author {
-  margin-top: 0.35rem;
-  color: var(--md-muted);
-  font-size: 0.82rem;
-}
-
-.md-fanqie-local-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: rgba(34, 197, 94, 0.12);
-  padding: 0.35rem 0.65rem;
-  color: #22c55e;
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.md-fanqie-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.8rem;
-}
-
-.md-fanqie-meta span {
-  border: 1px solid var(--md-border);
-  border-radius: 999px;
-  padding: 0.25rem 0.55rem;
-  color: var(--md-muted);
-  font-size: 0.72rem;
-}
-
-.md-fanqie-description {
-  display: -webkit-box;
-  overflow: hidden;
-  margin-top: 0.85rem;
-  color: var(--md-muted);
-  font-size: 0.84rem;
-  line-height: 1.65;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.md-fanqie-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.65rem;
-  margin-top: auto;
-  padding-top: 1rem;
-}
-
-.md-fanqie-actions form { display: inline-flex; }
-.md-fanqie-actions .md-btn-primary,
-.md-fanqie-actions .md-btn-ghost {
-  gap: 0.45rem;
-  padding: 0.58rem 1rem;
-  font-size: 0.8rem;
-}
-
-.md-fanqie-intro {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.9rem;
-  min-height: 11rem;
-  margin-top: 1.25rem;
-  border: 1px dashed var(--md-border);
-  border-radius: 1.15rem;
-  color: var(--md-text);
-}
-
-.md-fanqie-intro strong { font-size: 0.92rem; }
-
-.md-fanqie-error {
-  margin-top: 1.25rem;
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  border-radius: 0.85rem;
-  background: rgba(239, 68, 68, 0.1);
-  padding: 0.9rem 1rem;
-  color: #ef4444;
-  font-size: 0.85rem;
-}
-html.theme-dark .md-fanqie-error { color: #fecaca; }
-
-@media (max-width: 850px) {
-  .md-fanqie-tools { grid-template-columns: minmax(0, 1fr); }
-  .md-fanqie-tool + .md-fanqie-tool {
-    border-top: 1px solid var(--md-border);
-    border-left: 0;
-  }
-}
-
-@media (max-width: 560px) {
-  .md-fanqie-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    margin-bottom: 1.35rem;
-  }
-  .md-fanqie-tool { padding: 1.1rem; }
-  .md-fanqie-form { flex-direction: column; }
-  .md-fanqie-form .md-btn-primary,
-  .md-fanqie-form .md-btn-ghost { width: 100%; }
-  .md-fanqie-card {
-    grid-template-columns: 5.25rem minmax(0, 1fr);
-    gap: 0.9rem;
-    padding: 0.9rem;
-  }
-  .md-fanqie-cover { width: 5.25rem; }
-  .md-fanqie-book-topline { display: block; }
-  .md-fanqie-local-badge { margin-top: 0.55rem; }
-  .md-fanqie-description {
-    grid-column: 1 / -1;
-    -webkit-line-clamp: 3;
-  }
-  .md-fanqie-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .md-fanqie-actions form,
-  .md-fanqie-actions .md-btn-primary,
-  .md-fanqie-actions .md-btn-ghost { width: 100%; }
-  .md-fanqie-intro {
-    align-items: flex-start;
-    justify-content: flex-start;
-    min-height: 0;
-    padding: 1.2rem;
-  }
-}
-
 /* Accent palettes */
 html[data-accent="pink-blue"] { --md-brand: #60a5fa; --md-brand-soft: #93c5fd; --md-brand-rgb: 96, 165, 250; }
 html[data-accent="pink-green"] { --md-brand: #34d399; --md-brand-soft: #6ee7b7; --md-brand-rgb: 52, 211, 153; }
@@ -2767,8 +2370,6 @@ html:not(.theme-dark) .md-topnav::before {
 }
 
 html:not(.theme-dark) .md-logo,
-html:not(.theme-dark) .md-mode-option:hover,
-html:not(.theme-dark) .md-mode-option.is-active,
 html:not(.theme-dark) .md-nav-link:hover,
 html:not(.theme-dark) .md-nav-link.is-active,
 html:not(.theme-dark) .md-search input,
@@ -2776,8 +2377,7 @@ html:not(.theme-dark) .md-user-btn,
 html:not(.theme-dark) .md-user-dropdown a,
 html:not(.theme-dark) .md-user-dropdown button { color: var(--md-text); }
 
-html:not(.theme-dark) .md-logo-chevron,
-html:not(.theme-dark) .md-mode-option,
+
 html:not(.theme-dark) .md-nav-link,
 html:not(.theme-dark) .md-search input::placeholder,
 html:not(.theme-dark) .md-tool-card__desc,
@@ -2789,7 +2389,7 @@ html:not(.theme-dark) .md-detail-synopsis-text,
 html:not(.theme-dark) .md-detail-chapter-meta,
 html:not(.theme-dark) .md-tool-card__chevron { color: var(--md-muted); }
 
-html:not(.theme-dark) .md-mode-dropdown,
+
 html:not(.theme-dark) .md-user-dropdown,
 html:not(.theme-dark) .md-panel,
 html:not(.theme-dark) .md-tool-card,
@@ -2800,8 +2400,7 @@ html:not(.theme-dark) .md-empty {
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.07);
 }
 
-html:not(.theme-dark) .md-mode-option:hover,
-html:not(.theme-dark) .md-mode-option.is-active,
+
 html:not(.theme-dark) .md-nav-link:hover,
 html:not(.theme-dark) .md-nav-link.is-active,
 html:not(.theme-dark) .md-user-dropdown a:hover,
@@ -2983,8 +2582,6 @@ html:not(.theme-dark) .md-detail-synopsis-label { color: var(--md-brand); }
 html:not(.theme-dark) .md-detail-synopsis-toggle { color: var(--md-brand); }
 /* The base ghost button uses an important white text color for dark pages. */
 html:not(.theme-dark) .md-btn-ghost { color: var(--md-text) !important; }
-
-/* Keep the novel chapter directory as one clean light panel instead of nested white blocks. */
 html:not(.theme-dark) .md-detail-chapters {
   border-color: rgba(148, 163, 184, 0.28);
   background: rgba(255, 255, 255, 0.82);
@@ -3012,22 +2609,22 @@ html:not(.theme-dark) .md-chapter-item.is-in-reading-progress {
 }
 html:not(.theme-dark) .md-chapter-item.is-in-reading-progress:hover { background: #e3eaf3; }
 
-html:not(.theme-dark) :is(.comic-detail, .novel-detail) .md-detail-chapters {
+html:not(.theme-dark) :is(.comic-detail) .md-detail-chapters {
   border: 0;
   background: transparent;
   box-shadow: none;
 }
-html:not(.theme-dark) :is(.comic-detail, .novel-detail) .md-chapter-item,
-html:not(.theme-dark) :is(.comic-detail, .novel-detail) .md-chapter-item.is-in-reading-progress {
+html:not(.theme-dark) :is(.comic-detail) .md-chapter-item,
+html:not(.theme-dark) :is(.comic-detail) .md-chapter-item.is-in-reading-progress {
   border: 0;
   background: transparent;
   box-shadow: none;
 }
-html:not(.theme-dark) :is(.comic-detail, .novel-detail) .md-chapter-item + .md-chapter-item {
+html:not(.theme-dark) :is(.comic-detail) .md-chapter-item + .md-chapter-item {
   border-top: 1px solid rgba(100, 116, 139, 0.28);
 }
-html:not(.theme-dark) :is(.comic-detail, .novel-detail) .md-chapter-item:hover,
-html:not(.theme-dark) :is(.comic-detail, .novel-detail) .md-chapter-item.is-in-reading-progress:hover {
+html:not(.theme-dark) :is(.comic-detail) .md-chapter-item:hover,
+html:not(.theme-dark) :is(.comic-detail) .md-chapter-item.is-in-reading-progress:hover {
   background: rgba(15, 23, 42, 0.045);
 }
 
@@ -3098,27 +2695,25 @@ html.theme-dark .md-history-card:hover,
 html.theme-dark .md-history-cover {
   border-color: transparent !important;
 }
-
-/* Novel group manager. */
-.md-novel-group-panel,
-.md-novel-batch-toolbar {
+.md-comic-group-panel,
+.md-comic-batch-toolbar {
   border: 1px solid var(--md-border);
   border-radius: 1.1rem;
   background: rgba(22, 22, 31, 0.82);
   padding: 1rem;
 }
 
-.md-novel-group-panel { display: grid; gap: 1rem; }
-.md-novel-group-create { display: flex; flex-wrap: wrap; gap: 0.65rem; }
-.md-novel-group-create .md-input { flex: 1 1 15rem; }
+.md-comic-group-panel { display: grid; gap: 1rem; }
+.md-comic-group-create { display: flex; flex-wrap: wrap; gap: 0.65rem; }
+.md-comic-group-create .md-input { flex: 1 1 15rem; }
 
-.md-novel-group-list {
+.md-comic-group-list {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
 }
 
-.md-novel-group-chip {
+.md-comic-group-chip {
   display: inline-flex;
   align-items: center;
   overflow: hidden;
@@ -3127,7 +2722,7 @@ html.theme-dark .md-history-cover {
   background: rgba(255, 255, 255, 0.045);
 }
 
-.md-novel-group-chip > a {
+.md-comic-group-chip > a {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -3137,7 +2732,7 @@ html.theme-dark .md-history-cover {
   font-weight: 700;
 }
 
-.md-novel-group-chip strong {
+.md-comic-group-chip strong {
   min-width: 1.5rem;
   padding: 0.12rem 0.42rem;
   border-radius: 999px;
@@ -3147,7 +2742,7 @@ html.theme-dark .md-history-cover {
   font-size: 0.72rem;
 }
 
-.md-novel-group-chip button {
+.md-comic-group-chip button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3160,17 +2755,17 @@ html.theme-dark .md-history-cover {
   color: var(--md-muted);
 }
 
-.md-novel-group-chip button:hover { background: rgba(var(--md-brand-rgb), 0.12); color: var(--md-brand-soft); }
+.md-comic-group-chip button:hover { background: rgba(var(--md-brand-rgb), 0.12); color: var(--md-brand-soft); }
 
-.md-novel-batch-toolbar {
+.md-comic-batch-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.65rem;
 }
 
-.md-novel-batch-search { position: relative; flex: 1 1 16rem; }
-.md-novel-batch-search > i {
+.md-comic-batch-search { position: relative; flex: 1 1 16rem; }
+.md-comic-batch-search > i {
   position: absolute;
   top: 50%;
   left: 0.9rem;
@@ -3178,17 +2773,17 @@ html.theme-dark .md-history-cover {
   color: var(--md-muted);
   transform: translateY(-50%);
 }
-.md-novel-batch-search .md-input { width: 100%; padding-left: 2.45rem; }
+.md-comic-batch-search .md-input { width: 100%; padding-left: 2.45rem; }
 
-.md-novel-batch-grid {
+.md-comic-batch-grid {
   display: grid;
   grid-template-columns: repeat(1, minmax(0, 1fr));
   gap: 0.75rem;
   margin-top: 1rem;
 }
 
-.md-novel-select-item { position: relative; cursor: pointer; }
-.md-novel-select-item > input {
+.md-comic-select-item { position: relative; cursor: pointer; }
+.md-comic-select-item > input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -3196,7 +2791,7 @@ html.theme-dark .md-history-cover {
   pointer-events: none;
 }
 
-.md-novel-select-card {
+.md-comic-select-card {
   display: grid;
   grid-template-columns: 3.25rem minmax(0, 1fr) 1.7rem;
   align-items: center;
@@ -3209,8 +2804,8 @@ html.theme-dark .md-history-cover {
   transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
-.md-novel-select-card:hover { border-color: rgba(var(--md-brand-rgb), 0.36); transform: translateY(-1px); }
-.md-novel-select-card > img {
+.md-comic-select-card:hover { border-color: rgba(var(--md-brand-rgb), 0.36); transform: translateY(-1px); }
+.md-comic-select-card > img {
   width: 3.25rem;
   height: 4.4rem;
   border-radius: 0.45rem;
@@ -3218,12 +2813,12 @@ html.theme-dark .md-history-cover {
   background: var(--md-bg-card);
 }
 
-.md-novel-select-copy { display: flex; min-width: 0; flex-direction: column; gap: 0.2rem; }
-.md-novel-select-copy strong { overflow: hidden; color: var(--md-text); font-size: 0.9rem; text-overflow: ellipsis; white-space: nowrap; }
-.md-novel-select-copy small { overflow: hidden; color: var(--md-muted); font-size: 0.76rem; text-overflow: ellipsis; white-space: nowrap; }
-.md-novel-select-copy em { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--md-brand-soft); font-size: 0.72rem; font-style: normal; }
+.md-comic-select-copy { display: flex; min-width: 0; flex-direction: column; gap: 0.2rem; }
+.md-comic-select-copy strong { overflow: hidden; color: var(--md-text); font-size: 0.9rem; text-overflow: ellipsis; white-space: nowrap; }
+.md-comic-select-copy small { overflow: hidden; color: var(--md-muted); font-size: 0.76rem; text-overflow: ellipsis; white-space: nowrap; }
+.md-comic-select-copy em { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--md-brand-soft); font-size: 0.72rem; font-style: normal; }
 
-.md-novel-select-check {
+.md-comic-select-check {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3234,32 +2829,32 @@ html.theme-dark .md-history-cover {
   color: transparent;
 }
 
-.md-novel-select-item > input:focus-visible + .md-novel-select-card { outline: 2px solid var(--md-brand); outline-offset: 2px; }
-.md-novel-select-item > input:checked + .md-novel-select-card {
+.md-comic-select-item > input:focus-visible + .md-comic-select-card { outline: 2px solid var(--md-brand); outline-offset: 2px; }
+.md-comic-select-item > input:checked + .md-comic-select-card {
   border-color: rgba(var(--md-brand-rgb), 0.72);
   background: rgba(var(--md-brand-rgb), 0.11);
 }
-.md-novel-select-item > input:checked + .md-novel-select-card .md-novel-select-check {
+.md-comic-select-item > input:checked + .md-comic-select-card .md-comic-select-check {
   border-color: var(--md-brand);
   background: var(--md-brand);
   color: #fff;
 }
 
-html:not(.theme-dark) .md-novel-group-panel,
-html:not(.theme-dark) .md-novel-batch-toolbar,
-html:not(.theme-dark) .md-novel-select-card,
-html:not(.theme-dark) .md-novel-group-chip {
+html:not(.theme-dark) .md-comic-group-panel,
+html:not(.theme-dark) .md-comic-batch-toolbar,
+html:not(.theme-dark) .md-comic-select-card,
+html:not(.theme-dark) .md-comic-group-chip {
   border-color: rgba(148, 163, 184, 0.3);
   background: rgba(255, 255, 255, 0.92);
 }
 
 @media (min-width: 640px) {
-  .md-novel-batch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md-comic-batch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 1024px) {
-  .md-novel-group-panel { padding: 1.25rem; }
-  .md-novel-batch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .md-comic-group-panel { padding: 1.25rem; }
+  .md-comic-batch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* Shared bookshelf pagination. */
@@ -3476,8 +3071,8 @@ html:not(.theme-dark) .comics-library-toolbar form .md-btn-ghost:hover {
 }
 
 /* 漫画分组管理：减少多层卡片和边框，只保留表单与选中态的必要提示。 */
-.md-comic-groups-page .md-novel-group-panel,
-.md-comic-groups-page .md-novel-batch-toolbar {
+.md-comic-groups-page .md-comic-group-panel,
+.md-comic-groups-page .md-comic-batch-toolbar {
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -3485,29 +3080,29 @@ html:not(.theme-dark) .comics-library-toolbar form .md-btn-ghost:hover {
   box-shadow: none;
 }
 
-.md-comic-groups-page .md-novel-group-panel { gap: 0.8rem; }
-.md-comic-groups-page .md-novel-group-create {
+.md-comic-groups-page .md-comic-group-panel { gap: 0.8rem; }
+.md-comic-groups-page .md-comic-group-create {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.6rem;
 }
-.md-comic-groups-page .md-novel-group-create .md-input { min-width: 0; }
-.md-comic-groups-page .md-novel-group-list { gap: 0.25rem 1rem; }
-.md-comic-groups-page .md-novel-group-chip {
+.md-comic-groups-page .md-comic-group-create .md-input { min-width: 0; }
+.md-comic-groups-page .md-comic-group-list { gap: 0.25rem 1rem; }
+.md-comic-groups-page .md-comic-group-chip {
   overflow: visible;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
 
-.md-comic-groups-page .md-novel-group-chip > a { padding: 0.4rem 0.15rem; }
-.md-comic-groups-page .md-novel-group-chip strong {
+.md-comic-groups-page .md-comic-group-chip > a { padding: 0.4rem 0.15rem; }
+.md-comic-groups-page .md-comic-group-chip strong {
   min-width: 0;
   padding: 0;
   background: transparent;
   color: var(--md-muted);
 }
-.md-comic-groups-page .md-novel-group-chip button {
+.md-comic-groups-page .md-comic-group-chip button {
   width: 1.75rem;
   height: 1.75rem;
   margin: 0;
@@ -3539,18 +3134,18 @@ html:not(.theme-dark) .comics-library-toolbar form .md-btn-ghost:hover {
 .md-comic-groups-back:focus-visible { outline: 2px solid var(--md-brand-soft); outline-offset: 2px; }
 html:not(.theme-dark) .md-comic-groups-back:hover { background: rgba(15, 23, 42, 0.055); }
 
-.md-comic-groups-page .md-novel-batch-toolbar {
+.md-comic-groups-page .md-comic-batch-toolbar {
   display: grid;
   grid-template-columns: minmax(10rem, 1fr) auto auto minmax(8.5rem, auto) auto;
   gap: 0.6rem;
 }
-.md-comic-groups-page .md-novel-batch-search { min-width: 0; }
-.md-comic-groups-page .md-novel-group-create .md-input,
-.md-comic-groups-page .md-novel-group-create .md-btn-primary,
-.md-comic-groups-page .md-novel-batch-toolbar .md-input,
-.md-comic-groups-page .md-novel-batch-toolbar .md-chip,
-.md-comic-groups-page .md-novel-batch-toolbar .md-lib-select,
-.md-comic-groups-page .md-novel-batch-toolbar .md-btn-primary {
+.md-comic-groups-page .md-comic-batch-search { min-width: 0; }
+.md-comic-groups-page .md-comic-group-create .md-input,
+.md-comic-groups-page .md-comic-group-create .md-btn-primary,
+.md-comic-groups-page .md-comic-batch-toolbar .md-input,
+.md-comic-groups-page .md-comic-batch-toolbar .md-chip,
+.md-comic-groups-page .md-comic-batch-toolbar .md-lib-select,
+.md-comic-groups-page .md-comic-batch-toolbar .md-btn-primary {
   box-sizing: border-box;
   height: 2.75rem;
   min-height: 2.75rem;
@@ -3558,17 +3153,17 @@ html:not(.theme-dark) .md-comic-groups-back:hover { background: rgba(15, 23, 42,
   font-size: 0.875rem;
   white-space: nowrap;
 }
-.md-comic-groups-page .md-novel-group-create .md-btn-primary,
-.md-comic-groups-page .md-novel-batch-toolbar .md-btn-primary { padding: 0 1rem; }
-.md-comic-groups-page .md-novel-batch-toolbar .md-chip {
+.md-comic-groups-page .md-comic-group-create .md-btn-primary,
+.md-comic-groups-page .md-comic-batch-toolbar .md-btn-primary { padding: 0 1rem; }
+.md-comic-groups-page .md-comic-batch-toolbar .md-chip {
   padding: 0 0.8rem;
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.065);
   color: var(--md-text);
   cursor: pointer;
 }
-.md-comic-groups-page .md-novel-batch-toolbar .md-chip:hover { background: rgba(255, 255, 255, 0.11); }
-.md-comic-groups-page .md-novel-batch-toolbar .md-lib-select {
+.md-comic-groups-page .md-comic-batch-toolbar .md-chip:hover { background: rgba(255, 255, 255, 0.11); }
+.md-comic-groups-page .md-comic-batch-toolbar .md-lib-select {
   width: 100%;
   min-width: 0;
   max-width: none;
@@ -3576,83 +3171,55 @@ html:not(.theme-dark) .md-comic-groups-back:hover { background: rgba(15, 23, 42,
 }
 
 @media (max-width: 900px) {
-  .md-comic-groups-page .md-novel-batch-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .md-comic-groups-page .md-novel-batch-search { grid-column: 1 / -1; }
-  .md-comic-groups-page .md-novel-batch-toolbar .md-chip,
-  .md-comic-groups-page .md-novel-batch-toolbar .md-btn-primary { width: 100%; }
+  .md-comic-groups-page .md-comic-batch-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md-comic-groups-page .md-comic-batch-search { grid-column: 1 / -1; }
+  .md-comic-groups-page .md-comic-batch-toolbar .md-chip,
+  .md-comic-groups-page .md-comic-batch-toolbar .md-btn-primary { width: 100%; }
 }
 
 @media (max-width: 359px) {
-  .md-comic-groups-page .md-novel-group-create { grid-template-columns: minmax(0, 1fr); }
-  .md-comic-groups-page .md-novel-batch-toolbar .md-lib-select,
-  .md-comic-groups-page .md-novel-batch-toolbar .md-btn-primary { grid-column: 1 / -1; }
+  .md-comic-groups-page .md-comic-group-create { grid-template-columns: minmax(0, 1fr); }
+  .md-comic-groups-page .md-comic-batch-toolbar .md-lib-select,
+  .md-comic-groups-page .md-comic-batch-toolbar .md-btn-primary { grid-column: 1 / -1; }
 }
 
-.md-comic-groups-page .md-novel-select-card {
+.md-comic-groups-page .md-comic-select-card {
   border: 0;
   border-radius: 0.6rem;
   background: rgba(255, 255, 255, 0.035);
   box-shadow: none;
 }
-.md-comic-groups-page .md-novel-select-card:hover {
+.md-comic-groups-page .md-comic-select-card:hover {
   border: 0;
   background: rgba(255, 255, 255, 0.075);
 }
-.md-comic-groups-page .md-novel-select-item > input:checked + .md-novel-select-card {
+.md-comic-groups-page .md-comic-select-item > input:checked + .md-comic-select-card {
   border: 0;
   background: rgba(var(--md-brand-rgb), 0.11);
   box-shadow: inset 0 0 0 2px rgba(var(--md-brand-rgb), 0.5);
 }
 
-html:not(.theme-dark) .md-comic-groups-page .md-novel-group-panel,
-html:not(.theme-dark) .md-comic-groups-page .md-novel-batch-toolbar,
-html:not(.theme-dark) .md-comic-groups-page .md-novel-group-chip {
+html:not(.theme-dark) .md-comic-groups-page .md-comic-group-panel,
+html:not(.theme-dark) .md-comic-groups-page .md-comic-batch-toolbar,
+html:not(.theme-dark) .md-comic-groups-page .md-comic-group-chip {
   border: 0;
   background: transparent;
   box-shadow: none;
 }
-html:not(.theme-dark) .md-comic-groups-page .md-novel-select-card {
+html:not(.theme-dark) .md-comic-groups-page .md-comic-select-card {
   border: 0;
   background: rgba(15, 23, 42, 0.035);
 }
-html:not(.theme-dark) .md-comic-groups-page .md-novel-select-card:hover {
+html:not(.theme-dark) .md-comic-groups-page .md-comic-select-card:hover {
   background: rgba(15, 23, 42, 0.065);
 }
-html:not(.theme-dark) .md-comic-groups-page .md-novel-select-item > input:checked + .md-novel-select-card {
+html:not(.theme-dark) .md-comic-groups-page .md-comic-select-item > input:checked + .md-comic-select-card {
   background: rgba(var(--md-brand-rgb), 0.08);
 }
-html:not(.theme-dark) .md-comic-groups-page .md-novel-batch-toolbar .md-chip { background: #f1f3f7; }
-html:not(.theme-dark) .md-comic-groups-page .md-novel-batch-toolbar .md-chip:hover { background: #e8ebf1; }
+html:not(.theme-dark) .md-comic-groups-page .md-comic-batch-toolbar .md-chip { background: #f1f3f7; }
+html:not(.theme-dark) .md-comic-groups-page .md-comic-batch-toolbar .md-chip:hover { background: #e8ebf1; }
 
 /* Fanqie relay health banner */
-.md-fanqie-alert {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  margin: 0 0 1.5rem;
-  padding: 0.9rem 1.1rem;
-  border: 1px solid rgba(220, 38, 38, 0.35);
-  border-radius: 14px;
-  background: rgba(220, 38, 38, 0.10);
-  color: var(--md-text);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.md-fanqie-alert > i {
-  margin-top: 0.15rem;
-  color: #dc2626;
-}
-
-.md-fanqie-alert strong {
-  display: block;
-  margin-bottom: 0.15rem;
-  color: #dc2626;
-}
-
-.md-fanqie-alert span {
-  color: var(--md-text);
-}
 
 /* ---- 深色主题输入框背景还原（2026-09-20 code review P2）----
    base.html 里的全局兜底：
@@ -3663,10 +3230,6 @@ html:not(.theme-dark) .md-comic-groups-page .md-novel-batch-toolbar .md-chip:hov
    下面用更高特异度 html.theme-dark <selector> （(0,2,1) 及以上）+ !important 还原。
    注意：只还原 background / color，不动 :focus —— 免得把聚焦态的品牌色边框一起压掉。
    新增同类组件时请追加到这里，而不是去掉 base.html 的兜底。 */
-html.theme-dark .md-fanqie-input {
-  background: var(--md-bg) !important;
-  color: var(--md-text) !important;
-}
 
 html.theme-dark .md-input {
   background: rgba(11, 11, 15, 0.9) !important;
@@ -3677,29 +3240,6 @@ html.theme-dark .md-detail-search input {
   background: rgba(11, 11, 15, 0.8) !important;
   color: #fff !important;
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
-   主页 hero · Figma 版式
-   参考：https://www.figma.com/community/file/1338926652672180913
-         （New Movie - Header Website, by Truong Huy）
-
-   参考稿是 1920×1080 的画布，下面所有比例都是从截图里逐像素量出来的：
-     左内边距      51 / 612  = 8.33% 页宽
-     书轨卡片宽    57 / 510  = 11.18% 内容宽
-     书轨卡间距    10.5 / 510 = 2.06%（= 卡宽的 18.4%）
-     卡片 w:h      57 : 74   = 0.770（≈3:4，不是 2:3）
-     卡片位置      顶 70.8% / 底 92.4% hero 高
-     箭头位置      62.9% hero 高，13×14 近正方形
-     按钮          46×16（宽:高 2.875）· 圆角 ~5px · 左幽灵描边 / 右金色实底
-     金色          #F3C31B（实测中位色 243,195,27）
-
-   落地时的唯一换算：参考稿的「页宽 8.33%」换成了站点自己的 --md-max 容器
-   宽度（= 顶栏 .md-topnav-inner 的宽度），这样 hero 文案、书轨、顶栏 logo
-   三条左边缘严格对齐。其余比例原样保留。
-
-   作用域：只加在 .md-hero--figma 上（漫画主页）；小说主页 templates/novel_index.html
-   沿用旧 hero 版式，不受影响。
-   ══════════════════════════════════════════════════════════════════════════ */
 
 :root {
   /* hero 的操作色不再单独用金色（参考稿的 #F3C31B 已弃用，2026-09-22）：
@@ -4454,14 +3994,6 @@ html:not(.theme-dark) .md-home-rail__card:hover {
       #fff 60%,
       #fff 100%);
   }
-
-  /* 窄屏首页：hero 不能再顶到页面最上沿。
-     桌面之所以 flush（padding-top:0），是因为桌面 hero 是 100dvh、封面整幅出血，
-     顶栏压在图上就是参考稿的样子；但窄屏 hero 高度 auto、主视觉收成固定 360px 的
-     顶部图带，顶栏一压就把图带顶端切掉一截 —— iOS PWA 下顶栏 = 安全区(≈59) +
-     上下内边距(24) + 内容(≈41) ≈ 124px，360px 的图带只剩 2/3，封面连同标题字
-     一起被拦腰截断（2026-09-22 修）。
-     这里恢复与其它 .md-main--flush 页面（漫画详情 / 小说主页）一致的顶栏留白。 */
   body.md-home-page .md-main--flush {
     padding-top: calc(3.75rem + env(safe-area-inset-top, 0px));
   }
@@ -4717,7 +4249,7 @@ html:not(.theme-dark) .md-nav-link.is-active::after {
 /* 承载角标的容器需要定位上下文（其余容器本身已 relative/absolute） */
 .md-detail-cover,
 .md-history-cover,
-.md-novel-select-card {
+.md-comic-select-card {
   position: relative;
 }
 
@@ -5116,13 +4648,13 @@ html:not(.theme-dark) .md-in-app-detail { background: #f6f7fb; }
 .comic-detail .md-detail-group-picker[open] > .md-detail-action { background: rgba(52, 52, 64, .95); }
 .comic-detail .md-detail-icon-btn { width: 44px; height: 44px; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .comic-detail .md-detail-back.is-loading { width: 7rem; }
-:is(.comic-detail, .novel-detail) .md-detail-search input,
-:is(.comic-detail, .novel-detail) .md-detail-sort { min-height: 44px; }
-:is(.comic-detail, .novel-detail) .md-detail-search input:focus-visible,
-:is(.comic-detail, .novel-detail) .md-detail-sort:focus-visible { outline: 2px solid var(--md-brand-soft); outline-offset: 2px; }
-:is(.comic-detail, .novel-detail) .md-chapter-item { min-height: 64px; padding: .8rem .4rem; content-visibility: auto; contain-intrinsic-size: auto 40px; }
-:is(.comic-detail, .novel-detail) .md-chapter-title { line-height: 1.5; overflow-wrap: anywhere; }
-:is(.comic-detail, .novel-detail) .md-chapter-meta { margin-top: .25rem; }
+:is(.comic-detail) .md-detail-search input,
+:is(.comic-detail) .md-detail-sort { min-height: 44px; }
+:is(.comic-detail) .md-detail-search input:focus-visible,
+:is(.comic-detail) .md-detail-sort:focus-visible { outline: 2px solid var(--md-brand-soft); outline-offset: 2px; }
+:is(.comic-detail) .md-chapter-item { min-height: 64px; padding: .8rem .4rem; content-visibility: auto; contain-intrinsic-size: auto 40px; }
+:is(.comic-detail) .md-chapter-title { line-height: 1.5; overflow-wrap: anywhere; }
+:is(.comic-detail) .md-chapter-meta { margin-top: .25rem; }
 html:not(.theme-dark) .comic-detail .md-detail-action { background: rgba(255, 255, 255, .92); }
 html:not(.theme-dark) .comic-detail .md-detail-action:hover,
 html:not(.theme-dark) .comic-detail .md-detail-group-picker[open] > .md-detail-action { background: #edf0f5; }
@@ -5136,8 +4668,8 @@ html:not(.theme-dark) .comic-detail .md-detail-group-picker[open] > .md-detail-a
   .md-home-rail__nav button { width: 44px; height: 44px; }
   .comic-detail .md-detail-inner { padding-inline: 1.25rem; }
   .comic-detail .md-detail-actions { margin-top: 1.4rem; }
-  :is(.comic-detail, .novel-detail) .md-detail-search input,
-  :is(.comic-detail, .novel-detail) .md-detail-sort { font-size: 16px; }
+  :is(.comic-detail) .md-detail-search input,
+  :is(.comic-detail) .md-detail-sort { font-size: 16px; }
 }
 @media (hover: none), (pointer: coarse) {
   .md-home-page .action-press:hover,

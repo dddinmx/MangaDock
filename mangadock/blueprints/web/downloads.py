@@ -58,7 +58,7 @@ def download():
             request.form.get('comic_url'),
             safe_int(request.form.get('format'), default=2),
         )
-        if not result.ok or result.code == 'NOVEL_IN_PROGRESS':
+        if not result.ok:
             response = render_template(
                 'download.html',
                 error=result.message,
@@ -200,18 +200,7 @@ def progress(task_id):
         return render_template('error.html', message="任务不存在或已过期"), 404
     if not can_user_access_task(task, get_current_user()):
         return render_template('error.html', message="任务不存在或已过期"), 404
-    from mangadock.services.fanqie import book_id_from_task_url
-
-    novel_book_id = book_id_from_task_url(task.url)
-    return render_template(
-        'progress.html',
-        task_id=task_id,
-        is_novel_task=bool(novel_book_id),
-        novel_cover_url=(
-            url_for('fanqie_novel_book_cover', book_id=novel_book_id)
-            if novel_book_id else ''
-        ),
-    )
+    return render_template('progress.html', task_id=task_id)
 
 @app.route('/task_status/<task_id>')
 @library_write_required

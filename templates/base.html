@@ -16,14 +16,7 @@
     <script>
         (() => {
             try {
-                const savedLibraryMode = localStorage.getItem('mangadock-library-mode');
-                const libraryModeHomes = {
-                    novel: {{ url_for('novel_index')|tojson }}
-                };
-                if (window.location.pathname === {{ url_for('index')|tojson }} && libraryModeHomes[savedLibraryMode]) {
-                    window.location.replace(libraryModeHomes[savedLibraryMode]);
-                    return;
-                }
+                localStorage.removeItem('mangadock-library-mode');
 
                 const savedTheme = localStorage.getItem('mangadock-theme');
                 const savedAccent = localStorage.getItem('mangadock-accent');
@@ -979,7 +972,7 @@
     <link rel="stylesheet" href="{{ asset_url('css/interaction-feedback.css') }}">
     <script defer src="{{ asset_url('js/interaction-feedback.js') }}"></script>
 </head>
-{% set hide_mobile_tabbar = request.endpoint in ['comic_detail', 'novel_detail'] %}
+{% set hide_mobile_tabbar = request.endpoint in ['comic_detail'] %}
 <body class="{% block body_class %}md-body min-h-screen{% endblock %}{% if session.get('user_id') and not hide_mobile_tabbar %} has-mobile-tabbar{% endif %}">
     {% include '_md_icon_symbols.html' %}
     <div id="app-shell-loader" class="app-shell-loader">
@@ -1001,44 +994,29 @@
         </div>
     </div>
 
-    {% set requested_library_mode = request.args.get('mode') if request.args.get('mode') in ['comic', 'novel'] else 'comic' %}
-    {% set current_library_mode = library_mode|default(requested_library_mode) %}
-    {% set is_comic_mode = current_library_mode == 'comic' %}
-    {% set is_novel_mode = current_library_mode == 'novel' %}
-    {% set mode_home_endpoint = 'novel_index' if is_novel_mode else 'index' %}
-    {% set mode_library_endpoint = 'novels_list' if is_novel_mode else 'comics_list' %}
-    {% set mode_library_url = url_for('novels_list', group='全部') if is_novel_mode else url_for('comics_list', group='全部') %}
-    {% set mode_history_endpoint = 'novel_history' if is_novel_mode else 'history_page' %}
-    {% set mode_search_endpoint = 'novel_search' if is_novel_mode else 'search_page' %}
-    {% set mode_content_name = '小说' if is_novel_mode else '漫画' %}
+    {% set mode_home_endpoint = 'index' %}
+    {% set mode_library_endpoint = 'comics_list' %}
+    {% set mode_library_url = url_for('comics_list', group='全部') %}
+    {% set mode_history_endpoint = 'history_page' %}
+    {% set mode_search_endpoint = 'search_page' %}
+    {% set mode_content_name = '漫画' %}
     {% set mode_library_label = '书架' %}
     {% block site_header %}
     <!-- 顶栏导航（参考图风格，无底部 Dock） -->
     <header class="md-topnav">
         <div class="md-topnav-inner">
-            <div class="md-mode-switcher" id="mode-switcher">
-                <button type="button" class="md-logo" id="mode-switcher-toggle" aria-expanded="false" aria-haspopup="menu">
-                    <img class="md-logo-mark" src="{{ asset_url('logo-192.png') }}" alt="">
-                    <span class="md-logo-name">MangaDock</span>
-                    {{ md_icon('chevron-down', 'md-logo-chevron') }}
-                </button>
-                <div class="md-mode-dropdown" id="mode-switcher-dropdown" role="menu">
-                    <a href="{{ url_for('index') }}" class="md-mode-option{% if is_comic_mode %} is-active{% endif %}" data-library-mode="comic" data-app-loader="true">
-                        {{ md_icon('picture') }}<span><strong>漫画模式</strong><small>漫画库</small></span>{% if is_comic_mode %}{{ md_icon('check') }}{% endif %}
-                    </a>
-                    <a href="{{ url_for('novel_index') }}" class="md-mode-option{% if is_novel_mode %} is-active{% endif %}" data-library-mode="novel" data-app-loader="true">
-                        {{ md_icon('book') }}<span><strong>小说模式</strong><small>小说书库</small></span>{% if is_novel_mode %}{{ md_icon('check') }}{% endif %}
-                    </a>
-                </div>
-            </div>
+            <a href="{{ url_for('index') }}" class="md-logo" data-app-loader="true">
+                <img class="md-logo-mark" src="{{ asset_url('logo-192.png') }}" alt="">
+                <span class="md-logo-name">MangaDock</span>
+            </a>
 
             {% if session.get('user_id') %}
             <nav class="hidden items-center gap-1 md:flex" aria-label="主导航">
                 <a href="{{ url_for(mode_home_endpoint) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_home_endpoint %} is-active{% endif %}">首页</a>
                 <a href="{{ mode_library_url }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">{{ mode_library_label }}</a>
                 <a href="{{ url_for(mode_history_endpoint) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == mode_history_endpoint %} is-active{% endif %}">历史</a>
-                <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == 'statistics' %} is-active{% endif %}">统计</a>
-                <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'webdav_settings', 'scan_settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">我的</a>
+                <a href="{{ url_for('statistics') }}" data-app-loader="true" class="md-nav-link{% if request.endpoint == 'statistics' %} is-active{% endif %}">统计</a>
+                <a href="{{ url_for('settings') }}" data-app-loader="true" class="md-nav-link{% if request.endpoint in ['settings', 'webdav_settings', 'scan_settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">我的</a>
             </nav>
 
             {# 顶栏常驻搜索：结果页 /search，与书架分离 #}
@@ -1059,7 +1037,7 @@
                     <button type="button" class="md-user-btn action-press" id="user-menu-toggle" aria-label="账号与设置" aria-expanded="false" aria-haspopup="true">
                         {{ md_icon('user') }}
                         <span class="hidden max-w-[7rem] truncate sm:inline">{{ current_user.username if current_user else session.get('username', '') }}</span>
-                        {% if is_admin_user %}<span class="md-user-role rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-bold text-brand-soft">Admin</span>{% endif %}
+                        {% if is_admin_user %}<span class="md-user-role text-[10px] font-bold">Admin</span>{% endif %}
                         {{ md_icon('chevron-down', 'text-xs opacity-70') }}
                     </button>
                     <div class="md-user-dropdown" id="user-menu-dropdown" role="menu">
@@ -1068,8 +1046,8 @@
                         <a href="{{ url_for('update') }}" data-app-loader="true">{{ md_icon('refresh', 'w-4') }}更新</a>
                         <a href="{{ url_for('tasks') }}" data-app-loader="true">{{ md_icon('list', 'w-4') }}任务</a>
                         {% endif %}
-                        <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true">{{ md_icon('chart', 'w-4') }}统计</a>
-                        <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true">{{ md_icon('sliders', 'w-4') }}设置</a>
+                        <a href="{{ url_for('statistics') }}" data-app-loader="true">{{ md_icon('chart', 'w-4') }}统计</a>
+                        <a href="{{ url_for('settings') }}" data-app-loader="true">{{ md_icon('sliders', 'w-4') }}设置</a>
                         {% if is_admin_user %}
                         <a href="{{ url_for('users') }}" data-app-loader="true">{{ md_icon('users', 'w-4') }}用户管理</a>
                         {% endif %}
@@ -1105,10 +1083,10 @@
         <a href="{{ mode_library_url }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == mode_library_endpoint %} is-active{% endif %}">
             {{ md_icon('book') }}<span>{{ mode_library_label }}</span>
         </a>
-        <a href="{{ url_for('statistics', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == 'statistics' %} is-active{% endif %}">
+        <a href="{{ url_for('statistics') }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint == 'statistics' %} is-active{% endif %}">
             {{ md_icon('chart') }}<span>统计</span>
         </a>
-        <a href="{{ url_for('settings', mode=current_library_mode) }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint in ['settings', 'webdav_settings', 'scan_settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">
+        <a href="{{ url_for('settings') }}" data-app-loader="true" class="md-mobile-tabbar__link{% if request.endpoint in ['settings', 'webdav_settings', 'scan_settings', 'users', 'change_password', 'download', 'update', 'tasks', 'progress'] %} is-active{% endif %}">
             {{ md_icon('user') }}<span>我的</span>
         </a>
     </nav>
@@ -1120,9 +1098,6 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            const modeSwitcher = document.getElementById('mode-switcher');
-            const modeSwitcherToggle = document.getElementById('mode-switcher-toggle');
-            const modeSwitcherDropdown = document.getElementById('mode-switcher-dropdown');
             const groupMenuBtn = document.getElementById('group-menu-toggle');
             const groupMenuDropdown = document.getElementById('group-menu-dropdown');
             const appShellLoader = document.getElementById('app-shell-loader');
@@ -1149,34 +1124,6 @@
             let deferredInstallPrompt = null;
 
             // 用户菜单
-            if (modeSwitcher && modeSwitcherToggle && modeSwitcherDropdown) {
-                try {
-                    localStorage.setItem('mangadock-library-mode', {{ current_library_mode|tojson }});
-                } catch (error) {
-                    console.warn('Failed to persist library mode', error);
-                }
-                modeSwitcherDropdown.querySelectorAll('[data-library-mode]').forEach((link) => {
-                    link.addEventListener('click', () => {
-                        try {
-                            localStorage.setItem('mangadock-library-mode', link.dataset.libraryMode);
-                        } catch (error) {
-                            console.warn('Failed to persist library mode', error);
-                        }
-                    });
-                });
-                modeSwitcherToggle.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    const open = modeSwitcherDropdown.classList.toggle('is-open');
-                    modeSwitcherToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-                });
-                document.addEventListener('click', (event) => {
-                    if (!modeSwitcher.contains(event.target)) {
-                        modeSwitcherDropdown.classList.remove('is-open');
-                        modeSwitcherToggle.setAttribute('aria-expanded', 'false');
-                    }
-                });
-            }
-
             const userMenuToggle = document.getElementById('user-menu-toggle');
             const userMenuDropdown = document.getElementById('user-menu-dropdown');
             if (userMenuToggle && userMenuDropdown) {

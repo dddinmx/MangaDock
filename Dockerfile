@@ -25,7 +25,7 @@ COPY static /app/static
 # 模型缺失/包缺失时自动降级 Pillow，不会影响启动。
 COPY tools /app/tools
 
-RUN mkdir -p /app/comic /app/小说 /app/static/cover /app/instance \
+RUN mkdir -p /app/comic /app/static/cover /app/instance \
     && test -f /app/comic.json || printf '{}\n' > /app/comic.json
 
 ENV PYTHONPATH=/app

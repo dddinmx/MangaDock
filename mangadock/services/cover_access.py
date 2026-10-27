@@ -50,12 +50,14 @@ def comic_name_for_cover_filename(filename):
 
 
 def authorize_cover_file(filename):
+    if filename.startswith('novels/'):
+        abort(404)
     if filename == 'cover.png':
         return
     user = resolve_cover_request_user()
     if not user:
         abort(403)
-    if user.is_admin or filename.startswith('novels/'):
+    if user.is_admin:
         return
     comic_name = comic_name_for_cover_filename(filename)
     if not comic_name:

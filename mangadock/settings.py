@@ -14,7 +14,7 @@ REPORT_SECRET = os.environ.get("MANGADOCK_REPORT_SECRET", "").strip()
 REPORT_INTERVAL = int(os.environ.get("MANGADOCK_REPORT_INTERVAL", "1800"))
 ENABLE_REPORT = bool(REPORT_URL and REPORT_SECRET)
 APP_VERSION = "5.0"
-RELEASE_VERSION = "2.11.31"
+RELEASE_VERSION = "2.11.32"
 
 CONFIG = {
     'max_workers': 2,
@@ -27,9 +27,7 @@ CONFIG = {
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(PACKAGE_DIR)
 COMIC_ROOT = os.path.join(BASE_DIR, "comic")
-NOVEL_ROOT = os.path.join(BASE_DIR, "小说")
 COVER_ROOT = os.path.join(BASE_DIR, "static", "cover")
-NOVEL_COVER_ROOT = os.path.join(COVER_ROOT, "novels")
 FANQIE_API_BASE_URL = os.environ.get(
     "MANGADOCK_FANQIE_API_URL", "https://fanqie.dddinmx.cn"
 ).strip().rstrip("/")

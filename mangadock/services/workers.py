@@ -51,45 +51,6 @@ def start_update_task(comic_name, comic_format, url, created_by_user_id=None):
     return task_id
 
 
-def start_novel_task(book_id, title=None, created_by_user_id=None):
-    """把番茄小说加入后台队列，返回 (task_id, reused)。
-
-    同一本书已有在途任务时不重复入队。调用者看不到该任务（例如别人创建的）
-    时 task_id 为 None，避免把别人的任务号交出去。
-
-    与 ``/novels/fanqie/download`` 走同一条流水线（``fanqie://<book_id>`` 前缀 →
-    ``execute_fanqie_task``）。统一下载入口判定出「番茄小说」后调用这里，
-    保证两条入口产生的任务形态完全一致（进度页据此显示小说封面与小说书架入口）。
-    """
-    from mangadock.models import User
-    from mangadock.services.fanqie import fanqie_task_url
-    from mangadock.services.groups import can_user_access_task
-    from mangadock.services.novels import get_novel_by_fanqie_id
-
-    with app.app_context():
-        task_url = fanqie_task_url(book_id)
-        active_task = DownloadTask.query.filter(
-            DownloadTask.url == task_url,
-            DownloadTask.status.in_(('pending', 'running')),
-        ).order_by(DownloadTask.created_at.asc()).first()
-        if active_task:
-            creator = db.session.get(User, created_by_user_id) if created_by_user_id else None
-            if can_user_access_task(active_task, creator):
-                return active_task.id, True
-            return None, True
-
-        existing_novel = get_novel_by_fanqie_id(book_id)
-        task_id = create_task(
-            task_url,
-            0,
-            is_update=bool(existing_novel),
-            comic_name=(existing_novel['title'] if existing_novel else title),
-            created_by_user_id=created_by_user_id,
-        )
-        update_task(task_id, log="番茄小说任务已加入后台队列")
-        return task_id, False
-
-
 def claim_next_pending_task():
     with app.app_context():
         while True:
@@ -232,9 +193,9 @@ def execute_download_task(task_id):
     if is_fanqie_comic_target(task.url):
         return execute_fanqie_comic_task(task_id)
 
-    from mangadock.services.fanqie import book_id_from_task_url, execute_fanqie_task
-    if book_id_from_task_url(task.url):
-        return execute_fanqie_task(task_id)
+    if str(task.url or '').startswith('fanqie://'):
+        update_task(task_id, status='cancelled', log='小说功能已移除，任务停止执行')
+        return False
 
     if task.is_update:
         with app.app_context():

@@ -18,8 +18,8 @@
     }
 
     function bindComicSynopsisToggle() {
-        const description = document.querySelector('#comic-detail-description, #novel-detail-description');
-        const toggle = document.querySelector('[data-comic-synopsis-toggle], [data-novel-synopsis-toggle]');
+        const description = document.querySelector('#comic-detail-description');
+        const toggle = document.querySelector('[data-comic-synopsis-toggle]');
         if (!description || !toggle || toggle.dataset.detailBound === 'true') return;
         toggle.dataset.detailBound = 'true';
 
@@ -206,8 +206,8 @@
     });
 
     function refreshComicSynopsisLayout() {
-        const description = document.querySelector('#comic-detail-description, #novel-detail-description');
-        const toggle = document.querySelector('[data-comic-synopsis-toggle], [data-novel-synopsis-toggle]');
+        const description = document.querySelector('#comic-detail-description');
+        const toggle = document.querySelector('[data-comic-synopsis-toggle]');
         if (description && toggle && !description.classList.contains('is-expanded')) {
             toggle.hidden = description.scrollHeight <= description.clientHeight + 1;
         }

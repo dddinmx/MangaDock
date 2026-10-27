@@ -11,7 +11,7 @@
     }
 </script>
 <style>
-    /* 书架工具条尺寸交给 md-lib-toolbar（与小说书架同款），此处只留本页专属样式。
+    /* 书架工具条尺寸交给 md-lib-toolbar，此处只留本页专属样式。
        列数切换已在 2026-09-21 移到「我的 → 外观 → 书架列数」，本页不再保留该控件。 */
 
     .comics-shell {
@@ -130,10 +130,7 @@
         {% if tasks %}
         <div data-comics-grid="true" class="md-cover-grid">
             {% for task in tasks %}
-            {% set progress = progresses.get(task.comic_name) if progresses else none %}
-            {% set available = task.available_chapters or 0 %}
-            {% set read_count = (progress.last_chapter + 1) if progress and progress.last_chapter is not none else 0 %}
-            {% set unread_count = available - read_count if available > read_count else 0 %}
+            {% set unread_count = task.unread_chapters %}
             <div>
                 <a href="{{ url_for('comic_detail', task_id=task.comic_name, return_to=library_return_url) }}" data-app-loader="true" class="md-cover-card">
                     <div class="md-book">

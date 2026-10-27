@@ -10,7 +10,7 @@
   <a href="https://hub.docker.com/r/dddinmx/mangadock"><img alt="Platforms" src="https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-2496ED"></a>
 </p>
 
-MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工具。
+MangaDock 是一个自托管的漫画下载、管理和阅读工具。
 
 ## 支持的内容来源
 
@@ -21,21 +21,29 @@ MangaDock 是一个自托管的漫画与 EPUB 小说下载、管理和阅读工�
 - 瓜子漫画 (`guazimanhua.com`)
 - 卡拉漫画 (`kalamanhua.com`)
 - 番茄漫画
-- 番茄小说（搜索、下载、更新、EPUB 阅读）
-- 本地漫画和 EPUB 导入
+- 本地漫画导入
 
 > 番茄漫画目前支持静态图片漫画，不支持漫剧或短视频作品。
 >
 > 部分图床在中国大陆无法直连（漫画柜的 `*.hamreus.com` 需要通过容器出网代理访问，见 [网络与代理](#网络与代理)。  
 
+## v2.11.32
+
+- 仅保留漫画功能，移除小说页面、下载流程和 EPUB 依赖；番茄图片漫画继续支持。
+- 书架与首页最近阅读封面左上角统一显示剩余未读章节数，并按账号分别计算。
+- 阅读器记录章节是否读完，打开章节不会直接清除未读角标；AniList 旧进度不会覆盖明确的本地未读状态。
+- 修复共用主题样式清理导致的书架显示问题，账号菜单中的 Admin 改为普通文字。
+
+升级后，缺少“读完”标记的旧阅读记录会暂将当前章节计为未读，读到底或 AniList 确认已读后自动消除。现有漫画文件、账号、密码和阅读位置会保留；旧小说文件和数据库历史记录不会自动删除。
+
 ## Docker 部署
 
-Docker Hub 镜像：[`dddinmx/mangadock:2.11.31`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.31` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
+Docker Hub 镜像：[`dddinmx/mangadock:2.11.32`](https://hub.docker.com/r/dddinmx/mangadock/tags)。`2.11.32` 和 `latest` 同时提供 `linux/amd64` 与 `linux/arm64`。
 
 ### 1. 准备目录
 
 ```bash
-mkdir -p mangadock/data/comic mangadock/data/novels
+mkdir -p mangadock/data/comic
 cd mangadock
 printf '{}\n' > data/comic.json
 ```
@@ -58,7 +66,6 @@ services:
       MANGADOCK_ADMIN_PASSWORD: ${MANGADOCK_ADMIN_PASSWORD:-}
     volumes:
       - ./data/comic:/app/comic
-      - ./data/novels:/app/小说
       - ./data/comic.json:/app/comic.json
       - mangadock_covers:/app/static/cover
       - mangadock_instance:/app/instance
@@ -68,7 +75,7 @@ volumes:
   mangadock_instance:
 ```
 
-漫画章节、用户书库封面、EPUB、来源映射、SQLite 数据库和会话都保存在宿主机目录或 Docker 数据卷中，不会进入公开镜像。
+漫画章节、用户书库封面、来源映射、SQLite 数据库和会话都保存在宿主机目录或 Docker 数据卷中，不会进入公开镜像。
 
 ### 3. 启动
 

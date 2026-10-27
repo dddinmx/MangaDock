@@ -350,13 +350,6 @@ class FanqieApiClient:
     def capabilities(self) -> dict:
         return self.request_json("GET", "/v1/capabilities") or {}
 
-    def search_novels(self, query: str, page: int = 1) -> list[dict]:
-        data = self.request_json(
-            "GET", "/v1/novels/search", params={"q": query, "page": max(1, int(page or 1))}
-        ) or {}
-        items = data.get("items") or []
-        return items if isinstance(items, list) else []
-
     def resolve_resource(self, target: str, kind: str) -> dict:
         data = self.request_json(
             "POST", "/v1/resources/resolve", json={"target": target, "kind": kind}

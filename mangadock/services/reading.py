@@ -51,6 +51,7 @@ def _progress_snapshot(progress, stale):
         'total_pages': progress.total_pages or 0,
         'updated_at': _format_api_datetime(progress.last_read_at),
         'client_progress_ms': progress.client_progress_ms,
+        'chapter_completed': progress.chapter_completed,
         'stale': stale,
     }
 
@@ -62,9 +63,8 @@ def user_can_access_progress_key(progress_key, user):
     if not progress_key or len(progress_key) > MAX_PROGRESS_KEY_LENGTH:
         return False
 
-    from mangadock.services.novels import NOVEL_PROGRESS_PREFIX, get_novel
-    if progress_key.startswith(NOVEL_PROGRESS_PREFIX):
-        return get_novel(progress_key[len(NOVEL_PROGRESS_PREFIX):]) is not None
+    if progress_key.startswith('novel:'):
+        return False
 
     from mangadock.services.groups import can_user_access_group, get_comic_group_map
     from mangadock.services.library import get_comic_directory, is_safe_comic_name
@@ -100,7 +100,7 @@ def get_reading_progress(comic_name, user_id):
 
 def save_reading_progress(
     comic_name, chapter, page, scroll_position, total_chapters, total_pages, user_id,
-    anchor_paragraph=None, anchor_offset=None, client_progress_ms=None,
+    anchor_paragraph=None, anchor_offset=None, client_progress_ms=None, chapter_completed=None,
 ):
     """保存阅读进度。
 
@@ -132,6 +132,10 @@ def save_reading_progress(
             'total_pages': total_pages,
             'last_read_at': now,
         }
+        if isinstance(chapter_completed, bool):
+            values['chapter_completed'] = chapter_completed
+        elif progress is None or progress.last_chapter != chapter:
+            values['chapter_completed'] = None
         if anchor_paragraph is not None and anchor_offset is not None:
             values['anchor_paragraph'] = anchor_paragraph
             values['anchor_offset'] = anchor_offset
@@ -171,10 +175,28 @@ def save_reading_progress(
         db.session.refresh(progress)
         return _progress_snapshot(progress, stale=False)
 
+def get_unread_chapter_count(available_chapters, progress):
+    """Count local unread chapters using this account's saved reading position."""
+    available = max(0, int(available_chapters or 0))
+    if progress is None:
+        return available
+    read_count = max(0, int(progress.last_chapter or 0))
+    completed = getattr(progress, 'chapter_completed', None)
+    # Legacy scroll readers stored only a position, not proof of completion.
+    # Only explicit completion or a paged client's final page clears this chapter.
+    if completed is True or (completed is None and progress.total_pages
+                             and (progress.last_page or 0) + 1 >= progress.total_pages):
+        read_count += 1
+    return max(0, available - read_count)
+
+
 def get_all_reading_progress(user_id):
     """获取所有阅读进度"""
     with app.app_context():
-        progress_rows = ReadingProgress.query.filter_by(user_id=user_id).order_by(
+        progress_rows = ReadingProgress.query.filter(
+            ReadingProgress.user_id == user_id,
+            ~ReadingProgress.comic_name.like('novel:%'),
+        ).order_by(
             *_progress_order()
         ).all()
 
@@ -275,6 +297,7 @@ def get_total_reading_time(user_id):
     with app.app_context():
         total_seconds = db.session.query(db.func.sum(reading_time_seconds_expression())).filter(
             ReadingTime.user_id == user_id,
+            ~ReadingTime.comic_name.like('novel:%'),
             ~ReadingTime.comic_name.like('drama:%')
         ).scalar()
         return display_minutes_from_seconds(total_seconds)
@@ -288,6 +311,7 @@ def get_reading_time_by_comic(user_id):
             db.func.sum(reading_time_seconds_expression()).label('total_duration_seconds')
         ).filter(
             ReadingTime.user_id == user_id,
+            ~ReadingTime.comic_name.like('novel:%'),
             ~ReadingTime.comic_name.like('drama:%')
         ).group_by(ReadingTime.comic_name).order_by(db.desc('total_duration_seconds')).all()
         return [
@@ -317,6 +341,7 @@ def get_reading_time_monthly_for_year(year, user_id):
             db.func.sum(reading_time_seconds_expression()).label('total_duration_seconds')
         ).filter(
             ReadingTime.user_id == user_id,
+            ~ReadingTime.comic_name.like('novel:%'),
             ~ReadingTime.comic_name.like('drama:%'),
             db.func.strftime('%Y', ReadingTime.read_at) == f"{year:04d}"
         ).group_by('month').order_by('month').all()
@@ -334,6 +359,7 @@ def get_reading_time_daily_for_year(year, user_id):
             db.func.sum(reading_time_seconds_expression()).label('total_duration_seconds')
         ).filter(
             ReadingTime.user_id == user_id,
+            ~ReadingTime.comic_name.like('novel:%'),
             ~ReadingTime.comic_name.like('drama:%'),
             db.func.strftime('%Y', ReadingTime.read_at) == f"{year:04d}"
         ).group_by('day').order_by('day').all()

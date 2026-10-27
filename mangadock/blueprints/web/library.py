@@ -32,7 +32,7 @@ from mangadock.services.library import (
     get_available_comics,
     get_comic_directory,
 )
-from mangadock.services.reading import get_all_reading_progress
+from mangadock.services.reading import get_all_reading_progress, get_unread_chapter_count
 
 
 @app.route('/comics')
@@ -62,6 +62,14 @@ def comics_list():
             'total_pages': progress.total_pages,
             'last_read_at': progress.last_read_at
         }
+
+    progress_lookup = {progress.comic_name: progress for progress in all_progress}
+    comics = [
+        {**comic, 'unread_chapters': get_unread_chapter_count(
+            comic.get('available_chapters'), progress_lookup.get(comic['comic_name'])
+        )}
+        for comic in comics
+    ]
 
     # 对漫画列表进行排序：有阅读进度的漫画优先显示，并且按最后阅读时间倒序排列
     # 没有阅读进度的漫画放在后面，按创建时间倒序排列
@@ -115,13 +123,13 @@ def comics_list():
                 grouped_lookup.pop(group_name, None)
 
     # 分组顺序沿用 get_all_comic_groups() 的稳定序（默认分组在前、其余按创建时间），
-    # 与小说书架的「分组管理」页保持一致；不再按阅读热度重排（下拉列表会跳来跳去）。
+    # 与「分组管理」页保持一致；不再按阅读热度重排（下拉列表会跳来跳去）。
     if group_filter != '全部' and group_filter not in grouped_lookup:
         group_filter = '全部'
 
     save_group_filter(group_filter, current_user_id)
 
-    # 与小说书架一致：单层平铺网格 + 分页；「全部分组」不再按分组切成横滑轨
+    # 单层平铺网格 + 分页；「全部分组」不再按分组切成横滑轨
     if group_filter == '全部':
         selected_comics = display_comics
     else:
@@ -280,7 +288,7 @@ def delete_comic_group_route():
 
 
 # --------------------------------------------------------------------------
-# 漫画分组管理页（对齐小说的 /novels/groups，2026-09-21）
+# 漫画分组管理页
 # --------------------------------------------------------------------------
 
 @app.route('/comics/groups')

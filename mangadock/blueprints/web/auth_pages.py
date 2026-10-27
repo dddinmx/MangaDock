@@ -41,7 +41,7 @@ from mangadock.settings import (
     china_tz,
 )
 
-# 登录页封面墙：24 小说封面 + 24 漫画封面。漫画封面按「日期」确定性抽样：
+# 登录页封面墙：48 漫画封面。漫画封面按「日期」确定性抽样：
 # 同一天所有访客看到完全相同的一批（用户要求全员一致），跨天自动轮换。
 # 漫画位不足 24 个时，用随仓库分发的 login-covers/c*.jpg 补位（见 render_login_page）。
 _LOGIN_COMIC_COVER_COUNT = 24
@@ -149,11 +149,11 @@ def _pick_comic_covers(count=_LOGIN_COMIC_COVER_COUNT):
 
 
 def render_login_page():
-    """渲染登录页：小说封面与漫画封面交错排布的背景墙。"""
+    """渲染登录页：漫画封面背景墙。"""
     comic_names = _pick_comic_covers()
     wall = []
     for slot in range(_LOGIN_COMIC_COVER_COUNT):
-        wall.append({'url': url_for('static', filename=f'login-covers/{slot:02d}.jpg')})
+        wall.append({'url': url_for('static', filename=f'login-covers/c{(slot + 12) % 24:02d}.jpg')})
         if slot < len(comic_names):
             wall.append({
                 # 2026-09-24 code review P2：漫画封面改走登录页专用路由；

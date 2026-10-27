@@ -22,19 +22,19 @@
 {% endif %}
 {% endwith %}
 
-<section class="md-novel-group-panel">
+<section class="md-comic-group-panel">
     <div>
         <h2 class="md-section-title !mb-1">分组</h2>
         <p class="md-page-sub">删除分组不会删除漫画。这些漫画会暂时只对管理员可见，需要重新分配分组后，普通用户才能继续阅读。</p>
     </div>
-    <form method="post" action="{{ url_for('create_comic_group') }}" class="md-novel-group-create">
+    <form method="post" action="{{ url_for('create_comic_group') }}" class="md-comic-group-create">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="text" name="group_name" class="md-input" maxlength="50" placeholder="输入新分组名称" aria-label="新分组名称" required>
         <button type="submit" class="md-btn-primary action-press"><i class="fa fa-plus mr-2"></i>新建分组</button>
     </form>
-    <div class="md-novel-group-list">
+    <div class="md-comic-group-list">
         {% for group_name in groups %}
-        <div class="md-novel-group-chip">
+        <div class="md-comic-group-chip">
             <a href="{{ url_for('comics_list', group=group_name) }}" data-app-loader="true">
                 <span>{{ group_name }}</span>
                 <strong>{{ group_counts.get(group_name, 0) }}</strong>
@@ -53,8 +53,8 @@
 
 <form method="post" action="{{ url_for('batch_assign_comic_group') }}" id="comic-batch-form" class="mt-6">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="md-novel-batch-toolbar">
-        <div class="md-novel-batch-search">
+    <div class="md-comic-batch-toolbar">
+        <div class="md-comic-batch-search">
             <i class="fa fa-search"></i>
             <input id="comic-group-search" type="search" class="md-input" placeholder="搜索漫画名或当前分组" aria-label="筛选待分组漫画">
         </div>
@@ -68,21 +68,21 @@
     </div>
 
     {% if comics %}
-    <div class="md-novel-batch-grid" id="comic-batch-grid">
+    <div class="md-comic-batch-grid" id="comic-batch-grid">
         {% for comic in comics %}
-        <label class="md-novel-select-item" data-search="{{ (comic.comic_name ~ ' ' ~ comic.group)|lower }}">
+        <label class="md-comic-select-item" data-search="{{ (comic.comic_name ~ ' ' ~ comic.group)|lower }}">
             <input type="checkbox" name="comic_names" value="{{ comic.comic_name }}" onchange="syncComicSelection()">
-            <span class="md-novel-select-card">
+            <span class="md-comic-select-card">
                 {% if is_adult_comic(comic) %}
                 <span class="md-badge-adult" title="18+ 源漫画">18+</span>
                 {% endif %}
                 <img src="{{ cover_image_url(comic.comic_name) }}" alt="" loading="lazy" decoding="async" data-fallback="{{ asset_url('default-comic-cover.jpg') }}">
-                <span class="md-novel-select-copy">
+                <span class="md-comic-select-copy">
                     <strong>{{ comic.comic_name }}</strong>
                     <small>{{ comic.available_chapters }} 章 · {{ 'PDF' if comic.comic_format == 1 else 'CBZ' }}</small>
                     <em><i class="fa fa-folder-o"></i>{{ comic.group }}</em>
                 </span>
-                <span class="md-novel-select-check"><i class="fa fa-check"></i></span>
+                <span class="md-comic-select-check"><i class="fa fa-check"></i></span>
             </span>
         </label>
         {% endfor %}
@@ -98,7 +98,7 @@
 {% block extra_scripts %}
 <script>
     const comicSearchInput = document.getElementById('comic-group-search');
-    const comicItems = Array.from(document.querySelectorAll('.md-novel-select-item'));
+    const comicItems = Array.from(document.querySelectorAll('.md-comic-select-item'));
 
     function syncComicSelection() {
         const selectedCount = comicItems.filter((item) => item.querySelector('input[type="checkbox"]').checked).length;

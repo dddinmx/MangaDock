@@ -68,7 +68,7 @@
         <h2 class="md-setting-group__title">书库</h2>
         <div class="md-setting-list">
             {% if can_manage_library %}
-            <a href="{{ url_for('download') }}" class="md-setting-row" data-app-loader="true" title="从支持的站点整本下载漫画或番茄小说到本地书库">
+            <a href="{{ url_for('download') }}" class="md-setting-row" data-app-loader="true" title="从支持的站点整本下载漫画到本地书库">
                 <span class="md-setting-row__icon">{{ md_icon('download') }}</span>
                 <span class="md-setting-row__title">整本下载</span>
                 {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
@@ -84,7 +84,7 @@
                 {{ md_icon('chevron-right', 'md-setting-row__chevron') }}
             </a>
             {% endif %}
-            <a href="{{ url_for('statistics', mode=current_library_mode) }}" class="md-setting-row" data-app-loader="true" title="累计时长、章节进度等概览">
+            <a href="{{ url_for('statistics') }}" class="md-setting-row" data-app-loader="true" title="累计时长、章节进度等概览">
                 <span class="md-setting-row__icon">{{ md_icon('chart') }}</span>
                 <span class="md-setting-row__title">阅读统计</span>
                 {{ md_icon('chevron-right', 'md-setting-row__chevron') }}

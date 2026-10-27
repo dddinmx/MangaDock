@@ -1119,6 +1119,7 @@
         let currentChapterFormat = null;
         let currentChapterReady = false;
         const autoSyncedChapters = new Set();
+        const completedChapters = new Set({{ ([start_chapter] if chapter_completed else [])|tojson }});
         let savedScrollPosition = 0; // 保存的滚动位置
         let scrollSaveTimer = null; // 滚动保存定时器
         let progressIntervalId = null;
@@ -1245,7 +1246,7 @@
         }
 
         function completeCurrentChapterAtEnd() {
-            if (!anilistEnabled || !currentChapterReady || autoSyncedChapters.has(currentChapter)) return;
+            if (!currentChapterReady || autoSyncedChapters.has(currentChapter)) return;
             const section = continuousSections.find(item => item.index === currentChapter);
             const content = section?.element || pageContent;
             if (content.getBoundingClientRect().bottom > window.innerHeight + 2) return;
@@ -2224,6 +2225,8 @@
         }
 
         function reportCompletedChapter(chapterIndex, manual = false) {
+            completedChapters.add(chapterIndex);
+            saveProgress();
             if (!anilistEnabled) return;
             return fetch("{{ url_for('anilist_complete') }}", {
                 method: 'POST',
@@ -2518,6 +2521,7 @@
                 scroll_position: Math.round(savedScrollPosition || Math.max(window.scrollY - getChapterScrollBounds().start, 0)),
                 total_chapters: chapters.length,
                 total_pages: 0,
+                chapter_completed: completedChapters.has(currentChapter),
                 reading_time: readingSeconds,
                 reading_session_id: readingSessionId,
                 client_progress_ms: nextProgressMs()

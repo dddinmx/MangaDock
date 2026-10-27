@@ -207,11 +207,14 @@ def _reconcile_locked(user_id, comic_name, chapters):
     # An imported completed chapter resumes at the next available main chapter.
     numbers = [_chapter_progress(chapters, link.first_chapter, i) for i in range(len(chapters))]
     resume = next((i for i, n in enumerate(numbers) if n > merged), len(chapters) - 1)
-    if merged > 0 and (not progress or resume > progress.last_chapter):
+    preserve_unread = (progress is not None and progress.chapter_completed is False
+                       and merged <= link.synced_progress)
+    if merged > 0 and not preserve_unread and (not progress or resume > progress.last_chapter):
         if not progress:
             progress = ReadingProgress(user_id=user_id, comic_name=comic_name)
             db.session.add(progress)
         progress.last_chapter = resume
+        progress.chapter_completed = None
         progress.last_page = 0
         progress.scroll_position = 0
         progress.total_chapters = len(chapters)
@@ -221,6 +224,10 @@ def _reconcile_locked(user_id, comic_name, chapters):
         progress.last_read_at = datetime.now(china_tz)
         from mangadock.services.reading import note_server_progress_write
         note_server_progress_write(progress)
+    if (progress is not None and progress.chapter_completed is None
+            and 0 <= progress.last_chapter < len(numbers)
+            and 0 < numbers[progress.last_chapter] <= merged):
+        progress.chapter_completed = True
     link.completed_progress = merged
     link.synced_progress = merged
     db.session.commit()

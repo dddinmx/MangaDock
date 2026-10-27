@@ -19,7 +19,7 @@ from mangadock.services.library import (
     get_available_comics,
     get_comic_descriptions,
 )
-from mangadock.services.reading import get_all_reading_progress
+from mangadock.services.reading import get_all_reading_progress, get_unread_chapter_count
 
 
 def _build_home_spotlight(user_id):
@@ -110,6 +110,7 @@ def _build_home_spotlight(user_id):
                 'last_page': progress.last_page or 0,
                 'last_read_at': progress.last_read_at,
                 'has_progress': True,
+                'unread_chapters': get_unread_chapter_count(comic.get('available_chapters'), progress),
                 'description': descriptions.get(progress.comic_name, ''),
                 'banner_url': spotlight['banner_url'] if spotlight and progress.comic_name == spotlight['comic_name']
                     else get_home_banner_url(progress.comic_name, queue_upscale=False),

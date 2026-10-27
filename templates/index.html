@@ -20,7 +20,7 @@
     {% block content %}
     {% if spotlight and spotlight.comic_name %}
     {# hero 版式照 Figma「New Movie - Header Website」：满屏出血主视觉 + 底部横滑书轨。
-       样式全部挂在 .md-hero--figma 上（见 md-theme.css 末尾），小说主页不受影响。 #}
+       样式全部挂在 .md-hero--figma 上（见 md-theme.css 末尾）。 #}
     <section class="md-hero md-hero--figma{% if spotlight.banner_url %} md-hero--has-banner{% endif %}">
         {# 底图强模糊只做氛围；清晰主封面单独一层，出血到右边缘 #}
         <div class="md-hero-media" aria-hidden="true">
@@ -143,6 +143,9 @@
                    class="md-home-rail__card{% if loop.first %} is-current{% endif %}"
                    data-hero-index="{{ loop.index0 }}"
                    data-app-loader="true">
+                    {% if comic.unread_chapters > 0 %}
+                    <span class="md-cover-unread" title="剩余未读 {{ comic.unread_chapters }} 章" aria-label="剩余未读 {{ comic.unread_chapters }} 章">{{ comic.unread_chapters }}</span>
+                    {% endif %}
                     {% if is_adult_comic(comic) %}
                     <span class="md-badge-adult" title="18+ 源漫画">18+</span>
                     {% endif %}

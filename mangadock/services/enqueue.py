@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Single enqueue path for comic/novel downloads.
+"""Single enqueue path for comic downloads.
 
 Web forms and /api/v1 adapters translate EnqueueResult into redirects or JSON.
 HTTP status and copy stay in the adapters when the two surfaces already diverge
@@ -13,12 +13,12 @@ from mangadock.services.download import (
     is_supported_comic_url,
     normalize_target_input,
 )
-from mangadock.services.fanqie import classify_fanqie_target
+from mangadock.services.fanqie_comics import is_fanqie_comic_target, load_fanqie_comic_source
 from mangadock.services.fanqie_api import FanqieApiError
 from mangadock.services.groups import can_user_access_group, get_comic_group_map, normalize_group_name
 from mangadock.services.library import load_comic_mapping
 from mangadock.services.tasks import normalize_comic_url_identity
-from mangadock.services.workers import start_download_task, start_novel_task
+from mangadock.services.workers import start_download_task
 from mangadock.settings import ADULT_CONTENT_DISABLED_MESSAGE
 
 
@@ -29,16 +29,14 @@ class EnqueueResult:
     message: str
     task_id: str | None = None
     media_kind: str | None = None
-    reused: bool = False
-    fanqie_target: dict | None = None
     http_status: int = 400
 
 
 def _unsupported_message(user):
     extra = '、MXS、卡拉漫画' if is_adult_content_enabled_for(user) else ''
     return (
-        '请输入有效的漫画或小说链接/ID（支持包子漫画、漫画柜、嬉皮漫畫、'
-        '番茄图片漫画、番茄小说' + extra + '）'
+        '请输入有效的漫画链接/ID（支持包子漫画、漫画柜、嬉皮漫畫、'
+        '番茄图片漫画' + extra + '）'
     )
 
 
@@ -62,7 +60,7 @@ def _blocked_by_group(user, names, group_map):
 
 
 def enqueue_user_download(user, raw_url, comic_format=2):
-    """Validate the pasted target and queue a comic or Fanqie novel download."""
+    """Validate the pasted target and queue a comic download."""
     comic_url = normalize_target_input(raw_url)
     if not is_supported_comic_url(comic_url):
         return EnqueueResult(False, 'UNSUPPORTED_URL', _unsupported_message(user))
@@ -78,45 +76,22 @@ def enqueue_user_download(user, raw_url, comic_format=2):
         )
 
     try:
-        fanqie_target = classify_fanqie_target(comic_url)
+        fanqie_target = (
+            load_fanqie_comic_source(comic_url) if is_fanqie_comic_target(comic_url) else None
+        )
     except FanqieApiError as exc:
+        if exc.code == 'INVALID_TARGET':
+            return EnqueueResult(False, 'UNSUPPORTED_MEDIA', '仅支持图片漫画，请检查作品类型')
         return EnqueueResult(
             False, 'FANQIE_TARGET_INVALID', str(exc) or '番茄作品解析失败',
         )
     except ValueError as exc:
         return EnqueueResult(False, 'UNSUPPORTED_URL', str(exc) or _unsupported_message(user))
 
-    if fanqie_target and fanqie_target['kind'] == 'comic':
+    if fanqie_target:
         identity = f"fanqie-comic://{fanqie_target['book_id']}"
         if _blocked_by_group(user, _mapped_names(identity, mapping), group_map):
             return EnqueueResult(False, 'FORBIDDEN', '当前账号无权访问该漫画', http_status=403)
-
-    if fanqie_target and fanqie_target['kind'] == 'novel':
-        task_id, reused = start_novel_task(
-            fanqie_target['book_id'],
-            title=fanqie_target['title'],
-            created_by_user_id=user.id if user else None,
-        )
-        if not task_id:
-            return EnqueueResult(
-                True,
-                'NOVEL_IN_PROGRESS',
-                '这本小说已在下载队列中，完成后会出现在小说书架',
-                media_kind='novel',
-                reused=True,
-                fanqie_target=fanqie_target,
-                http_status=200,
-            )
-        return EnqueueResult(
-            True,
-            'NOVEL_QUEUED',
-            '',
-            task_id=task_id,
-            media_kind='novel',
-            reused=reused,
-            fanqie_target=fanqie_target,
-            http_status=200 if reused else 201,
-        )
 
     try:
         task_id = start_download_task(

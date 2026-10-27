@@ -494,6 +494,7 @@ def api_save_comic_progress(comic_id):
         total_pages,
         current_user.id,
         client_progress_ms=data.get('client_progress_ms'),
+        chapter_completed=data.get('chapter_completed'),
     )
     if reading_time_seconds > 0:
         record_reading_time(identity.comic_name, reading_time_seconds, current_user.id, reading_session_id or None)

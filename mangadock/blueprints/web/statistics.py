@@ -2,7 +2,7 @@
 """阅读统计页。"""
 from datetime import datetime, timedelta
 
-from flask import render_template, request, session, url_for
+from flask import render_template, session
 
 from mangadock.auth import cover_image_url, login_required
 from mangadock.core import app
@@ -10,7 +10,6 @@ from mangadock.extensions import db
 from mangadock.models import User
 from mangadock.services.groups import filter_grouped_comics_for_user
 from mangadock.services.library import get_available_comics
-from mangadock.services.novels import NOVEL_PROGRESS_PREFIX, get_novels
 from mangadock.services.reading import (
     get_reading_time_by_comic,
     get_reading_time_daily_for_year,
@@ -48,7 +47,6 @@ def statistics():
     reading_time_monthly = get_reading_time_monthly_for_year(stats_year, current_user_id)
     reading_time_daily = get_reading_time_daily_for_year(stats_year, current_user_id)
 
-    novels_by_id = {novel['novel_id']: novel for novel in get_novels()}
     max_rank_duration = max(
         (int(entry.get('total_duration') or 0) for entry in reading_time_rank),
         default=0,
@@ -66,18 +64,6 @@ def statistics():
             'ratio': (total_duration / max_rank_duration * 100) if max_rank_duration else 0,
         }
 
-        if source_name.startswith(NOVEL_PROGRESS_PREFIX):
-            novel_id = source_name[len(NOVEL_PROGRESS_PREFIX):]
-            novel = novels_by_id.get(novel_id)
-            item.update({
-                'title': novel['title'] if novel else novel_id,
-                'subtitle': novel['author'] if novel else '小说',
-                'media_type': '小说',
-                'cover_url': (
-                    url_for('novel_cover', novel_id=novel_id, v=novel['cover_version'])
-                    if novel else ''
-                ),
-            })
         ranking_items.append(item)
 
     # Process monthly data for chart rendering
@@ -157,7 +143,6 @@ def statistics():
 
     return render_template(
         'statistics.html',
-        library_mode=(request.args.get('mode') if request.args.get('mode') in {'comic', 'novel'} else 'comic'),
         stats_year=stats_year,
         total_time=total_time,
         reading_time_rank=ranking_items,

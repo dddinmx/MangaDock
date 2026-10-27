@@ -176,7 +176,7 @@ def comic_detail(task_id):
         # 旧书库补全：后台抓取，详情页先显示现有内容。
         schedule_comic_description_refresh(task.comic_name)
 
-    # 2026-09-22 用户要求：详情页返回固定回「漫画首页」，不再回书架（对齐小说详情回小说首页的语义）。
+    # 2026-09-22 用户要求：详情页返回固定回「漫画首页」，不再回书架。
     # 不再读 return_to：书架/搜索/首页等入口带来的 return_to 一律忽略；阅读链路不受影响
     # （阅读器的返回仍是详情页，详情页的返回才是首页）。
     library_return_url = url_for('index')
@@ -335,6 +335,7 @@ def comic_reader(task_id):
         start_page=start_page,
         library_return_url=library_return_url,
         deletion_path=get_comic_directory(task.comic_name),
+        chapter_completed=bool(progress and progress.last_chapter == start_chapter and progress.chapter_completed),
         anilist_enabled=bool(
             db.session.get(AniListAccount, current_user_id) and
             AniListComicLink.query.filter_by(user_id=current_user_id, comic_name=task.comic_name).first()
@@ -397,6 +398,7 @@ def save_progress():
         save_reading_progress(
             comic_name, chapter, page, scroll_position, total_chapters, total_pages,
             current_user_id, anchor_paragraph, anchor_offset, client_progress_ms,
+            chapter_completed=data.get('chapter_completed'),
         )
 
         # 记录阅读时间（按会话累计秒数去重，避免页面隐藏/切换时重复记时）

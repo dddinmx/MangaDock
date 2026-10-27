@@ -24,7 +24,6 @@ from mangadock import auth  # noqa: F401
 # Register HTTP routes (decorators bind to app)
 from mangadock.blueprints import api_routes  # noqa: F401
 from mangadock.blueprints import web_routes  # noqa: F401
-from mangadock.blueprints import novel_routes  # noqa: F401
 from mangadock.api_v1 import register_api_v1
 
 register_api_v1(app)

@@ -1,7 +1,7 @@
 services:
   mangadock:
     build: .
-    image: ${MANGADOCK_IMAGE:-dddinmx/mangadock:2.11.31}
+    image: ${MANGADOCK_IMAGE:-dddinmx/mangadock:2.11.32}
     container_name: MangaDock
     restart: unless-stopped
     ports:
@@ -12,7 +12,6 @@ services:
       MANGADOCK_ADMIN_PASSWORD: ${MANGADOCK_ADMIN_PASSWORD:-}
     volumes:
       - ./data/comic:/app/comic
-      - ./data/novels:/app/小说
       - ./data/comic.json:/app/comic.json
       - mangadock_covers:/app/static/cover
       - mangadock_instance:/app/instance

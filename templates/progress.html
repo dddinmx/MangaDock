@@ -105,7 +105,7 @@
             <img
                 id="comic-cover"
                 class="comic-cover hidden"
-                alt="{{ '小说' if is_novel_task else '漫画' }}封面图"
+                alt="漫画封面图"
                 style="display: none;"
             >
         </div>
@@ -191,21 +191,9 @@
     <section id="completed-actions" class="md-setting-group hidden">
         <div class="md-ios-alert is-success md-progress-done">
             <i class="fa fa-check-circle md-ios-alert__icon"></i>
-            <span>操作完成！{{ '小说已成功下载或更新，并已加入书架' if is_novel_task else '漫画已成功下载或更新完成' }}</span>
+            <span>操作完成！漫画已成功下载或更新完成</span>
         </div>
         <div class="md-setting-list">
-            {% if is_novel_task %}
-            <a href="{{ url_for('fanqie_novel_search') }}" class="md-setting-row" data-app-loader="true">
-                <span class="md-setting-row__icon"><i class="fa fa-search"></i></span>
-                <span class="md-setting-row__title">添加其他小说</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
-            </a>
-            <a href="{{ url_for('novels_list') }}" class="md-setting-row" data-app-loader="true">
-                <span class="md-setting-row__icon"><i class="fa fa-book"></i></span>
-                <span class="md-setting-row__title">打开小说书架</span>
-                <i class="fa fa-angle-right md-setting-row__chevron"></i>
-            </a>
-            {% else %}
             <a href="{{ url_for('download') }}" class="md-setting-row" data-app-loader="true">
                 <span class="md-setting-row__icon"><i class="fa fa-download"></i></span>
                 <span class="md-setting-row__title">下载其他漫画</span>
@@ -216,7 +204,6 @@
                 <span class="md-setting-row__title">更新其他漫画</span>
                 <i class="fa fa-angle-right md-setting-row__chevron"></i>
             </a>
-            {% endif %}
             <a href="{{ url_for('index') }}" class="md-setting-row" data-app-loader="true">
                 <span class="md-setting-row__icon"><i class="fa fa-home"></i></span>
                 <span class="md-setting-row__title">返回主页</span>
@@ -244,8 +231,6 @@
     const taskId = "{{ task_id }}";
     const csrfToken = "{{ csrf_token() }}";
     const coverBaseUrl = "{{ url_for('static', filename='cover') }}";
-    const novelCoverUrl = {{ novel_cover_url|default('', true)|tojson }};
-    const isNovelTask = {{ is_novel_task|default(false)|tojson }};
     let updateInterval;
     let quickCheckInterval = null;
     let initialLoadComplete = false;
@@ -383,7 +368,7 @@
                     lastStatusSignature = signature;
                 }
 
-                // 漫画封面可能中途才写入；番茄小说封面则通过书籍 ID 获取。
+                // 漫画封面可能中途才写入。
                 if (data.comic_name) {
                     maybeLoadCoverImage(data.comic_name);
                 }
@@ -458,10 +443,8 @@
         lastCoverComicName = comicName;
 
         // 绝对路径 + 防缓存：封面在任务中途生成时，避免浏览器沿用 404 缓存
-        const imageUrl = isNovelTask && novelCoverUrl
-            ? `${novelCoverUrl}?t=${Date.now()}`
-            : `${coverBaseUrl}/${encodeURIComponent(comicName)}.jpg?t=${Date.now()}`;
-        imgElement.alt = `${comicName}的${isNovelTask ? '小说' : '漫画'}封面`;
+        const imageUrl = `${coverBaseUrl}/${encodeURIComponent(comicName)}.jpg?t=${Date.now()}`;
+        imgElement.alt = `${comicName}的漫画封面`;
 
         const onLoad = function () {
             if (lastCoverComicName !== comicName) {

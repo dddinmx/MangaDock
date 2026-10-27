@@ -50,7 +50,6 @@ from mangadock.utils.cover_image import (  # noqa: E402
 DEFAULT_ROOTS = (
     'static/cover',
     'static/cover/hero',
-    'static/cover/novels',
     'static/login-covers',
 )
 IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.avif', '.heic', '.gif', '.bmp', '.tiff')

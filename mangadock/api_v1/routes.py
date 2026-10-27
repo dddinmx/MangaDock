@@ -354,20 +354,6 @@ def register_routes(bp):
             return api_fail('NOT_FOUND', '未找到该漫画', 404)
         if not result.ok:
             return api_fail(result.code, result.message, result.http_status)
-        if result.media_kind == 'novel':
-            task = get_task(result.task_id) if result.task_id else None
-            payload = {
-                'task_id': result.task_id,
-                'media_kind': 'novel',
-                'media_label': (result.fanqie_target or {}).get('media_label'),
-                'reused': result.reused,
-                'task': _serialize_task(task) if task else None,
-            }
-            extra = {}
-            if result.code == 'NOVEL_IN_PROGRESS':
-                payload['message'] = result.message
-                extra['message'] = result.message
-            return api_ok(payload, status=result.http_status, **extra)
         task = get_task(result.task_id)
         return api_ok({
             'task_id': result.task_id,

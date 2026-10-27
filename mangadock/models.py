@@ -39,6 +39,7 @@ class ReadingProgress(db.Model):
     last_chapter = db.Column(db.Integer, default=0)
     last_page = db.Column(db.Integer, default=0)
     scroll_position = db.Column(db.Integer, default=0)  # 滚动位置
+    chapter_completed = db.Column(db.Boolean)  # None keeps legacy progress compatible
     anchor_paragraph = db.Column(db.Integer)
     anchor_offset = db.Column(db.Integer)
     total_chapters = db.Column(db.Integer, default=0)
@@ -111,23 +112,6 @@ class ComicGroupMembership(db.Model):
     comic_name = db.Column(db.String(255), unique=True, nullable=False)
     group_name = db.Column(db.String(255), nullable=False, default='默认分组')
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz), onupdate=lambda: datetime.now(china_tz))
-
-
-class NovelGroup(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), unique=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(china_tz))
-
-
-class NovelGroupMembership(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    novel_id = db.Column(db.String(255), unique=True, nullable=False)
-    group_name = db.Column(db.String(255), nullable=False, default='默认分组')
-    updated_at = db.Column(
-        db.DateTime,
-        default=lambda: datetime.now(china_tz),
-        onupdate=lambda: datetime.now(china_tz),
-    )
 
 
 class UserGroupPermission(db.Model):
@@ -311,15 +295,12 @@ def initialize_database():
         ensure_sqlite_column(AniListComicLink.__table__.name, 'completed_progress', 'INTEGER NOT NULL DEFAULT 0')
         ensure_sqlite_column(AniListComicLink.__table__.name, 'last_sync_at', 'DATETIME')
         ensure_sqlite_column(ReadingTime.__table__.name, 'user_id', 'INTEGER')
+        ensure_sqlite_column(ReadingProgress.__table__.name, 'chapter_completed', 'BOOLEAN')
         ensure_sqlite_column(ReadingTime.__table__.name, 'duration_seconds', 'INTEGER DEFAULT 0')
         ensure_sqlite_column(ComicIdentity.__table__.name, 'description', 'TEXT')
 
         if not ComicGroup.query.filter_by(name='默认分组').first():
             db.session.add(ComicGroup(name='默认分组'))
-            db.session.commit()
-
-        if not NovelGroup.query.filter_by(name='默认分组').first():
-            db.session.add(NovelGroup(name='默认分组'))
             db.session.commit()
 
         admin_user = User.query.filter_by(username="admin").first()
